@@ -138,12 +138,18 @@ SEKTOR_ETIKET = {
 
 
 def tum_hisseler() -> List[Tuple[str, str, str, str]]:
-    """(sembol, ad, piyasa, sektor) — hisseler + Revolut ETF'leri."""
+    """
+    (sembol, ad, piyasa, sektor) — her sembol tek kez.
+    Çift listelenen mega-cap'ler (hem S&P 500 hem NASDAQ) NASDAQ olarak sınıflanır;
+    aksi halde aynı hisse iki kez analiz edilip mükerrer öneri üretir.
+    """
+    nasdaq_sem = {s for s, _, _ in NASDAQ_HISSELER}
     out: List[Tuple[str, str, str, str]] = []
     for s, a, k in BIST_HISSELER:
         out.append((s, a, "BIST", k))
     for s, a, k in SP500_HISSELER:
-        out.append((s, a, "SP500", k))
+        if s not in nasdaq_sem:
+            out.append((s, a, "SP500", k))
     for s, a, k in NASDAQ_HISSELER:
         out.append((s, a, "NASDAQ", k))
     return out

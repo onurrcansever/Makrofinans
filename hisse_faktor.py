@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from stock_scanner import _close_al, _degisim
+
 if TYPE_CHECKING:
     from stock_scanner import HisseAnaliz
 
@@ -21,31 +23,6 @@ ENDEKS_SEMBOL = {
 }
 
 ENDEKS_CACHE: Dict[str, Optional[float]] = {}
-
-
-def _close_al(df: pd.DataFrame, sembol: str) -> pd.Series:
-    if df.empty:
-        return pd.Series(dtype=float)
-    try:
-        if isinstance(df.columns, pd.MultiIndex):
-            if sembol in df.columns.get_level_values(0):
-                return df[sembol]["Close"].dropna()
-        elif len(df.columns) == 1 or "Close" not in df.columns:
-            return df.iloc[:, 0].dropna()
-        return df["Close"].dropna()
-    except Exception:
-        pass
-    return pd.Series(dtype=float)
-
-
-def _degisim(seri: pd.Series, gun: int) -> Optional[float]:
-    if len(seri) < gun + 1:
-        return None
-    eski = float(seri.iloc[-gun - 1])
-    yeni = float(seri.iloc[-1])
-    if eski == 0:
-        return None
-    return (yeni - eski) / eski * 100
 
 
 def _endeks_momentum(df: pd.DataFrame, piyasa: str, gun: int = 63) -> Optional[float]:

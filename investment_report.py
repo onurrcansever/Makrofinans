@@ -46,7 +46,7 @@ def _veri_kaynaklari(snap: MacroSnapshot) -> List[tuple]:
     kh = snap.kaynak_haritasi or {}
     etiketler = [
         ("EUR/TRY", "eur_try"), ("USD/TRY", "usd_try"), ("Altın", "altin"),
-        ("BIST 100", "bist100"), ("BTC", "btc"), ("VIX", "vix"),
+        ("BIST 100", "bist100"), ("BTC", "btc"), ("VIX (ABD)", "vix"), ("BIST Vol (TR)", "bist_vol"),
         ("CDS 5Y", "cds"), ("Enflasyon TR", "enflasyon"), ("TL mevduat", "tl_mevduat"),
         ("Fed faizi", "fed_faizi"), ("TCMB faizi", "tcmb_faizi"),
         ("Siyasi risk", "siyasi_risk"), ("Rezerv", "rezerv"),
@@ -73,7 +73,10 @@ def _hisse_sirala_html(hisseler: list) -> list:
 
 
 def _skor_sirala_html(hisseler: list) -> list:
-    return sorted(hisseler, key=lambda h: -h.skor)
+    return sorted(
+        hisseler,
+        key=lambda h: (_UYGUN_SIRA.get(getattr(h, "alim_uygun", "IZLE"), 9), -h.skor),
+    )
 
 
 def _pct_html(val: Optional[float], nd: int = 1) -> str:
@@ -533,17 +536,19 @@ td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
     <tr><td>EUR/TRY</td><td class="num">{_fmt_num(v.eur_try)}</td>
         <td>USD/TRY</td><td class="num">{_fmt_num(v.usd_try)}</td></tr>
     <tr><td>CDS 5Y</td><td class="num">{_fmt_num(v.cds_5y_bp, 0)} bp</td>
-        <td>VIX</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
-    <tr><td>TCMB faizi</td><td class="num">%{_fmt_num(v.tcmb_politika_faizi, 1)}</td>
+        <td>VIX (ABD)</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
+    <tr><td>BIST Vol (TR)</td><td class="num">{_fmt_num(snap.bist_vol_30g, 1)}%</td>
         <td>Enflasyon TR</td><td class="num">%{_fmt_num(snap.enflasyon_tr_yillik, 1)}</td></tr>
-    <tr><td>Fed faizi</td><td class="num">%{_fmt_num(v.fed_faizi, 2)}</td>
-        <td>Altın USD/oz</td><td class="num">${_fmt_num(snap.altin_usd_oz, 0)}</td></tr>
-    <tr><td>BIST 100</td><td class="num">{_fmt_num(snap.bist100, 0)}</td>
-        <td>BTC USD</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td></tr>
-    <tr><td>Siyasi risk (48s)</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber (ağırlıksız)</td>
-        <td>Jeopolitik (48s)</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td></tr>
-    <tr><td>Rezerv (Kapı 4)</td><td class="num">{rezerv}</td>
-        <td>TL tavan</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td></tr>
+    <tr><td>TCMB faizi</td><td class="num">%{_fmt_num(v.tcmb_politika_faizi, 1)}</td>
+        <td>Fed faizi</td><td class="num">%{_fmt_num(v.fed_faizi, 2)}</td></tr>
+    <tr><td>Altın USD/oz</td><td class="num">${_fmt_num(snap.altin_usd_oz, 0)}</td>
+        <td>BIST 100</td><td class="num">{_fmt_num(snap.bist100, 0)}</td></tr>
+    <tr><td>BTC USD</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td>
+        <td>Siyasi risk (48s)</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber (ağırlıksız)</td></tr>
+    <tr><td>Jeopolitik (48s)</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td>
+        <td>Rezerv (Kapı 4)</td><td class="num">{rezerv}</td></tr>
+    <tr><td>TL tavan</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td>
+        <td></td><td></td></tr>
 </table>
 
 {kapi_html}
