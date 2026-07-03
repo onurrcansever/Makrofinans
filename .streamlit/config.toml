@@ -1,0 +1,22 @@
+# Masaüstü uygulaması — yerel sunucu (internet gerekmez)
+[server]
+headless = true
+port = 8502
+address = "127.0.0.1"
+enableCORS = true
+enableXsrfProtection = false
+fileWatcherType = "none"
+# Uzun canlı veri çekiminde WebSocket kopmasını azaltır
+enableWebsocketCompression = true
+maxUploadSize = 400
+
+[runner]
+fastReruns = true
+
+[browser]
+gatherUsageStats = false
+serverAddress = "127.0.0.1"
+serverPort = 8502
+
+[theme]
+base = "light"

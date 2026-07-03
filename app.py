@@ -6,6 +6,7 @@ Otomatik yenileme: sidebar'dan açılır (varsayılan 3 dk).
 import pandas as pd
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+from typing import Optional
 
 import config
 from investor_profile import RISK_SECENEKLERI, VADE_SECENEKLERI, YatirimProfili, profil_mevduat_vadesi, vade_kisa_mi
@@ -18,11 +19,50 @@ from rates_tr import mevduat_analizi
 from stock_scanner import SINYAL_ETIKET, tam_tarama
 from stock_universe import SEKTOR_ETIKET
 from advice_engine import danisman_raporu_olustur
-
-_UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
+from alim_uygunluk import alim_aksiyon_kisa
 from advisor_ui import danisman_paneli
 from tl_durum import tl_durum_olustur
 from investment_report import rapor_paketi_olustur
+
+_UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
+
+
+def _teknik_sinyal_etiket(h) -> str:
+    """Teknik sinyal — nihai kararla çelişiyorsa bunu etikette belirt."""
+    tek = SINYAL_ETIKET.get(h.sinyal, h.sinyal)
+    karar = getattr(h, "alim_uygun", "IZLE")
+    if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM") and karar == "UYGUN_DEGIL":
+        return f"{tek} → elendi"
+    if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM") and karar == "SINIRLI":
+        return f"{tek} → dikkat"
+    return tek
+
+
+def _karar_emoji(h) -> str:
+    return {"UYGUN": "🟢", "SINIRLI": "🟡", "UYGUN_DEGIL": "🔴", "IZLE": "⚪"}.get(
+        getattr(h, "alim_uygun", "IZLE"), "⚪"
+    )
+
+
+def _gunluk_delta(pct) -> Optional[str]:
+    """st.metric delta — günlük % değişim."""
+    if pct is None:
+        return None
+    try:
+        return f"{float(pct):+.2f}%"
+    except (TypeError, ValueError):
+        return None
+
+
+def _gunluk_delta_pp(pp) -> Optional[str]:
+    """Volatilite seviyesi — puan (pp) değişimi."""
+    if pp is None:
+        return None
+    try:
+        return f"{float(pp):+.2f} pp"
+    except (TypeError, ValueError):
+        return None
+
 
 st.set_page_config(
     page_title="Makro Portföy Asistanı",
@@ -58,7 +98,20 @@ with st.sidebar:
     trans = st.number_input("Tranş sayısı", value=int(config.TRANS_SAYISI), min_value=1)
     bt_ay = st.slider("Backtest ay sayısı", 6, 18, 12)
     st.divider()
-    otoyenile = st.toggle("Otomatik yenileme", value=True)
+    st.subheader("CDS 5Y (otomatik)")
+    from cds_bloomberg import bloomberg_terminal_erisimli
+
+    if bloomberg_terminal_erisimli():
+        st.caption("Bloomberg Terminal: **bağlı**")
+    else:
+        st.caption("Bloomberg Terminal: **yok** — Investing otomatik çekiliyor.")
+    if st.button("CDS kaynaklarını yenile", use_container_width=True):
+        cds_kaynak_ozet.clear()
+        st.session_state["cds_son_kaynak"] = cds_kaynak_ozet(st.session_state.son_yenileme_sayaci)
+        st.cache_data.clear()
+        st.rerun()
+    st.divider()
+    otoyenile = st.toggle("Otomatik yenileme", value=False)
     aralik_etiket = st.selectbox(
         "Yenileme aralığı",
         ["1 dakika", "3 dakika", "5 dakika", "10 dakika"],
@@ -85,9 +138,15 @@ if "hisse_haber_tara" not in st.session_state:
     st.session_state.hisse_haber_tara = False
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
+def cds_kaynak_ozet(_tick: int = 0):
+    from cds_sync import cds_guncelleme_calistir
+    return cds_guncelleme_calistir()
+
+
+@st.cache_data(ttl=180, show_spinner=False)
 def veri_cek(canli: bool, _tick: int = 0):
-    return canli_snapshot() if canli else demo_snapshot()
+    return canli_snapshot(taze=True) if canli else demo_snapshot()
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -138,10 +197,14 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
         st.caption(f"📋 {n}")
 
     st.info(
-        f"**Aktif makro rejim:** {tahsis.rejim.etiket} · "
-        f"**Jeopolitik:** {snap.veri.savas_risk_makale_sayisi or '—'} haber"
-        + (" ⚠️ tarama güvensiz" if snap.veri.savas_risk_guvenilir is False else "")
+        f"**Makro rejim (profilden bağımsız):** {tahsis.rejim.etiket} — reel faiz, CDS, VIX ile belirlenir. "
+        f"Hisse filtreleri profilinize göre ayrıca uygulanır."
     )
+    if profil.risk == "yuksek" and profil.vade == "uzun":
+        st.caption(
+            "Uzun vade + yüksek risk: trend filtresi gevşetildi; BEKLE artık ALMA değil — "
+            "net sinyal yoksa BEKLE (izle) gösterilir."
+        )
     if tarama.tarama_ozet:
         st.caption(tarama.tarama_ozet)
 
@@ -170,12 +233,12 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
     if etf_firsat:
         for h in etf_firsat:
             badge = getattr(h, "alim_uygun_etiket", "⚪ İzle / bekle")
-            emoji = "🟢" if h.sinyal == "ALIM_FIRSATI" else "🔵"
+            emoji = _karar_emoji(h)
             rt = h.revolut_ticker or h.sembol.split(".")[0]
             st.markdown(
                 f"**{badge}** · {emoji} **{rt}** — {h.ad} · "
                 f"Fiyat: {h.fiyat:,.2f} · RSI: {h.rsi:.0f} · Skor: {h.skor:.0f} · "
-                f"**{SINYAL_ETIKET.get(h.sinyal, h.sinyal)}**"
+                f"**{_teknik_sinyal_etiket(h)}**"
             )
             if getattr(h, "alim_uygun_not", ""):
                 st.caption(f"↳ {h.alim_uygun_not}")
@@ -190,11 +253,11 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
     if hisse_firsat:
         for h in hisse_firsat:
             badge = getattr(h, "alim_uygun_etiket", "⚪ İzle / bekle")
-            emoji = "🟢" if h.sinyal == "ALIM_FIRSATI" else "🔵"
+            emoji = _karar_emoji(h)
             st.markdown(
                 f"**{badge}** · {emoji} **{h.ad}** (`{h.sembol}`) · {h.piyasa} · "
                 f"Fiyat: {h.fiyat:,.2f} · RSI: {h.rsi:.0f} · Skor: {h.skor:.0f} · "
-                f"**{SINYAL_ETIKET.get(h.sinyal, h.sinyal)}**"
+                f"**{_teknik_sinyal_etiket(h)}**"
             )
             if getattr(h, "alim_uygun_not", ""):
                 st.caption(f"↳ {h.alim_uygun_not}")
@@ -212,8 +275,9 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
 
     st.subheader("Tüm varlıklar (hisse + ETF)")
     st.caption(
-        "**Alım uygunluğu:** 🟢 Alım için uygun · 🟡 Dikkatli (sinyal var, uyarı var) · "
-        "🔴 Alım için uygun değil · ⚪ İzle / bekle — otomatik etiket; yatırım tavsiyesi değildir."
+        "**Karar kodları:** AL = aday · DİKKAT = uyarılı aday · BEKLE = izle · ALMA = elendi. "
+        "**Teknik sinyal** yalnızca RSI/trend katmanıdır; **Alım uygunluğu** profil, aday listesi, "
+        "haber ve makro filtrelerinden sonra nihai karardır. İkisi çelişirse alım uygunluğuna güvenin."
     )
     piyasa_filtre = st.multiselect(
         "Piyasa filtresi",
@@ -236,6 +300,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
     filtrelenmis.sort(key=lambda h: (_UYGUN_SIRA.get(getattr(h, "alim_uygun", "IZLE"), 9), -h.skor))
 
     hisse_df = pd.DataFrame([{
+        "Karar": alim_aksiyon_kisa(getattr(h, "alim_uygun", "IZLE")),
         "Alım uygunluğu": getattr(h, "alim_uygun_etiket", "⚪ İzle / bekle"),
         "Uygunluk notu": (getattr(h, "alim_uygun_not", "") or "")[:55],
         "Sembol": h.sembol,
@@ -254,7 +319,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
         "RSI": round(h.rsi, 1) if h.rsi else None,
         "Teknik skor": round(h.teknik_skor, 0) if h.teknik_skor else round(h.skor, 0),
         "Nihai skor": round(h.skor, 0),
-        "Sinyal": SINYAL_ETIKET.get(h.sinyal, h.sinyal),
+        "Teknik sinyal": _teknik_sinyal_etiket(h),
         "ISIN": h.isin if h.isin else "",
         "Rejim etkisi": h.rejim_notu[:60] if h.rejim_notu else "",
         "Profil etkisi": h.profil_notu[:60] if getattr(h, "profil_notu", "") else "",
@@ -302,7 +367,14 @@ if st.session_state.get("tarama_profil_key") != _profil_anahtar:
     st.session_state.tarama_profil_key = _profil_anahtar
     st.session_state.tarama_son = None
     tarama_cek.clear()
-snap = veri_cek(canli_mod, _tick)
+
+st.title("Makro Portföy Asistanı")
+st.caption("Karar-destek aracı — otomatik işlem yapmaz, finansal tavsiye değildir.")
+
+with st.status("Canlı veriler çekiliyor… (~5 sn)", expanded=True) as _yukleme:
+    snap = veri_cek(canli_mod, _tick)
+    _yukleme.update(label=f"Veri hazır — {snap.veri_zamani}", state="complete")
+
 tahsis = tahsis_hesapla(snap, profil)
 # Hisse taraması yalnızca Hisse sayfasında çalışır (diğer sekmeler anında açılır)
 tarama_ozet = st.session_state.tarama_son
@@ -366,9 +438,6 @@ if st.session_state.onceki_rejim and st.session_state.onceki_rejim != tahsis.rej
     st.toast(f"Rejim değişti → {tahsis.rejim.etiket}", icon="⚠️")
 st.session_state.onceki_rejim = tahsis.rejim.rejim
 
-st.title("Makro Portföy Asistanı")
-st.caption("Karar-destek aracı — otomatik işlem yapmaz, finansal tavsiye değildir.")
-
 hdr_sol, hdr_sag = st.columns([3, 1])
 with hdr_sag:
     if st.button("📄 Yatırım raporu oluştur", type="primary", use_container_width=True, key="rapor_main"):
@@ -391,7 +460,7 @@ with hdr_sag:
             st.session_state.son_rapor = None
             st.session_state.rapor_hata = str(exc)
     if st.session_state.rapor_hata:
-        st.error("Rapor hatası — sidebar'da detay")
+        st.error(f"Rapor oluşturulamadı: {st.session_state.rapor_hata}")
     if st.session_state.son_rapor:
         rp = st.session_state.son_rapor
         st.download_button(
@@ -424,7 +493,7 @@ durum_renk = "info" if snap.veri_kaynak == "demo" else "success"
 durum_metin = (
     "**Demo modu** — makro senaryo sabit, piyasa fiyatları canlı."
     if snap.veri_kaynak == "demo"
-    else "**Canlı veri aktif** — tüm göstergeler otomatik yükleniyor (key gerekmez)."
+    else "**Canlı veri aktif** — her yenilemede API'den taze çekilir (Yahoo, EVDS, TCMB.gov, Yapı Kredi)."
 )
 getattr(st, durum_renk)(durum_metin)
 
@@ -448,15 +517,53 @@ with st.expander("Veri kalitesi & kaynak şeffaflığı"):
     } for g in vk.gostergeler]), use_container_width=True, hide_index=True)
     st.caption(f"Son güncelleme: {snap.veri_zamani}")
 
+with st.expander("CDS 5Y — Bloomberg + Investing (otomatik)"):
+    from cds_bloomberg import bloomberg_terminal_erisimli
+    from cds_sync import cds_guncelleme_calistir
+
+    kh = snap.kaynak_haritasi or {}
+    _r1, _r2, _r3 = st.columns(3)
+    _r1.metric("Rejimde kullanılan", f"{snap.veri.cds_5y_bp:.0f} bp" if snap.veri.cds_5y_bp else "—")
+    _r2.metric("Bloomberg", "Bağlı" if bloomberg_terminal_erisimli() else "Yok")
+    _r3.metric("Investing ham", kh.get("cds_ham", "—")[:20])
+    st.caption(f"Kaynak: {kh.get('cds', '—')}")
+    for u in [x for x in (snap.cekim_uyarilari or []) if "CDS" in x or "Bloomberg" in x or "Investing" in x]:
+        st.warning(u)
+    _s = st.session_state.get("cds_son_kaynak") or cds_kaynak_ozet(_tick)
+    st.dataframe(
+        pd.DataFrame([
+            {
+                "Kaynak": k.ad,
+                "Değer (bp)": f"{k.deger:.2f}" if k.deger is not None else "—",
+                "Gecikme": f"+{k.gecikme_gun}g" if k.gecikmeli else "—",
+                "Detay": k.kaynak or k.hata,
+            }
+            for k in _s.kaynaklar
+        ]),
+        use_container_width=True,
+        hide_index=True,
+    )
+    for u in _s.uyarilar:
+        st.warning(u)
+    st.caption(
+        "CDS manuel girilmez. **Investing.com** her yenilemede otomatik çekilir. "
+        "**Bloomberg** için Terminal açık olmalı ve `pip install blpapi` kurulu olmalı "
+        "(BLOOMBERG_CDS_TICKER .env). Terminal yoksa yalnızca Investing kullanılır."
+    )
+
 # ══════════════════════════════════════════════════════════════
 if sayfa == "Portföy Tahsisi":
     mod_etiket = "CANLI" if canli_mod else "DEMO"
     st.caption(
         f"Gösterge modu: {mod_etiket} · Profil: **{VADE_SECENEKLERI.get(profil.vade, profil.vade)}**"
     )
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    c1.metric("Rejim", tahsis.rejim.rejim.replace("_", " "))
-    c2.metric("EUR/TRY", f"{snap.veri.eur_try:.2f}" if snap.veri.eur_try else "—")
+    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+    c1.metric("Makro rejim", tahsis.rejim.rejim.replace("_", " "))
+    c2.metric(
+        "EUR/TRY",
+        f"{snap.veri.eur_try:.2f}" if snap.veri.eur_try else "—",
+        _gunluk_delta(snap.eur_try_1g_degisim),
+    )
     if vade_kisa_mi(profil.vade):
         c3.metric(
             f"TL faiz ({profil_mevduat_etiket})",
@@ -470,13 +577,53 @@ if sayfa == "Portföy Tahsisi":
             f"TL faiz ({profil_mevduat_etiket})",
             f"%{mevduat_ozet.profil_vade_net:.1f} net" if mevduat_ozet.profil_vade_net else "—",
         )
-    c5.metric("VIX", f"{snap.vix:.1f}" if snap.vix else "—")
-    c6.metric("Altın", f"${snap.altin_usd_oz:,.0f}" if snap.altin_usd_oz else "—")
-    c7.metric("BIST", f"{snap.bist100:,.0f}" if snap.bist100 else "—")
+    c5.metric(
+        "VIX (ABD)",
+        f"{snap.vix:.1f}" if snap.vix else "—",
+        _gunluk_delta(snap.vix_1g_degisim),
+        delta_color="inverse",
+        help="ABD S&P 500 opsiyonlarından — küresel korku endeksi.",
+    )
+    c6.metric(
+        "Altın",
+        f"${snap.altin_usd_oz:,.0f}" if snap.altin_usd_oz else "—",
+        _gunluk_delta(snap.altin_1g_degisim),
+    )
+    c7.metric(
+        "BIST",
+        f"{snap.bist100:,.0f}" if snap.bist100 else "—",
+        _gunluk_delta(snap.bist100_1g_degisim),
+    )
+    c8.metric(
+        "BIST Vol (TR)",
+        f"{snap.bist_vol_30g:.1f}" if snap.bist_vol_30g is not None else "—",
+        _gunluk_delta_pp(snap.bist_vol_1g_degisim),
+        delta_color="inverse",
+        help="BIST 100 son 30 gün realize volatilite (yıllık %). Resmi TR VIX değil — yerel stres proxy.",
+    )
     if not vade_kisa_mi(profil.vade):
-        st.caption(f"BTC: ${snap.btc_usd:,.0f}" if snap.btc_usd else "BTC: —")
+        btc_delta = _gunluk_delta(snap.btc_1g_degisim)
+        btc_line = f"BTC: ${snap.btc_usd:,.0f}" if snap.btc_usd else "BTC: —"
+        if btc_delta:
+            btc_line += f" ({btc_delta} 1G)"
+        st.caption(btc_line)
 
-    st.info(f"**{tahsis.rejim.etiket}** — {tahsis.rejim.aciklama}")
+    st.info(f"**Makro rejim:** {tahsis.rejim.etiket} — {tahsis.rejim.aciklama}")
+    if tahsis.rejim.rejim == "TL_FIRSAT":
+        tl_p = tahsis.agirliklar.get("tl_deposit", 0) * 100
+        bist_p = tahsis.agirliklar.get("bist", 0) * 100
+        kripto_p = tahsis.agirliklar.get("crypto", 0) * 100
+        if profil.risk == "yuksek" and profil.vade == "uzun":
+            st.success(
+                f"**Profilinizle birlikte okuyun:** Makro tablo TL mevduatı cazip gösteriyor (reel faiz pozitif) — "
+                f"rejim adı bunu yansıtır. Uzun vade + yüksek risk profilinize göre portföy yine "
+                f"**BIST %{bist_p:.0f}** ve **kripto %{kripto_p:.0f}** içeriyor; TL payı **%{tl_p:.0f}**. "
+                f"Çelişki değil: makro taban + büyüme payı."
+            )
+        elif vade_kisa_mi(profil.vade):
+            st.caption(
+                "Kısa vade profilde TL/EUR öncelikli; hisse taraması bilgi amaçlı ve sıkı filtrelenir."
+            )
 
     _tl_renk = {
         "GUCLU": "success",
