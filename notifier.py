@@ -3,7 +3,7 @@
 Bildirim Katmanı
 ==================
 Karar motorunun ürettiği sonucu okunabilir bir rapora çevirir ve
-isteğe bağlı olarak Telegram'a gönderir.
+isteğe bağlı olarak Telegram veya WhatsApp'a gönderir.
 
 Telegram bot kurulumu (5 dakika):
 1. Telegram'da @BotFather ile konuşup /newbot komutuyla bot oluşturun,
@@ -11,9 +11,15 @@ Telegram bot kurulumu (5 dakika):
 2. Botunuzla bir kere mesajlaşın (örn. "merhaba" yazın).
 3. https://api.telegram.org/bot<TOKEN>/getUpdates adresini tarayıcıda açıp
    "chat":{"id": ...} değerini bulun -> .env dosyasına TELEGRAM_CHAT_ID olarak yazın.
+
+WhatsApp — CallMeBot (kişisel, ~2 dk):
+1. https://www.callmebot.com/blog/free-api-whatsapp-messages/ adresindeki adımları izleyin.
+2. WhatsApp'tan CallMeBot'a kayıt mesajı gönderin, API key alın.
+3. .env: WHATSAPP_PHONE=40712345678, WHATSAPP_APIKEY=..., BILDIRIM_KANALI=whatsapp
 """
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
+from urllib.parse import quote
 
 import requests
 
@@ -118,6 +124,74 @@ def portfoy_raporu_olustur(snap: "MacroSnapshot", tahsis: "TahsisSonucu") -> str
 
 def konsola_yazdir(metin: str) -> None:
     print(metin)
+
+
+def whatsapp_callmebot_gonder(metin: str, phone: str, apikey: str) -> bool:
+    """CallMeBot — kişisel WhatsApp (ücretsiz, API key gerekir)."""
+    if not phone or not apikey:
+        return False
+    try:
+        url = (
+            "https://api.callmebot.com/whatsapp.php"
+            f"?phone={quote(phone)}&text={quote(metin)}&apikey={quote(apikey)}"
+        )
+        r = requests.get(url, timeout=15)
+        return r.status_code == 200 and "error" not in r.text.lower()[:200]
+    except Exception as e:
+        print(f"[UYARI] WhatsApp (CallMeBot) gönderimi başarısız: {e}")
+        return False
+
+
+def whatsapp_cloud_gonder(metin: str, token: str, phone_id: str, to: str) -> bool:
+    """Meta WhatsApp Cloud API — iş hesabı gerekir."""
+    if not token or not phone_id or not to:
+        return False
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v19.0/{phone_id}/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "messaging_product": "whatsapp",
+                "to": to.replace("+", ""),
+                "type": "text",
+                "text": {"body": metin[:4096]},
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        print(f"[UYARI] WhatsApp Cloud gönderimi başarısız: {e}")
+        return False
+
+
+def whatsapp_gonder(metin: str) -> bool:
+    ok = False
+    if config.WHATSAPP_CLOUD_TOKEN and config.WHATSAPP_PHONE_ID and config.WHATSAPP_TO:
+        ok = whatsapp_cloud_gonder(
+            metin,
+            config.WHATSAPP_CLOUD_TOKEN,
+            config.WHATSAPP_PHONE_ID,
+            config.WHATSAPP_TO,
+        ) or ok
+    if config.WHATSAPP_PHONE and config.WHATSAPP_APIKEY:
+        ok = whatsapp_callmebot_gonder(metin, config.WHATSAPP_PHONE, config.WHATSAPP_APIKEY) or ok
+    if not ok:
+        print("[UYARI] WhatsApp ayarları eksik — WHATSAPP_PHONE+APIKEY veya Cloud API doldurun.")
+    return ok
+
+
+def bildirim_gonder(metin: str) -> bool:
+    """Telegram ve/veya WhatsApp — BILDIRIM_KANALI env ile seçilir."""
+    kanal = config.BILDIRIM_KANALI
+    ok = False
+    if kanal in ("telegram", "both"):
+        ok = telegrama_gonder(metin, config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID) or ok
+    if kanal in ("whatsapp", "both"):
+        ok = whatsapp_gonder(metin) or ok
+    if kanal not in ("telegram", "whatsapp", "both"):
+        print(f"[UYARI] Geçersiz BILDIRIM_KANALI: {kanal}")
+    return ok
 
 
 def telegrama_gonder(metin: str, bot_token: str, chat_id: str) -> bool:

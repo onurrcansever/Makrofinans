@@ -6,8 +6,12 @@ Kullanım:
     python main.py                      -> canlı veri + çoklu varlık raporu
     python main.py --demo               -> demo verilerle
     python main.py --telegram           -> rapor + rejim değiştiyse alarm
+    python main.py --sinyal-alarm       -> AL/SAT değiştiyse Telegram/WhatsApp
+    python main.py --sinyal-alarm --notify  -> bildirim kanallarına gönder
     python main.py --alert-only         -> sadece rejim değiştiyse Telegram
-    python main.py --legacy             -> eski TL/EUR 4 kapılı rapor
+    python main.py --evds-test          -> EVDS API key doğrulama
+    python main.py --cds-durum          -> CDS kaynaklarını listele
+    python main.py --cds-guncelle       -> Bloomberg + Investing CDS çek
     python backtest.py --months 12      -> geçmiş simülasyon
 """
 import argparse
@@ -36,9 +40,90 @@ def main():
         action="store_true",
         help="Rejim değiştiyse Telegram alarmı; değişmediyse sessiz kal",
     )
+    parser.add_argument(
+        "--sinyal-alarm",
+        action="store_true",
+        help="Hisse AL/SAT sinyalleri değiştiyse bildir (Telegram/WhatsApp)",
+    )
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Bildirim gönder (.env BILDIRIM_KANALI: telegram/whatsapp/both)",
+    )
+    parser.add_argument(
+        "--evds-test",
+        action="store_true",
+        help="EVDS API key doğrulama (enflasyon, TCMB, CDS, rezerv)",
+    )
+    parser.add_argument(
+        "--cds-durum",
+        action="store_true",
+        help="CDS kaynaklarını listele (Investing, WGB, manual)",
+    )
+    parser.add_argument(
+        "--cds-guncelle",
+        action="store_true",
+        help="CDS kaynaklarını çek (Bloomberg Terminal + Investing.com)",
+    )
+    parser.add_argument(
+        "--cds-guncelle-bildir",
+        action="store_true",
+        help="--cds-guncelle ile birlikte: çelişki/sıçrama varsa Telegram/WhatsApp bildir",
+    )
     args = parser.parse_args()
 
+    if args.cds_durum:
+        from cds_sync import cds_durum_metni
+        notifier.konsola_yazdir(cds_durum_metni())
+        raise SystemExit(0)
+
+    if args.cds_guncelle:
+        from cds_sync import cds_guncelleme_calistir
+        sonuc = cds_guncelleme_calistir(
+            bildir=args.cds_guncelle_bildir or args.telegram or args.notify,
+        )
+        for k in sonuc.kaynaklar:
+            if k.deger is not None:
+                notifier.konsola_yazdir(f"  {k.ad}: {k.deger:.2f} bp — {k.kaynak}")
+            else:
+                notifier.konsola_yazdir(f"  {k.ad}: — ({k.hata or 'yok'})")
+        if sonuc.efektif is not None:
+            notifier.konsola_yazdir(f"\n→ Rejim CDS: {sonuc.efektif:.0f} bp ({sonuc.efektif_kaynak[:70]})")
+        for u in sonuc.uyarilar:
+            notifier.konsola_yazdir(f"  ⚠ {u}")
+        raise SystemExit(0)
+
+    if args.evds_test:
+        from data_sources import evds_dogrula
+        sonuc = evds_dogrula(config.EVDS_API_KEY)
+        for m in sonuc["mesajlar"]:
+            notifier.konsola_yazdir(m)
+        if sonuc["ok"]:
+            notifier.konsola_yazdir(
+                "\nÖnbelleği temizleyip canlı veri çekmek için uygulamayı yeniden başlatın "
+                "(market_cache.db eski proxy veriyi tutabilir)."
+            )
+        raise SystemExit(0 if sonuc["ok"] else 1)
+
     snap = demo_snapshot() if args.demo else canli_snapshot()
+
+    if args.sinyal_alarm:
+        from signal_alerts import kontrol_sinyal_ve_bildir
+        ok, olaylar = kontrol_sinyal_ve_bildir(snap, bildir=args.notify or args.telegram)
+        if olaylar:
+            for tip, sym, h in olaylar:
+                notifier.konsola_yazdir(f"  {tip}: {sym} ({h.ad}) skor={h.skor:.0f}")
+            if ok:
+                notifier.konsola_yazdir(f"Bildirim gönderildi ({len(olaylar)} olay).")
+            elif args.notify or args.telegram:
+                notifier.konsola_yazdir("Bildirim gönderilemedi — .env ayarlarını kontrol edin.")
+            else:
+                notifier.konsola_yazdir(
+                    f"{len(olaylar)} olay bulundu — göndermek için --notify ekleyin."
+                )
+        else:
+            notifier.konsola_yazdir("Yeni AL/SAT sinyali yok.")
+        return
 
     if args.legacy:
         sonuc = karar_ver(snap.veri)
