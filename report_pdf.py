@@ -908,10 +908,11 @@ def rapor_pdf_direkt_olustur(
             net_eur = net_tl / v.eur_try
             doc.paragraf(
                 _temiz(
-                    f"Vade sonu net tutar (anapara ~{anapara_tl:,.0f} TL, stopaj %{stopaj*100:.1f}): "
+                    f"Vade sonu net tutar (anapara ~{anapara_tl:,.0f} TL, "
+                    f"stopaj %{stopaj*100:.0f} — {config.TL_STOPAJ_KAYNAK}): "
                     f"brüt faiz +{brut_faiz:,.0f} TL, stopaj −{stopaj_tutar:,.0f} TL → "
                     f"net {net_tl:,.0f} TL (~{net_eur:,.0f} EUR).",
-                    350,
+                    400,
                 )
             )
             if anapara_tl > config.TMSF_SIGORTA_LIMITI_TL:

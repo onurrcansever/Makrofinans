@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+import config
 from hisse_rejim_haber import haber_filtresi_uygula, rejim_hisse_ayarla
 from profil_hisse import (
     profil_firsat_esik,

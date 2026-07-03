@@ -27,7 +27,7 @@ except ImportError:
 TOPLAM_EUR = float(os.getenv("TOPLAM_EUR", "30000"))
 EUR_MEVDUAT_YILLIK_FAIZ = float(os.getenv("EUR_FAIZ", "0.025"))          # %2,5 brüt
 TL_MEVDUAT_BRUT_FAIZ_VARSAYILAN = float(os.getenv("TL_FAIZ_VARSAYILAN", "0.40"))  # API'den çekilemezse kullanılır
-TL_STOPAJ_ORANI = float(os.getenv("TL_STOPAJ", "0.15"))                  # bankanızdan teyit edin, vadeye göre değişir
+TL_STOPAJ_ORANI = float(os.getenv("TL_STOPAJ", "0.15"))                  # eski alias — TL_STOPAJ_ORAN kullanın
 KALAN_GUN = int(os.getenv("KALAN_GUN", "153"))                           # bugünden yıl sonuna kalan gün sayısı
 
 # ------------------------------------------------------------------
@@ -206,16 +206,30 @@ SENARYO_CDS_STRES_BP = float(os.getenv("SENARYO_CDS_STRES_BP", "280"))
 SENARYO_TCMB_DEGISIM_BP = float(os.getenv("SENARYO_TCMB_DEGISIM_BP", "300"))
 
 # ------------------------------------------------------------------
-# Faz 4 — Stopaj, TMSF
+# Faz 4 — Stopaj, TMSF (7316/GVK 2024+: bireysel TL vadeli mevduat %15)
 # ------------------------------------------------------------------
+TL_STOPAJ_ORAN = float(os.getenv("TL_STOPAJ_ORAN", os.getenv("TL_STOPAJ", "0.15")))
+TL_STOPAJ_KAYNAK = os.getenv(
+    "TL_STOPAJ_KAYNAK",
+    "GVK Md.94 — bireysel vadeli TL mevduat stopajı %15 (2024+; bankanızdan teyit edin)",
+)
 TL_STOPAJ_TABLOSU: List[Tuple[int, float]] = [
-    (180, float(os.getenv("TL_STOPAJ_6AY", "0.10"))),
-    (365, float(os.getenv("TL_STOPAJ_1Y", "0.075"))),
-    (99999, float(os.getenv("TL_STOPAJ_UZUN", "0.05"))),
+    (99999, TL_STOPAJ_ORAN),
 ]
 DOVIZ_STOPAJ_ORANI = float(os.getenv("DOVIZ_STOPAJ", "0.25"))
 TMSF_SIGORTA_LIMITI_TL = float(os.getenv("TMSF_SIGORTA_LIMITI_TL", "650000"))
 BACKTEST_REJIM_MIN_ORAN = float(os.getenv("BACKTEST_REJIM_MIN_ORAN", "10"))
+
+# Kripto yalnızca RISK_ON + yeterli skor iken tahsis edilir (0 aksi halde)
+KRIPTO_MIN_SKOR = float(os.getenv("KRIPTO_MIN_SKOR", "55"))
+KRIPTO_SADECE_RISK_ON = os.getenv("KRIPTO_SADECE_RISK_ON", "1").strip().lower() not in ("0", "false", "no")
+
+# TL mevduat reel negatifken tahsis/sinyal üst sınırı (profil vadesi banka net − enflasyon)
+TL_REEL_NEGATIF_ESIK = float(os.getenv("TL_REEL_NEGATIF_ESIK", "0"))
+TL_REEL_NEGATIF_MAX_ORAN = float(os.getenv("TL_REEL_NEGATIF_MAX", "0.05"))
+TL_REEL_COK_NEGATIF_ESIK = float(os.getenv("TL_REEL_COK_NEGATIF_ESIK", "-2"))
+TL_REEL_COK_NEGATIF_MAX_ORAN = float(os.getenv("TL_REEL_COK_NEGATIF_MAX", "0.02"))
+TL_REEL_SKOR_TAVAN_NEGATIF = float(os.getenv("TL_REEL_SKOR_TAVAN", "45"))
 
 # ------------------------------------------------------------------
 # Faz 7 — Temel skor (ETF/hisse) ve bileşik karar

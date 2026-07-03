@@ -155,11 +155,23 @@ def _bist_aciklama(snap, tahsis, profil, tarama: Optional[TaramaSonucu]) -> Varl
     )
 
 
-def _tl_aciklama(snap, tahsis, profil, baglam: Optional[MakroBaglam]) -> VarlikTavsiyesi:
+def _tl_aciklama(
+    snap,
+    tahsis,
+    profil,
+    baglam: Optional[MakroBaglam],
+    mevduat=None,
+) -> VarlikTavsiyesi:
     w = tahsis.agirliklar.get("tl_deposit", 0)
     sk = tahsis.skorlar.get("tl_deposit", 0)
     sig, lbl, ok, renk = _sinyal(w, sk, tahsis.rejim.rejim, "tl_deposit")
     nedenler, dikkat = [], []
+
+    reel_mev = None
+    if mevduat and mevduat.profil_vade_reel is not None:
+        reel_mev = mevduat.profil_vade_reel
+    elif tahsis.tl_mevduat_reel is not None:
+        reel_mev = tahsis.tl_mevduat_reel
 
     tl_ctx = next((p for p in (baglam.parcalar if baglam else []) if "TL mevduat" in p.baslik), None)
     if tl_ctx:
@@ -175,19 +187,42 @@ def _tl_aciklama(snap, tahsis, profil, baglam: Optional[MakroBaglam]) -> VarlikT
         if tahsis.rejim.rejim == "TL_FIRSAT" and reel > 0:
             nedenler.append("TL fırsat rejimi + pozitif reel faiz — mevduat cazip.")
 
+    if reel_mev is not None:
+        vade_etik = mevduat.profil_vade if mevduat and mevduat.profil_vade else "profil vadesi"
+        nedenler.append(
+            f"Banka net reel ({vade_etik}): **{reel_mev:+.1f} pp** — mevduat analizi tablosu."
+        )
+
     nedenler.append(f"4 kapılı algoritma TL tavanını **%{tahsis.tl_tavan_oran*100:.0f}** olarak hesapladı.")
+    if tahsis.tl_reel_sinirlandi:
+        nedenler.append(
+            "Reel getiri negatif — TL payı otomatik sınırlandı; fazla EUR/altın/USD'ye aktarıldı."
+        )
     if (snap.veri.cds_5y_bp or 300) > 300:
         dikkat.append(f"CDS {snap.veri.cds_5y_bp:.0f} bp yüksek — kur riski TL getirisini yiyebilir.")
     if tahsis.rejim.rejim == "KRIZ":
         dikkat.append("Kriz modu: TL pozisyonu **sıfırlandı**.")
 
-    reel = (snap.veri.tcmb_politika_faizi or 37) - (snap.enflasyon_tr_yillik or 35)
-    baslik = "Bu aşamada **TL mevduat** öneriyoruz." if sig in ("GUCLU_AL", "AL") else (
-        "TL mevduat **sınırlı** tutulmalı." if sig == "TUT" else "TL mevduat **önerilmiyor**."
-    )
+    if reel_mev is not None and reel_mev <= config.TL_REEL_NEGATIF_ESIK:
+        if sig in ("GUCLU_AL", "AL"):
+            sig = "TUT" if w >= 0.05 else "AZALT"
+            lbl = "Tutun / kademeli" if sig == "TUT" else "Azaltın"
+            ok, renk = ("→", "sari") if sig == "TUT" else ("↘", "kirmizi")
+        dikkat.append(
+            f"Mevduat reel **{reel_mev:+.1f} pp** — enflasyon altında; güçlü alım uygun değil."
+        )
+
+    reel_politika = (snap.veri.tcmb_politika_faizi or 37) - (snap.enflasyon_tr_yillik or 35)
+    reel_goster = reel_mev if reel_mev is not None else reel_politika
+    if sig in ("GUCLU_AL", "AL"):
+        baslik = "Bu aşamada **TL mevduat** öneriyoruz."
+    elif sig == "TUT":
+        baslik = "TL mevduat **sınırlı** tutulmalı."
+    else:
+        baslik = "TL mevduat **önerilmiyor**."
     return VarlikTavsiyesi(
         "tl_deposit", config.VARLIK_ETIKETLERI["tl_deposit"], w * 100, config.TOPLAM_EUR * w, sk,
-        sig, lbl, ok if reel > 0 else "↘", renk if reel > 0 else "kirmizi",
+        sig, lbl, ok if reel_goster > 0 else "↘", renk if reel_goster > 0 else "kirmizi",
         min(88, int(sk + w * 20)), baslik, nedenler, dikkat,
     )
 
@@ -252,9 +287,11 @@ def _gumus_aciklama(snap, tahsis, profil) -> VarlikTavsiyesi:
     w = tahsis.agirliklar.get("silver", 0)
     sk = tahsis.skorlar.get("silver", 0)
     sig, lbl, ok, renk = _sinyal(w, sk, tahsis.rejim.rejim, "silver")
-    nedenler = ["Altına göre daha volatil — risk-on dönemlerinde beta artar."]
-    if tahsis.rejim.rejim == "RISK_ON":
-        nedenler.append("Risk-on rejiminde gümüş altına göre daha iyi performans edebilir.")
+    nedenler = ["Altına göre daha volatil — ikincil emtia."]
+    if w >= 0.08 and tahsis.rejim.rejim == "RISK_ON":
+        nedenler.append("Risk-on rejiminde gümüş beta artabilir — pay sınırlı tutuldu.")
+    elif w < 0.05:
+        nedenler.append("Mevcut pay minimal; öncelik altın ve nakit tarafında.")
     baslik = "Gümüş **ikincil** emtia — küçük pay." if w < 0.08 else "Gümüş **kademeli** alınabilir."
     return VarlikTavsiyesi(
         "silver", config.VARLIK_ETIKETLERI["silver"], w * 100, config.TOPLAM_EUR * w, sk,
@@ -275,7 +312,7 @@ def danisman_raporu_olustur(
     varliklar = [
         _altin_aciklama(snap, tahsis, profil, baglam),
         _bist_aciklama(snap, tahsis, profil, tarama),
-        _tl_aciklama(snap, tahsis, profil, baglam),
+        _tl_aciklama(snap, tahsis, profil, baglam, mevduat=mevduat),
         _eur_usd_aciklama("eur_cash", snap, tahsis, profil, baglam),
         _eur_usd_aciklama("usd_cash", snap, tahsis, profil, baglam),
         _crypto_aciklama(snap, tahsis, profil),

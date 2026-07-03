@@ -15,6 +15,7 @@ from macro_data import MacroSnapshot
 from regime import RejimSonucu, rejim_tespit
 from regime_stability import rejim_kararli_uygula
 from girdi_dogrulama import snap_rejim_icin
+from rates_tr import mevduat_analizi
 
 VARLIKLAR = ["eur_cash", "usd_cash", "tl_deposit", "gold", "silver", "bist", "crypto"]
 
@@ -31,10 +32,27 @@ class TahsisSonucu:
     tavsiye_metni: str = ""
     profil: Optional[YatirimProfili] = None
     profil_notlari: List[str] = field(default_factory=list)
+    tl_mevduat_reel: Optional[float] = None
+    tl_reel_sinirlandi: bool = False
 
 
 def _skor_sinirla(s: float) -> float:
     return max(0.0, min(100.0, s))
+
+
+def tl_reel_negatif_max_oran(reel_mev: float) -> float:
+    """Profil vadesi mevduat reel getirisine göre TL üst sınırı (0–1)."""
+    if reel_mev > config.TL_REEL_NEGATIF_ESIK:
+        return config.MUTLAK_TAVAN
+    if reel_mev <= config.TL_REEL_COK_NEGATIF_ESIK:
+        return config.TL_REEL_COK_NEGATIF_MAX_ORAN
+    return config.TL_REEL_NEGATIF_MAX_ORAN
+
+
+def _tl_fazlalik_dagit(agirliklar: Dict[str, float], fark: float) -> None:
+    agirliklar["eur_cash"] += fark * 0.55
+    agirliklar["gold"] += fark * 0.30
+    agirliklar["usd_cash"] += fark * 0.15
 
 
 def _varlik_skorlari(
@@ -187,7 +205,9 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
     uyarilar = list(snap.cekim_uyarilari)
     profil_notlari = profil_degerlendirme(profil, rejim.rejim)
 
-    _, mevduat_vade_gun = profil_mevduat_vadesi(profil)
+    mevduat_vade_adi, mevduat_vade_gun = profil_mevduat_vadesi(profil)
+    tl_mevduat_reel: Optional[float] = None
+    tl_reel_sinirlandi = False
 
     # Mevcut 4 kapılı TL tavanını uygula (profil mevduat vadesi = Kapı 3 gün sayısı)
     tl_sonuc = karar_ver(snap.veri, vade_gun=mevduat_vade_gun)
@@ -198,14 +218,40 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
     if agirliklar["tl_deposit"] > tl_tavan:
         fark = agirliklar["tl_deposit"] - tl_tavan
         agirliklar["tl_deposit"] = tl_tavan
-        # Fazlalığı EUR ve altına dağıt
-        agirliklar["eur_cash"] += fark * 0.55
-        agirliklar["gold"] += fark * 0.30
-        agirliklar["usd_cash"] += fark * 0.15
+        _tl_fazlalik_dagit(agirliklar, fark)
         adimlar.append(
             f"TL ağırlığı 4 kapı tavanına ({tl_tavan*100:.1f}%) indirildi; "
             f"fazla %{fark*100:.1f} EUR/altın/USD'ye aktarıldı."
         )
+
+    try:
+        mev = mevduat_analizi(
+            enflasyon=snap.enflasyon_tr_yillik,
+            profil_vade=mevduat_vade_adi,
+            eur_try=snap.veri.eur_try,
+            kalan_gun=kalan_gun,
+        )
+        tl_mevduat_reel = mev.profil_vade_reel
+    except Exception:
+        mev = None
+
+    if tl_mevduat_reel is not None and tl_mevduat_reel <= config.TL_REEL_NEGATIF_ESIK:
+        reel_tavan = min(tl_tavan, tl_reel_negatif_max_oran(tl_mevduat_reel))
+        skorlar["tl_deposit"] = min(skorlar["tl_deposit"], config.TL_REEL_SKOR_TAVAN_NEGATIF)
+        if agirliklar["tl_deposit"] > reel_tavan:
+            fark = agirliklar["tl_deposit"] - reel_tavan
+            agirliklar["tl_deposit"] = reel_tavan
+            _tl_fazlalik_dagit(agirliklar, fark)
+            tl_reel_sinirlandi = True
+            adimlar.append(
+                f"[Mevduat reel {tl_mevduat_reel:+.1f} pp] TL payı "
+                f"%{reel_tavan*100:.0f} ile sınırlandı; fazla %{fark*100:.1f} EUR/altın/USD'ye aktarıldı."
+            )
+        elif agirliklar["tl_deposit"] > 0:
+            adimlar.append(
+                f"[Mevduat reel {tl_mevduat_reel:+.1f} pp] TL payı "
+                f"%{agirliklar['tl_deposit']*100:.0f} — güçlü alım uygun değil."
+            )
 
     if rejim.rejim == "KRIZ":
         sablon = {
@@ -235,6 +281,25 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
         agirliklar["eur_cash"] += kes * 0.6
         agirliklar["gold"] += kes * 0.4
         adimlar.append("Düşük risk profili: volatil pay %10 ile sınırlandı.")
+
+    # Kripto: yalnızca RISK_ON + skor eşiği; aksi halde 0 (rapor tutarlılığı)
+    if agirliklar.get("crypto", 0) > 0:
+        max_crypto = max_a.get("crypto", 0)
+        izin = (
+            max_crypto > 0
+            and skorlar.get("crypto", 0) >= config.KRIPTO_MIN_SKOR
+            and (rejim.rejim == "RISK_ON" or not config.KRIPTO_SADECE_RISK_ON)
+        )
+        if not izin:
+            fark = agirliklar["crypto"]
+            agirliklar["crypto"] = 0.0
+            agirliklar["eur_cash"] += fark * 0.55
+            agirliklar["usd_cash"] += fark * 0.25
+            agirliklar["gold"] += fark * 0.20
+            adimlar.append(
+                f"Kripto payı sıfırlandı ({fark*100:.1f}%) — "
+                f"rejim {rejim.rejim} RISK_ON değil veya skor yetersiz."
+            )
 
     t = sum(agirliklar.values())
     agirliklar = {k: v / t for k, v in agirliklar.items()}
@@ -272,4 +337,6 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
         tavsiye_metni=tavsiye,
         profil=profil,
         profil_notlari=profil_notlari,
+        tl_mevduat_reel=tl_mevduat_reel,
+        tl_reel_sinirlandi=tl_reel_sinirlandi,
     )

@@ -50,13 +50,13 @@ class YapikrediMevduat:
 
 
 def stopaj_orani(gun: int, doviz: str = "TL") -> float:
-    """Türkiye mevduat stopajı — config.TL_STOPAJ_TABLOSU."""
+    """Türkiye mevduat stopajı — config.TL_STOPAJ_TABLOSU (varsayılan %15 TL)."""
     if doviz != "TL":
         return config.DOVIZ_STOPAJ_ORANI
     for max_gun, oran in config.TL_STOPAJ_TABLOSU:
         if gun <= max_gun:
             return oran
-    return config.TL_STOPAJ_TABLOSU[-1][1]
+    return config.TL_STOPAJ_ORAN
 
 
 def net_brut_oran(brut_yuzde: float, gun: int, doviz: str = "TL") -> float:

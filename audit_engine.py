@@ -83,13 +83,29 @@ def denetim_calistir(
     # ── 1) Veri güncelliği ──────────────────────────────────────
     cds_kaynak = kh.get("cds", "")
     cds_lower = cds_kaynak.lower()
-    if any(x in cds_lower for x in ("piyasa modeli", "proxy", "türetilmiş")):
+    if "investing" in cds_lower and any(x in cds_lower for x in ("çelişki", "çapraz", "tercih")):
+        _ekle(bulgular, DenetimBulgusu(
+            "UYARI", "veri",
+            "CDS Bloomberg ile Investing çelişiyor",
+            f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
+            f"Kaynak: **{cds_kaynak}**.",
+            "Bloomberg Terminal bağlantısını kontrol edin.",
+        ))
+    elif any(x in " ".join(getattr(snap, "cekim_uyarilari", []) or []).lower() for x in ("geciken veri", "bloomberg terminal erişilemedi")):
+        _ekle(bulgular, DenetimBulgusu(
+            "UYARI", "veri",
+            "CDS yalnızca Investing (gecikmeli) veya tek kaynak",
+            f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
+            f"Kaynak: **{cds_kaynak}**.",
+            "Bloomberg Terminal (BLPAPI) bağlantısı kurulursa çapraz doğrulama aktif olur.",
+        ))
+    elif any(x in cds_lower for x in ("piyasa modeli", "proxy", "türetilmiş")):
         _ekle(bulgular, DenetimBulgusu(
             "BILGI", "veri",
             "CDS piyasa modeli ile tahmin ediliyor",
             f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
             f"Kaynak: **{cds_kaynak}** — doğrudan CDS kotasyonu değil, makro proxy.",
-            "EVDS key ile gerçek CDS serisi kullanılabilir; model otomatik güncellenir.",
+            "Bloomberg Terminal veya Investing erişimini kontrol edin.",
         ))
     elif any(x in cds_lower for x in ("acil yedek", "ulaşılamadı")):
         _ekle(bulgular, DenetimBulgusu(
@@ -157,6 +173,16 @@ def denetim_calistir(
             "tl_deposit",
         ))
 
+    if mevduat and mevduat.profil_vade_reel is not None and abs(tcmb_reel - mevduat.profil_vade_reel) >= 1.5:
+        _ekle(bulgular, DenetimBulgusu(
+            "BILGI", "mantik",
+            "Politika reel ile mevduat reel farklı — ikisi de doğru, tanım farklı",
+            f"Politika reel (TCMB − enflasyon): **{tcmb_reel:+.1f} pp** — rejim/strateji notlarında.",
+            f"Mevduat reel (banka net − enflasyon): **{mevduat.profil_vade_reel:+.1f} pp** — mevduat tablosunda.",
+            "TL kararı için **mevduat reel** esas alın; politika reel makro bağlam içindir.",
+            "tl_deposit",
+        ))
+
     if snap.veri.savas_risk_guvenilir is False:
         _ekle(bulgular, DenetimBulgusu(
             "UYARI", "veri",
@@ -165,6 +191,8 @@ def denetim_calistir(
             "Google News/GDELT boş veya erişilemedi — aktif savaş haberleri kaçırılmış olabilir.",
             "Hürmüz/İran gündemini manuel kontrol edin; jeopolitik kapıya güvenmeyin.",
         ))
+
+    if snap.veri.rezerv_artiyor is None:
         _ekle(bulgular, DenetimBulgusu(
             "UYARI", "veri",
             "Rezerv trendi bilinmiyor — Kapı 4 temkin uygulandı",
@@ -206,13 +234,30 @@ def denetim_calistir(
     # ── 4) Mevduat modülü vs danışman ───────────────────────────
     if mevduat:
         tl_v = _varlik_bul(varliklar, "tl_deposit")
-        if tl_v and tl_v.sinyal in ("GUCLU_AL", "AL") and not mevduat.tl_mevduat_kazanir:
+        if (
+            tl_v
+            and tl_v.sinyal in ("GUCLU_AL", "AL")
+            and not mevduat.tl_mevduat_kazanir
+        ):
             _ekle(bulgular, DenetimBulgusu(
                 "KRITIK", "sinyal",
                 "TL önerisi vs mevduat analizi çelişiyor",
                 f"AI Danışman TL için **{tl_v.sinyal_etiket}** diyor.",
                 f"Mevduat modülü: en iyi TL reel **{mevduat.en_iyi_reel:+.1f}%** — EUR'ya göre cazip değil.",
                 "TL tahsisini **kısa vade** ve kur riski ile sınırlayın; mevduat tablosunu kontrol edin.",
+                "tl_deposit",
+            ))
+        elif (
+            tahsis.tl_reel_sinirlandi
+            and mevduat.profil_vade_reel is not None
+            and mevduat.profil_vade_reel <= 0
+        ):
+            _ekle(bulgular, DenetimBulgusu(
+                "BILGI", "sinyal",
+                "TL reel negatif — tahsis otomatik sınırlandı",
+                f"Profil vadesi reel **{mevduat.profil_vade_reel:+.1f} pp**.",
+                f"TL payı **%{tahsis.agirliklar.get('tl_deposit', 0)*100:.0f}** — güçlü alım sinyali verilmedi.",
+                "Mevduat tablosu ile danışman önerisi uyumlu.",
                 "tl_deposit",
             ))
         elif tl_v and tl_v.sinyal in ("GUCLU_AL", "AL") and mevduat.en_iyi_reel < 0:
