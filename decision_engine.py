@@ -11,6 +11,7 @@ from typing import List, Optional
 
 import config
 from breakeven import breakeven_eur_try, profil_mevduat_parametreleri
+from siyasi_esik import esikler
 
 
 @dataclass
@@ -58,11 +59,13 @@ def karar_ver(veri: PiyasaVerisi, vade_gun: Optional[int] = None) -> KararSonucu
 
     # --- Kapı 1: Siyasi/jeopolitik risk ------------------------------
     kriz_var = False
+    es = esikler()
     if veri.siyasi_risk_makale_sayisi is not None:
-        kriz_var = veri.siyasi_risk_makale_sayisi >= config.SIYASI_RISK_MAKALE_ESIGI
+        kriz_var = veri.siyasi_risk_makale_sayisi >= es["kriz"]
         adimlar.append(
-            f"Kapı 1 (siyasi risk): son 48 saatte {veri.siyasi_risk_makale_sayisi} "
-            f"ilgili haber bulundu (eşik: {config.SIYASI_RISK_MAKALE_ESIGI}) -> "
+            f"Kapı 1 (siyasi risk): son {config.SIYASI_RISK_TARAMA_SAAT}s "
+            f"{veri.siyasi_risk_makale_sayisi} haber "
+            f"(kriz eşiği: {es['kriz']}, taban: {es['taban']}) -> "
             f"{'KRİZ MODU' if kriz_var else 'sakin'}"
         )
     else:

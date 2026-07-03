@@ -9,8 +9,10 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from allocation_engine import TahsisSonucu
+import config
 from macro_data import MacroSnapshot
 from rates_tr import MevduatKarsilastirma
+from siyasi_esik import esikler, esik_metni
 
 
 @dataclass
@@ -44,8 +46,11 @@ def tl_durum_olustur(
         reel_mevduat = mevduat.profil_vade_reel
         eur_t = mevduat.profil_vade_eur_tahmini
         nedenler.append(
-            f"Yerel reel (TL enflasyonu): **{reel_mevduat:+.1f} pp** "
+            f"Mevduat reel (banka net − enflasyon): **{reel_mevduat:+.1f} pp** "
             f"({mevduat.profil_vade or 'TL mevduat'}, net %{mevduat.profil_vade_net:.1f})."
+        )
+        nedenler.append(
+            f"Politika faizi reel **{reel_politika:+.1f} pp** (TCMB − enflasyon — makro/rejim göstergesi)."
         )
         nedenler.append(
             f"EUR bazlı tahmini: **{eur_t:+.1f} pp** — kur hızlanırsa negatif olabilir; "
@@ -59,10 +64,17 @@ def tl_durum_olustur(
             )
     else:
         reel_mevduat = reel_politika
-        nedenler.append(f"Politika faizi − enflasyon ≈ **{reel_politika:+.1f} pp**.")
+        nedenler.append(
+            f"Politika faizi − enflasyon ≈ **{reel_politika:+.1f} pp** "
+            f"(makro gösterge — banka net reel mevduat tablosunda ayrı)."
+        )
 
+    cds_kaynak = (snap.kaynak_haritasi or {}).get("cds", "")
     if cds is not None:
-        nedenler.append(f"CDS 5Y **{cds:.0f} bp** → 4 kapı TL tavanı **%{tavan:.0f}**.")
+        cds_ek = ""
+        if any(x in cds_kaynak.lower() for x in ("model", "proxy", "vol")):
+            cds_ek = " ⚠️ **model tahmini** — gerçek CDS kotasyonu değil; TL tavanı hassas."
+        nedenler.append(f"CDS 5Y **{cds:.0f} bp** → 4 kapı TL tavanı **%{tavan:.0f}**.{cds_ek}")
     else:
         nedenler.append("CDS verisi yok → güvenlik için TL tavanı **%0**.")
 
@@ -78,12 +90,21 @@ def tl_durum_olustur(
 
     nedenler.append(f"Aktif makro rejim: **{tahsis.rejim.etiket}**.")
 
-    if siyasi is not None and siyasi >= 8:
-        nedenler.append(f"Siyasi haber yoğunluğu yüksek (**{siyasi}**/48 saat) — TL riskli.")
+    es = esikler()
+    if siyasi is not None and siyasi >= es["kriz"]:
+        nedenler.append(
+            f"Siyasi haber yoğunluğu yüksek (**{siyasi}**/{config.SIYASI_RISK_TARAMA_SAAT}s, "
+            f"kriz eşiği {es['kriz']}) — TL riskli."
+        )
+    elif siyasi is not None and siyasi >= es["temkin"]:
+        nedenler.append(
+            f"Siyasi haber yükselmiş (**{siyasi}**/{config.SIYASI_RISK_TARAMA_SAAT}s, "
+            f"temkin eşiği {es['temkin']}) — TL fırsatı sınırlı."
+        )
     elif siyasi is not None:
         nedenler.append(
-            f"Siyasi haber sayısı **{siyasi}**/48s (GDELT anahtar kelime — ağırlıksız; "
-            f"düşük görünse bile jeopolitik gelişmeleri manuel izleyin)."
+            f"Siyasi haber **{siyasi}**/{config.SIYASI_RISK_TARAMA_SAAT}s "
+            f"({esik_metni()})."
         )
 
     savas = v.savas_risk_makale_sayisi

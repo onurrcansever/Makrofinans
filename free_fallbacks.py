@@ -61,12 +61,18 @@ def fed_faizi_al(api_key: str = "") -> Tuple[float, str]:
     return 4.33, "Acil yedek — Fed kaynağına ulaşılamadı"
 
 
-def enflasyon_al(api_key: str = "") -> Tuple[float, str]:
-    return enflasyon_otomatik(api_key or config.EVDS_API_KEY)
+def enflasyon_al(api_key: str = "", taze: bool = False) -> Tuple[float, str]:
+    return enflasyon_otomatik(api_key or config.EVDS_API_KEY, taze=taze)
 
 
-def cds_al(manuel: dict = None, vix: Optional[float] = None, siyasi: int = 5) -> Tuple[float, str]:
-    return cds_otomatik(vix=vix, siyasi=siyasi, evds_key=config.EVDS_API_KEY)
+def cds_al(
+    manuel: dict = None,
+    vix: Optional[float] = None,
+    siyasi: int = 5,
+    savas: int = 0,
+    taze: bool = False,
+) -> Tuple[float, str]:
+    return cds_otomatik(vix=vix, siyasi=siyasi, taze=taze, savas=savas)
 
 
 def _gdelt_cache_oku(anahtar: str) -> Optional[int]:
@@ -100,38 +106,42 @@ def _gdelt_cache_yaz(anahtar: str, count: int) -> None:
         pass
 
 
-def siyasi_risk_al(kelimeler: list) -> Tuple[int, str]:
-    cache_key = "siyasi"
-    cached = _gdelt_cache_oku(cache_key)
-    if cached is not None:
-        return cached, "GDELT (önbellek, 6 saat)"
+def siyasi_risk_al(kelimeler: list, taze: bool = False) -> Tuple[int, str]:
+    from risk_scan import siyasi_risk_say
+    from siyasi_esik import baseline_guncelle
 
-    import data_sources as ds
-    for deneme in range(2):
-        try:
-            n = ds.gdelt_makale_sayisi(kelimeler)
-            if n is not None:
-                _gdelt_cache_yaz(cache_key, n)
-                return n, "GDELT (canlı)"
-        except Exception:
-            pass
-        time.sleep(1.5 * (deneme + 1))
+    cache_key = "siyasi_v2"
+    saat = config.SIYASI_RISK_TARAMA_SAAT
+    if not taze:
+        cached = _gdelt_cache_oku(cache_key)
+        if cached is not None:
+            return cached, f"Google News (önbellek, 6 saat · son {saat}s)"
 
-    _gdelt_cache_yaz(cache_key, DEFAULT_SIYASI_RISK)
-    return DEFAULT_SIYASI_RISK, "GDELT yedek (ağ hatası)"
+    n, kaynak, detay = siyasi_risk_say(kelimeler, saat=saat)
+    if n <= 0:
+        n = DEFAULT_SIYASI_RISK
+        kaynak = f"{kaynak} · yedek {DEFAULT_SIYASI_RISK}"
+
+    baseline_guncelle(n)
+    if not taze:
+        _gdelt_cache_yaz(cache_key, n)
+    if detay:
+        kaynak = f"{kaynak} · {detay}"
+    return n, kaynak
 
 
-def savas_risk_al(kelimeler: list = None) -> Tuple[int, str, bool]:
+def savas_risk_al(kelimeler: list = None, taze: bool = False) -> Tuple[int, str, bool]:
     """Jeopolitik/savaş — Google News TR + GDELT. (sayi, kaynak, guvenilir)"""
     from risk_scan import jeopolitik_risk_tara
 
     cache_key = "savas_v2"
-    cached = _gdelt_cache_oku(cache_key)
-    if cached is not None and cached > 0:
-        return cached, "Google News TR (önbellek, 6 saat)", True
+    if not taze:
+        cached = _gdelt_cache_oku(cache_key)
+        if cached is not None and cached > 0:
+            return cached, "Google News TR (önbellek, 6 saat)", True
 
-    sonuc = jeopolitik_risk_tara()
-    if sonuc.guvenilir and sonuc.sayi > 0:
+    sonuc = jeopolitik_risk_tara(hizli=taze)
+    if sonuc.guvenilir and sonuc.sayi > 0 and not taze:
         _gdelt_cache_yaz(cache_key, sonuc.sayi)
     kaynak = sonuc.kaynak
     if sonuc.detay:
@@ -153,5 +163,5 @@ def rezerv_trend_al(api_key: str = "") -> Tuple[Optional[bool], str]:
     return None, "EVDS rezerv verisi alınamadı"
 
 
-def tcmb_faizi_al(manuel: dict = None) -> Tuple[Optional[float], str]:
-    return tcmb_faizi_otomatik(config.EVDS_API_KEY)
+def tcmb_faizi_al(manuel: dict = None, taze: bool = False) -> Tuple[Optional[float], str]:
+    return tcmb_faizi_otomatik(config.EVDS_API_KEY, taze=taze)
