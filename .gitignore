@@ -1,0 +1,8 @@
+.env
+.regime_state.json
+market_cache.db
+manual_inputs.json
+__pycache__/
+*.pyc
+.DS_Store
+fonts/*.ttf
