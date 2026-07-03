@@ -15,11 +15,13 @@ from advice_engine import DanismanRaporu
 from allocation_engine import TahsisSonucu, VARLIKLAR
 from investor_profile import VADE_SECENEKLERI, YatirimProfili
 from macro_data import MacroSnapshot
-from rates_tr import MevduatKarsilastirma, _eur_bazli_tahmini
+from rates_tr import MevduatKarsilastirma, _eur_bazli_tahmini, tl_vade_sonu_hesapla, tl_vade_sonu_rapor_metni, tmsf_uyari_satirlari
+from girdi_dogrulama import girdi_rapor_uyarilari
+from report_pdf import _isin_birlestir_gosterim
 from stock_scanner import SINYAL_ETIKET, TaramaSonucu
 from tl_durum import TlDurumOzeti
 from veri_kalitesi import veri_kalite_olustur
-from backtest import backtest_calistir, backtest_metrikleri
+from backtest import backtest_calistir, backtest_karsilastirma_uret
 from alim_uygunluk import alim_aksiyon_hucre
 from report_pdf import rapor_pdf_direkt_olustur
 
@@ -167,20 +169,53 @@ def _hisse_detay_li(h) -> str:
     )
 
 
-def _backtest_html(rejim: str, ay: int = 12) -> str:
+def _backtest_html(
+    rejim: str,
+    profil: YatirimProfili,
+    bugun_agirliklar: Optional[dict] = None,
+    ay: int = 12,
+) -> str:
     try:
-        satirlar = backtest_calistir(ay)
-        met = backtest_metrikleri(satirlar, rejim)
+        satirlar = backtest_calistir(ay, profil=profil)
+        kars = backtest_karsilastirma_uret(
+            satirlar, rejim, bugun_agirliklar=bugun_agirliklar, profil=profil
+        )
     except Exception:
         return ""
-    if not met:
+    if not kars:
         return ""
-    sharpe = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
-    drift = f"<p class='warn'>{_esc(met.drift_mesaji)}</p>" if met.model_drift else (
-        f"<p class='muted'>Mevcut rejim ({_esc(rejim)}) backtest döneminde "
-        f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü — drift yok.</p>"
-    )
-    notlar = "".join(f"<li>{_esc(n)}</li>" for n in met.notlar[:3])
+
+    met = kars.dinamik
+    ref = kars.referans_statik
+    karsi = kars.karsi_olgusal
+
+    def _sh(m):
+        return f"{m.sharpe_yillik:.2f}" if m.sharpe_yillik is not None else "—"
+
+    uyari = ""
+    if kars.dinamik_dezavantaj and kars.uyari_mesaji:
+        uyari = f"<div class='warn'><strong>Dinamik katman uyarısı:</strong> {_esc(kars.uyari_mesaji)}</div>"
+
+    karsi_hdr = "<th>Bugünkü ağırlıklar</th>" if karsi else ""
+    karsi_cells = ""
+    if karsi:
+        karsi_cells = (
+            f"<td class='num'>{karsi.toplam_getiri_pct:+.1f}%</td>"
+            f"<td class='num'>{_sh(karsi)}</td>"
+            f"<td class='num'>{karsi.max_drawdown_pct:.1f}%</td>"
+            f"<td class='num'>{karsi.volatilite_yillik_pct:.1f}%</td>"
+        )
+
+    rej_tab = ""
+    if kars.rejim_dagilimi:
+        rej_tr = "".join(
+            f"<tr><td>{_esc(r.replace('_', ' '))}</td><td class='num'>%{p:.0f}</td></tr>"
+            for r, p in kars.rejim_dagilimi.items()
+        )
+        rej_tab = f"""
+        <h3>Rejim dağılımı</h3>
+        <table><thead><tr><th>Rejim</th><th>Süre</th></tr></thead><tbody>{rej_tr}</tbody></table>"""
+
     tablo = ""
     if satirlar:
         tr = ""
@@ -197,14 +232,35 @@ def _backtest_html(rejim: str, ay: int = 12) -> str:
             <thead><tr><th>Ay</th><th>Rejim</th><th>EUR/TRY</th><th>Altın</th><th>TL</th><th>BIST</th></tr></thead>
             <tbody>{tr}</tbody>
         </table>"""
+
     return f"""
-    <h2>Backtest & Model İstikrarı</h2>
-    <div class="box"><strong>Son {ay} ay simülasyon · Sharpe {sharpe}</strong>
-    <p>Toplam getiri {met.toplam_getiri_pct:+.1f}% · Max drawdown {met.max_drawdown_pct:.1f}% ·
-    Volatilite (yıllık) {met.volatilite_yillik_pct:.1f}% · Rejim değişimi {met.rejim_degisim_sayisi} ·
-    En sık rejim: {_esc(met.en_sik_rejim.replace('_', ' '))}</p></div>
-    {drift}
-    <ul>{notlar}</ul>
+    <h2>Backtest — Dinamik vs Statik Karşılaştırma</h2>
+    {uyari}
+    <p>{_esc(kars.ozet.replace('**', ''))}</p>
+    <p class='muted'>Üç yollu simülasyon: aylık dinamik rejim · profil referansı ({_esc(profil.risk)} risk) · bugünkü ağırlıklar sabit.</p>
+    <table>
+        <thead><tr>
+            <th>Metrik</th><th>Dinamik rejim</th><th>Referans statik</th>{karsi_hdr}
+        </tr></thead>
+        <tbody>
+            <tr><td>Toplam getiri</td>
+                <td class='num'>{met.toplam_getiri_pct:+.1f}%</td>
+                <td class='num'>{ref.toplam_getiri_pct:+.1f}%</td>
+                {f"<td class='num'>{karsi.toplam_getiri_pct:+.1f}%</td>" if karsi else ""}</tr>
+            <tr><td>Sharpe (yıllık)</td>
+                <td class='num'>{_sh(met)}</td><td class='num'>{_sh(ref)}</td>
+                {f"<td class='num'>{_sh(karsi)}</td>" if karsi else ""}</tr>
+            <tr><td>Max drawdown</td>
+                <td class='num'>{met.max_drawdown_pct:.1f}%</td><td class='num'>{ref.max_drawdown_pct:.1f}%</td>
+                {f"<td class='num'>{karsi.max_drawdown_pct:.1f}%</td>" if karsi else ""}</tr>
+            <tr><td>Volatilite</td>
+                <td class='num'>{met.volatilite_yillik_pct:.1f}%</td><td class='num'>{ref.volatilite_yillik_pct:.1f}%</td>
+                {f"<td class='num'>{karsi.volatilite_yillik_pct:.1f}%</td>" if karsi else ""}</tr>
+        </tbody>
+    </table>
+    {rej_tab}
+    <ul>{"".join(f"<li>{_esc(n)}</li>" for n in met.notlar[:2])}
+        <li>{_esc(ref.notlar[0])}</li></ul>
     {tablo}"""
 
 
@@ -217,6 +273,7 @@ def rapor_html_olustur(
     tl_durum: Optional[TlDurumOzeti] = None,
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
+    tl_mevduat_tutar_tl: Optional[float] = None,
 ) -> str:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     v = snap.veri
@@ -281,10 +338,31 @@ def rapor_html_olustur(
         getiri_kutu = ""
         if mevduat.getiri_notu:
             getiri_kutu = f'<div class="ozet-kutu"><strong>Getiri tanımı:</strong> {_esc(mevduat.getiri_notu)}</div>'
+        vade_sonu_html = ""
+        profil_o = next((o for o in mevduat.oranlar if o.vade == mevduat.profil_vade), None)
+        if profil_o and v.eur_try:
+            tl_tutar = tl_mevduat_tutar_tl or config.TL_MEVDUAT_TUTAR_TL
+            ozet = tl_vade_sonu_hesapla(
+                toplam_eur=toplam_eur,
+                tl_agirlik=tahsis.agirliklar.get("tl_deposit", 0),
+                eur_try=v.eur_try,
+                brut_yillik=profil_o.brut_yillik,
+                gun=profil_o.vade_gun or 365,
+                manuel_anapara_tl=tl_tutar,
+            )
+            if ozet:
+                tmsf_html = "".join(
+                    f"<li>{_esc(_md_strip(t))}</li>" for t in tmsf_uyari_satirlari(ozet.anapara_tl)
+                )
+                vade_sonu_html = (
+                    f'<p><strong>{_esc(_md_strip(tl_vade_sonu_rapor_metni(ozet)))}</strong></p>'
+                    f"<ul>{tmsf_html}</ul>"
+                )
         mevduat_html = f"""
         <h2>TL Mevduat & Faiz Karşılaştırması</h2>
         <p>{_esc(mevduat.ozet)}</p>
         {getiri_kutu}
+        {vade_sonu_html}
         <p class="muted">Veri: {_esc(mevduat.veri_kaynagi)} · Profil vadesi: {_esc(mevduat.profil_vade)}</p>
         <table>
             <thead><tr><th>Vade</th><th>Brüt %</th><th>Net %</th><th>Yerel reel</th><th>EUR tah.</th></tr></thead>
@@ -336,63 +414,32 @@ def rapor_html_olustur(
         uygun_list = _hisse_sirala_html([
             h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "UYGUN"
         ])
-        uygun_blok = ""
-        if uygun_list:
-            detay = "".join(_hisse_detay_li(h) for h in uygun_list[:8])
-            uygun_blok = f"""
-            <h3>AL — {len(uygun_list)} varlık</h3>
-            {_hisse_tablo_html(uygun_list, detayli=True)}
-            <ul>{detay}</ul>"""
-
         sinirli_list = _hisse_sirala_html([
             h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "SINIRLI"
         ])
-        sinirli_blok = ""
-        if sinirli_list:
-            detay = "".join(_hisse_detay_li(h) for h in sinirli_list[:6])
-            sinirli_blok = f"""
-            <h3>DİKKAT — sınırlı uygun — {len(sinirli_list)} varlık</h3>
-            {_hisse_tablo_html(sinirli_list[:15], detayli=True)}
-            <ul>{detay}</ul>"""
-
-        if tarama.alim_firsatlari:
-            firsat_html = f"""
-            <h3>Alım adayları (profil filtreli) — {len(tarama.alim_firsatlari)} varlık</h3>
-            {_hisse_tablo_html(_hisse_sirala_html(tarama.alim_firsatlari[:20]), detayli=True)}
-            <ul>{"".join(_hisse_detay_li(h) for h in tarama.alim_firsatlari[:8])}</ul>"""
+        etf_firsat = getattr(tarama, "etf_firsatlari", None) or []
+        kanonik = _isin_birlestir_gosterim(
+            _hisse_sirala_html(uygun_list + sinirli_list + list(etf_firsat))
+        )
+        kanonik.sort(
+            key=lambda h: (_UYGUN_SIRA.get(getattr(h, "alim_uygun", "IZLE"), 9), -h.skor)
+        )
+        if kanonik:
+            al_n = len(uygun_list)
+            max_satir = config.TARAMA_KANONIK_MAX_SATIR if al_n == 0 else 35
+            trunc_not = ""
+            if al_n == 0 and len(kanonik) > max_satir:
+                trunc_not = (
+                    f" <span class='muted'>AL adayı yok — tablo {max_satir} satırla sınırlandı "
+                    f"({len(kanonik)} aday).</span>"
+                )
+            kanonik_blok = f"""
+            <h3>Kanonik alım adayları — AL: {al_n} · DİKKAT: {len(sinirli_list)} · ETF: {len(etf_firsat)}{trunc_not}</h3>
+            {_hisse_tablo_html(kanonik[:max_satir], detayli=True)}"""
         else:
-            firsat_html = (
+            kanonik_blok = (
                 "<p class='muted'>Profil filtreli alım adayı yok — BEKLE veya makro tahsis öncelikli.</p>"
             )
-
-        etf_firsat = getattr(tarama, "etf_firsatlari", None) or []
-        etf_blok = ""
-        if etf_firsat:
-            etf_rows = ""
-            for h in _hisse_sirala_html(etf_firsat[:12]):
-                rt = getattr(h, "revolut_ticker", "") or h.sembol.split(".")[0]
-                z52 = getattr(h, "zirve_52h_pct", None)
-                etf_rows += f"""
-                <tr>
-                    <td>{_esc(_uygun_tablo_hucre(h))}</td>
-                    <td>{_esc(rt)}</td>
-                    <td>{_esc(h.ad)}</td>
-                    <td>{_esc(SINYAL_ETIKET.get(h.sinyal, h.sinyal))}</td>
-                    <td class="num">{h.skor:.0f}</td>
-                    <td class="num">{_pct_html(h.degisim_1ay, 0)}</td>
-                    <td class="num">{f"{h.rsi:.0f}" if h.rsi is not None else "—"}</td>
-                    <td class="num">{f"{z52:.0f}" if z52 is not None else "—"}</td>
-                    <td>{_esc(getattr(h, 'isin', '') or '—')}</td>
-                    <td>{_esc(getattr(h, 'alim_uygun_not', ''))}</td>
-                </tr>"""
-            etf_blok = f"""
-            <h3>Revolut ETF adayları — {len(etf_firsat)} fon</h3>
-            <table>
-                <thead><tr><th>Karar</th><th>Revolut</th><th>ETF</th><th>Sinyal</th><th>Skor</th>
-                <th>1A</th><th>RSI</th><th>52H</th><th>ISIN</th><th>Not</th></tr></thead>
-                <tbody>{etf_rows}</tbody>
-            </table>
-            <ul>{"".join(_hisse_detay_li(h) for h in etf_firsat[:6])}</ul>"""
 
         onemli = _hisse_sirala_html([
             h for h in (tarama.hisseler or [])
@@ -445,15 +492,14 @@ def rapor_html_olustur(
             <thead><tr><th>Endeks</th><th>Fiyat</th><th>1 Gün</th><th>1 Ay</th><th>3 Ay</th><th>RSI</th><th>Sinyal</th><th>Skor</th></tr></thead>
             <tbody>{endeks_rows}</tbody>
         </table>
-        {uygun_blok}
-        {sinirli_blok}
-        {firsat_html}
-        {etf_blok}
+        {kanonik_blok}
         {teknik_blok}
         <h3>Piyasa bazında öne çıkanlar</h3>
         {piyasa_html}"""
 
-    backtest_html = _backtest_html(tahsis.rejim.rejim)
+    backtest_html = _backtest_html(
+        tahsis.rejim.rejim, profil, bugun_agirliklar=tahsis.agirliklar
+    )
 
     kaynak_rows = ""
     vk = veri_kalite_olustur(snap)
@@ -475,6 +521,23 @@ def rapor_html_olustur(
         profil_notlari = "<ul>" + "".join(
             f"<li>{_esc(n)}</li>" for n in tahsis.profil_notlari
         ) + "</ul>"
+
+    girdi_html = ""
+    girdi_uyar = girdi_rapor_uyarilari(snap)
+    if girdi_uyar or getattr(snap, "rejim_donduruldu", False):
+        gd = getattr(snap, "girdi_dogrulama", None)
+        bekleyen = ", ".join(gd.onay_bekleyen) if gd else "—"
+        kutu = ""
+        if getattr(snap, "rejim_donduruldu", False):
+            kutu = (
+                f'<div class="ozet-kutu tl-onerilmiyor"><strong>Girdi sıçraması — rejim donduruldu</strong>'
+                f"<p>Onay bekleyen: {_esc(bekleyen)}. Rejim hesabında önceki değer kullanılıyor.</p></div>"
+            )
+        liste = "".join(f"<li>{_esc(_md_strip(u))}</li>" for u in girdi_uyar)
+        girdi_html = f"""
+        <h2>Girdi Doğrulama (Faz 1)</h2>
+        {kutu}
+        <ul>{liste}</ul>"""
 
     rezerv = (
         "Artıyor" if v.rezerv_artiyor
@@ -530,6 +593,7 @@ td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
     <p>{_esc(_md_strip(danisman.rejim_yorumu)[:600])}</p>
 </div>
 {profil_notlari}
+{girdi_html}
 
 <h2>Piyasa Verileri (Canlı)</h2>
 <table>
@@ -606,12 +670,15 @@ def rapor_paketi_olustur(
     tl_durum: Optional[TlDurumOzeti] = None,
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
+    tl_mevduat_tutar_tl: Optional[float] = None,
 ) -> dict:
     html_out = rapor_html_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
+        tl_mevduat_tutar_tl=tl_mevduat_tutar_tl,
     )
     pdf_out = rapor_pdf_direkt_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
+        tl_mevduat_tutar_tl=tl_mevduat_tutar_tl,
     )
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     return {

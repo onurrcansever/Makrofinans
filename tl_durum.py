@@ -162,6 +162,26 @@ def tl_durum_olustur(
             alternatif="Kademeli giriş; rejim değişirse TL payı otomatik düşer.",
         )
 
+    if reel_mevduat > 0 and w >= 1:
+        nedenler.append(
+            f"Reel getiri pozitif (**{reel_mevduat:+.1f} pp**) — mevduat enflasyonu yeniyor; "
+            f"ancak makro rejim (**{tahsis.rejim.etiket}**), 4 kapı tavanı (**%{tavan:.0f}**) "
+            f"veya profil nedeniyle TL payı **%{w:.1f}** ile sınırlı (taktik dilim)."
+        )
+        if tahsis.tl_reel_sinirlandi:
+            nedenler.append(
+                "Not: reel negatif kısıt devrede değil; düşük pay makro tahsis kararından."
+            )
+        return TlDurumOzeti(
+            durum="SINIRLI",
+            baslik="TL minimal — reel pozitif ama tam tahsis verilmiyor",
+            agirlik_pct=w,
+            tavan_pct=tavan,
+            rejim=rejim,
+            nedenler=nedenler,
+            alternatif="Küçük TL dilimi mevduat; ana para EUR/altın. Kur riski devam eder.",
+        )
+
     return TlDurumOzeti(
         durum="SINIRLI",
         baslik="TL mevduat minimal — makro nötr veya zayıf sinyal",

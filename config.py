@@ -13,7 +13,7 @@ raporu üretir. Nihai kararı her zaman siz verirsiniz.
 """
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     from dotenv import load_dotenv
@@ -193,9 +193,10 @@ TCMB_POLITIKA_SERI_KODU = "1_HAFTA_REPO"  # EVDS TP.APIFON4 politika faizi deği
 # ------------------------------------------------------------------
 # Faz 2 — Rejim histerezis ve geçiş bölgesi
 # ------------------------------------------------------------------
-REJIM_ESIK_MARJ = float(os.getenv("REJIM_ESIK_MARJ", "0.05"))
+REJIM_ESIK_MARJ = float(os.getenv("REJIM_ESIK_MARJ", "0.025"))
 REJIM_HISTEREZIS_TEYIT = int(os.getenv("REJIM_HISTEREZIS_TEYIT", "2"))
-REJIM_GECIS_CDS_ESIKLERI: List[float] = [250.0, 280.0, 300.0, 400.0]
+# Yalnızca belirsiz geçişler — 250/400 gibi sert eşikler ham rejimde kalır
+REJIM_GECIS_CDS_ESIKLERI: List[float] = [280.0, 300.0]
 REJIM_GECIS_VIX_ESIK = float(os.getenv("REJIM_GECIS_VIX_ESIK", "16"))
 
 # ------------------------------------------------------------------
@@ -219,6 +220,23 @@ TL_STOPAJ_TABLOSU: List[Tuple[int, float]] = [
 DOVIZ_STOPAJ_ORANI = float(os.getenv("DOVIZ_STOPAJ", "0.25"))
 TMSF_SIGORTA_LIMITI_TL = float(os.getenv("TMSF_SIGORTA_LIMITI_TL", "650000"))
 BACKTEST_REJIM_MIN_ORAN = float(os.getenv("BACKTEST_REJIM_MIN_ORAN", "10"))
+BACKTEST_UYARI_SHARPE_FARK = float(os.getenv("BACKTEST_UYARI_SHARPE_FARK", "0.25"))
+
+# Profil bazlı pasif referans — dinamik katmanla karşılaştırma (rejim değiştirmez)
+STATIK_REFERANS_AGIRLIKLARI: Dict[str, Dict[str, float]] = {
+    "dusuk": {
+        "eur_cash": 0.45, "usd_cash": 0.15, "gold": 0.28, "tl_deposit": 0.05,
+        "silver": 0.02, "bist": 0.03, "crypto": 0.0,
+    },
+    "orta": {
+        "eur_cash": 0.35, "usd_cash": 0.12, "gold": 0.28, "tl_deposit": 0.08,
+        "silver": 0.05, "bist": 0.07, "crypto": 0.05,
+    },
+    "yuksek": {
+        "eur_cash": 0.25, "usd_cash": 0.12, "gold": 0.22, "tl_deposit": 0.10,
+        "silver": 0.08, "bist": 0.15, "crypto": 0.08,
+    },
+}
 
 # Kripto yalnızca RISK_ON + yeterli skor iken tahsis edilir (0 aksi halde)
 KRIPTO_MIN_SKOR = float(os.getenv("KRIPTO_MIN_SKOR", "55"))
@@ -230,6 +248,31 @@ TL_REEL_NEGATIF_MAX_ORAN = float(os.getenv("TL_REEL_NEGATIF_MAX", "0.05"))
 TL_REEL_COK_NEGATIF_ESIK = float(os.getenv("TL_REEL_COK_NEGATIF_ESIK", "-2"))
 TL_REEL_COK_NEGATIF_MAX_ORAN = float(os.getenv("TL_REEL_COK_NEGATIF_MAX", "0.02"))
 TL_REEL_SKOR_TAVAN_NEGATIF = float(os.getenv("TL_REEL_SKOR_TAVAN", "45"))
+
+# TL_FIRSAT dışı rejimlerde TL üst sınırı (makro skor–rejim tutarlılığı)
+TL_REJIM_DISI_MAX_ORAN = float(os.getenv("TL_REJIM_DISI_MAX", "0.12"))
+TL_REJIM_DISI_SKOR_TAVAN = float(os.getenv("TL_REJIM_DISI_SKOR", "58"))
+
+# Risk profiline göre TL üst sınırı — carry trade düşük riskte kısıtlı (rejim TL_FIRSAT değilken)
+TL_DUSUK_RISK_MAX_ORAN = float(os.getenv("TL_DUSUK_RISK_MAX", "0.05"))
+TL_DUSUK_RISK_FIRSAT_MAX = float(os.getenv("TL_DUSUK_RISK_FIRSAT_MAX", "0.10"))
+TL_ORTA_RISK_FIRSAT_MAX = float(os.getenv("TL_ORTA_RISK_FIRSAT_MAX", "0.22"))
+TL_YUKSEK_RISK_FIRSAT_MAX = float(os.getenv("TL_YUKSEK_RISK_FIRSAT_MAX", "0.32"))
+TL_YUKSEK_RISK_DISI_MAX = float(os.getenv("TL_YUKSEK_RISK_DISI_MAX", "0.15"))
+
+# Altın momentum düşüşünde tahsis/sinyal yumuşatma (son 3 ay %)
+ALTIN_MOMENTUM_ESIK = float(os.getenv("ALTIN_MOMENTUM_ESIK", "-8"))
+ALTIN_MOMENTUM_MAX_ORAN = float(os.getenv("ALTIN_MOMENTUM_MAX", "0.18"))
+ALTIN_MOMENTUM_SKOR_TAVAN = float(os.getenv("ALTIN_MOMENTUM_SKOR", "55"))
+
+# Hisse taraması — AL adayı yokken kanonik tablo üst sınırı
+TARAMA_KANONIK_MAX_SATIR = int(os.getenv("TARAMA_KANONIK_MAX", "15"))
+
+# Vade sonu net tutar simülasyonu — boş/0 ise portföyün önerilen TL dilimi kullanılır
+_tl_mevduat_tutar_raw = os.getenv("TL_MEVDUAT_TUTAR_TL", "").strip()
+TL_MEVDUAT_TUTAR_TL: Optional[float] = (
+    float(_tl_mevduat_tutar_raw) if _tl_mevduat_tutar_raw else None
+)
 
 # ------------------------------------------------------------------
 # Faz 7 — Temel skor (ETF/hisse) ve bileşik karar

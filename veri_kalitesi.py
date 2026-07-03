@@ -240,6 +240,23 @@ def veri_kalite_olustur(snap: MacroSnapshot) -> VeriKaliteRaporu:
     if proxy >= 3:
         uyarilar.append(f"{proxy} gösterge model/yedek kaynaklı — manuel teyit önerilir.")
 
+    gd = getattr(snap, "girdi_dogrulama", None)
+    if gd:
+        from girdi_dogrulama import girdi_rapor_uyarilari
+        for u in girdi_rapor_uyarilari(snap):
+            if u not in uyarilar:
+                uyarilar.append(u)
+        gs_cds = gd.gostergeler.get("cds")
+        if gs_cds and gs_cds.durum == "ONAY_BEKLIYOR" and gs_cds.onceki is not None:
+            for g in gostergeler:
+                if g.anahtar == "cds":
+                    g.uyari = (
+                        f"Onay bekliyor — rejimde {gs_cds.onceki:.0f} bp, "
+                        f"canlı {gs_cds.deger:.0f} bp"
+                    )
+                    g.kalite_etiket = "Onay bekliyor"
+                    break
+
     ozet = (
         f"Veri kalitesi: {genel_skor:.0f}/100 ({duzey}) · "
         f"{sum(1 for g in gostergeler if g.kalite == 'CANLI')} canlı, "

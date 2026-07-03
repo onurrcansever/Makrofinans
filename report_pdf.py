@@ -20,7 +20,7 @@ from stock_scanner import SINYAL_ETIKET, TaramaSonucu
 from stock_universe import SEKTOR_ETIKET
 from tl_durum import TlDurumOzeti
 from veri_kalitesi import VeriKaliteRaporu, veri_kalite_olustur
-from backtest import backtest_calistir, backtest_metrikleri
+from backtest import backtest_calistir, backtest_karsilastirma_uret
 from scenario_analysis import senaryo_analizi_uret
 from alim_uygunluk import alim_aksiyon_hucre
 
@@ -266,6 +266,25 @@ def _tablo_hisse_ozet(
     doc.tablo(baslik, rows, font_boyut=font, satir_yuk=3.6, col_w=[w * c for c in cols])
 
 
+def _girdi_dogrulama_bolumu(doc: "RaporPDF", snap: MacroSnapshot) -> None:
+    from girdi_dogrulama import girdi_rapor_uyarilari
+
+    uyarilar = girdi_rapor_uyarilari(snap)
+    if not uyarilar and not getattr(snap, "rejim_donduruldu", False):
+        return
+    doc.bolum("Girdi Doğrulama (Faz 1)")
+    if getattr(snap, "rejim_donduruldu", False):
+        gd = getattr(snap, "girdi_dogrulama", None)
+        bekleyen = ", ".join(gd.onay_bekleyen) if gd else "—"
+        doc.kutu(
+            "Makro rejim donduruldu — girdi sıçraması",
+            f"Onay bekleyen göstergeler: {bekleyen}. "
+            f"Rejim hesabında önceki değer kullanılıyor; ikinci ardışık okumada teyit edilir.",
+        )
+    for u in uyarilar:
+        doc.madde(_temiz(u, 200))
+
+
 def _veri_kalite_bolumu(doc: "RaporPDF", vk: VeriKaliteRaporu) -> None:
     doc.bolum("Veri Kalitesi & Kaynak Şeffaflığı")
     doc.kutu(f"Genel skor: {vk.genel_skor:.0f}/100 ({vk.genel_duzey})", vk.ozet)
@@ -338,97 +357,111 @@ def _kanonik_aday_tablo(doc: "RaporPDF", hisseler: list) -> None:
 def _backtest_bolumu(
     doc: "RaporPDF",
     rejim: str,
+    profil: YatirimProfili,
     ay: int = 12,
     sabit_agirliklar: Optional[dict] = None,
 ) -> None:
     try:
-        satirlar = backtest_calistir(ay)
-        met = backtest_metrikleri(satirlar, rejim)
-        karsi = None
-        if sabit_agirliklar:
-            from backtest import backtest_karsi_olgusal_metrikleri
-            karsi = backtest_karsi_olgusal_metrikleri(satirlar, sabit_agirliklar)
+        satirlar = backtest_calistir(ay, profil=profil)
+        kars = backtest_karsilastirma_uret(
+            satirlar, rejim, bugun_agirliklar=sabit_agirliklar, profil=profil
+        )
     except Exception:
         return
-    if not met:
+    if not kars:
         return
+
+    met = kars.dinamik
+    karsi = kars.karsi_olgusal
+    ref = kars.referans_statik
     bilgi_amacli = (
         met.model_drift
         or (rejim and met.mevcut_rejim_oran_pct < config.BACKTEST_REJIM_MIN_ORAN)
     )
-    baslik = (
-        "Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)"
-        if bilgi_amacli
-        else "Backtest & Model İstikrarı"
+
+    doc.bolum("Backtest — Dinamik vs Statik Karşılaştırma")
+    if kars.dinamik_dezavantaj and kars.uyari_mesaji:
+        doc.kutu("⚠ Dinamik katman uyarısı", _temiz(kars.uyari_mesaji, 420))
+
+    doc.paragraf(_temiz(kars.ozet.replace("**", ""), 420))
+
+    def _sh(m):
+        return f"{m.sharpe_yillik:.2f}" if m.sharpe_yillik is not None else "—"
+
+    w = doc._w()
+    basliklar = ["Metrik", "Dinamik rejim", f"Referans statik ({profil.risk})"]
+    if karsi:
+        basliklar.append("Bugünkü ağırlıklar")
+    satirlar_tab = [
+        ["Toplam getiri", f"{met.toplam_getiri_pct:+.1f}%", f"{ref.toplam_getiri_pct:+.1f}%"]
+        + ([f"{karsi.toplam_getiri_pct:+.1f}%"] if karsi else []),
+        ["Sharpe (yıllık)", _sh(met), _sh(ref)] + ([_sh(karsi)] if karsi else []),
+        ["Max drawdown", f"{met.max_drawdown_pct:.1f}%", f"{ref.max_drawdown_pct:.1f}%"]
+        + ([f"{karsi.max_drawdown_pct:.1f}%"] if karsi else []),
+        ["Volatilite", f"{met.volatilite_yillik_pct:.1f}%", f"{ref.volatilite_yillik_pct:.1f}%"]
+        + ([f"{karsi.volatilite_yillik_pct:.1f}%"] if karsi else []),
+    ]
+    col_n = len(basliklar)
+    doc.paragraf(
+        "Üç yollu simülasyon: her ay rejime göre yeniden tahsis (dinamik) · "
+        "profil bazlı pasif referans · bugünkü ağırlıklar sabit (karşı-olgusal)."
     )
-    doc.bolum(baslik)
+    doc.tablo(
+        basliklar,
+        satirlar_tab,
+        font_boyut=7,
+        satir_yuk=4,
+        col_w=[w / col_n] * col_n,
+    )
+
+    if kars.en_iyi_strateji != "Dinamik rejim":
+        doc.madde(
+            _temiz(
+                f"Son {ay} ayda en iyi sonuç: **{kars.en_iyi_strateji}** — "
+                "dinamik rejim katmanı otomatik tahsis emri olarak kullanılmamalı.",
+                200,
+            )
+        )
+
+    if kars.rejim_dagilimi:
+        doc.paragraf("Rejim dağılımı (simülasyon dönemi):")
+        rej_rows = [
+            [r.replace("_", " "), f"%{p:.0f}"]
+            for r, p in kars.rejim_dagilimi.items()
+        ]
+        doc.tablo(
+            ["Rejim", "Süre"],
+            rej_rows,
+            font_boyut=7,
+            satir_yuk=3.5,
+            col_w=[w * 0.55, w * 0.45],
+        )
+        if kars.belirsiz_oran_pct >= 30:
+            doc.madde(
+                _temiz(
+                    f"BELIRSIZ oranı %{kars.belirsiz_oran_pct:.0f} — "
+                    "rejim sınıflandırması ayırt edici değil; statik referansa öncelik verin.",
+                    180,
+                )
+            )
+
     if bilgi_amacli:
         if met.drift_mesaji:
             doc.madde(_temiz(met.drift_mesaji, 160))
         elif rejim:
             doc.madde(
                 _temiz(
-                    f"Mevcut rejim ({rejim}) backtest döneminde "
-                    f"yalnızca %{met.mevcut_rejim_oran_pct:.0f} görüldü — "
-                    "Sharpe/getiri özeti gizlendi.",
-                    160,
+                    f"Mevcut rejim ({rejim}) simülasyonda yalnızca "
+                    f"%{met.mevcut_rejim_oran_pct:.0f} görüldü — metrikler sınırlı güvenilirlikte.",
+                    180,
                 )
             )
-    else:
-        sharpe = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
-        doc.kutu(
-            f"Son {ay} ay simülasyon · Sharpe {sharpe}",
-            _temiz(
-                f"Toplam getiri {met.toplam_getiri_pct:+.1f}% · Max drawdown {met.max_drawdown_pct:.1f}% · "
-                f"Volatilite (yıllık) {met.volatilite_yillik_pct:.1f}% · "
-                f"Rejim değişimi {met.rejim_degisim_sayisi} · "
-                f"En sık rejim: {met.en_sik_rejim.replace('_', ' ')}",
-                350,
-            ),
-        )
-        if rejim:
-            doc.madde(
-                _temiz(
-                    f"Mevcut rejim ({rejim}) backtest döneminde "
-                    f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü.",
-                    160,
-                )
-            )
-
-    if karsi and not bilgi_amacli:
-        sharpe_k = f"{karsi.sharpe_yillik:.2f}" if karsi.sharpe_yillik is not None else "—"
-        sharpe_g = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
-        w = doc._w()
-        doc.paragraf("Geçmiş simülasyon vs karşı-olgusal (bugünkü ağırlıklar sabit):")
-        doc.tablo(
-            ["Metrik", "Dinamik rejim", "Karşı-olgusal"],
-            [
-                ["Toplam getiri", f"{met.toplam_getiri_pct:+.1f}%", f"{karsi.toplam_getiri_pct:+.1f}%"],
-                ["Sharpe", sharpe_g, sharpe_k],
-                ["Max drawdown", f"{met.max_drawdown_pct:.1f}%", f"{karsi.max_drawdown_pct:.1f}%"],
-                ["Volatilite", f"{met.volatilite_yillik_pct:.1f}%", f"{karsi.volatilite_yillik_pct:.1f}%"],
-            ],
-            font_boyut=7,
-            satir_yuk=4,
-            col_w=[w * 0.40, w * 0.30, w * 0.30],
-        )
-    elif karsi and bilgi_amacli:
-        doc.paragraf(
-            _temiz(
-                f"Karşı-olgusal (bugünkü ağırlıklar sabit): getiri {karsi.toplam_getiri_pct:+.1f}%, "
-                f"max DD {karsi.max_drawdown_pct:.1f}%.",
-                200,
-            )
-        )
 
     for n in met.notlar[:2]:
         doc.madde(_temiz(n, 160))
-    if karsi:
-        for n in karsi.notlar[:1]:
-            doc.madde(_temiz(n, 160))
+    doc.madde(_temiz(ref.notlar[0], 160))
 
-    if satirlar and not bilgi_amacli:
-        w = doc._w()
+    if satirlar:
         rows = []
         for s in satirlar[-6:]:
             rows.append([
@@ -439,6 +472,7 @@ def _backtest_bolumu(
                 f"{s.agirliklar.get('tl_deposit', 0) * 100:.0f}%",
                 f"{s.agirliklar.get('bist', 0) * 100:.0f}%",
             ])
+        doc.paragraf(f"Son {min(6, len(satirlar))} ay tahsis geçmişi:")
         doc.tablo(
             ["Ay", "Rejim", "EUR/TRY", "Altın", "TL", "BIST"],
             rows,
@@ -501,17 +535,18 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         al_n = len(uygun_list)
         dikkat_n = len(sinirli_list)
         etf_n = len(etf_firsat)
+        trunc_not = ""
+        if al_n == 0 and len(kanonik) > config.TARAMA_KANONIK_MAX_SATIR:
+            trunc_not = (
+                f" AL adayı yok — tablo özet için {config.TARAMA_KANONIK_MAX_SATIR} satırla sınırlandı "
+                f"({len(kanonik)} aday tarandı)."
+            )
+            kanonik = kanonik[: config.TARAMA_KANONIK_MAX_SATIR]
         doc.paragraf(
             f"Kanonik alım adayları — AL: {al_n} · DİKKAT: {dikkat_n} · ETF: {etf_n} "
-            f"(aynı ISIN tek satır; detay aşağıdaki tabloda)"
+            f"(aynı ISIN tek satır).{trunc_not}"
         )
         _kanonik_aday_tablo(doc, kanonik)
-        ek_madde = 0
-        for h in kanonik:
-            ek = _madde_ek_bilgi(h)
-            if ek and ek_madde < 4:
-                doc.madde(_temiz(f"{_uygun_tablo_hucre(h)} · {h.ad}: {ek}", 180))
-                ek_madde += 1
     elif not kanonik:
         doc.paragraf(
             "Profil filtreli alım adayı yok — BEKLE veya makro tahsis (mevduat/altın/EUR) öncelikli."
@@ -760,6 +795,7 @@ def rapor_pdf_direkt_olustur(
     tl_durum: Optional[TlDurumOzeti] = None,
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
+    tl_mevduat_tutar_tl: Optional[float] = None,
 ) -> bytes:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     v = snap.veri
@@ -775,6 +811,8 @@ def rapor_pdf_direkt_olustur(
     doc.paragraf(_temiz(danisman.genel_ozet, 700))
     for n in (tahsis.profil_notlari or [])[:3]:
         doc.madde(_temiz(n, 160))
+
+    _girdi_dogrulama_bolumu(doc, snap)
 
     doc.bolum("Piyasa Verileri")
     rezerv = (
@@ -895,45 +933,38 @@ def rapor_pdf_direkt_olustur(
             mev_rows,
             col_w=[doc._w() * 0.28, doc._w() * 0.14, doc._w() * 0.14, doc._w() * 0.22, doc._w() * 0.22],
         )
-        from yapikredi_rates import stopaj_orani
+        from rates_tr import tl_vade_sonu_hesapla, tl_vade_sonu_rapor_metni, tmsf_uyari_satirlari
 
         profil_o = next((o for o in mevduat.oranlar if o.vade == mevduat.profil_vade), None)
         if profil_o and v.eur_try:
-            anapara_tl = config.TOPLAM_EUR * tahsis.agirliklar.get("tl_deposit", 0) * v.eur_try
             gun = profil_o.vade_gun or 365
-            stopaj = stopaj_orani(gun, "TL")
-            brut_faiz = anapara_tl * profil_o.brut_yillik * (gun / 365)
-            stopaj_tutar = brut_faiz * stopaj
-            net_tl = anapara_tl + brut_faiz - stopaj_tutar
-            net_eur = net_tl / v.eur_try
-            doc.paragraf(
-                _temiz(
-                    f"Vade sonu net tutar (anapara ~{anapara_tl:,.0f} TL, "
-                    f"stopaj %{stopaj*100:.0f} — {config.TL_STOPAJ_KAYNAK}): "
-                    f"brüt faiz +{brut_faiz:,.0f} TL, stopaj −{stopaj_tutar:,.0f} TL → "
-                    f"net {net_tl:,.0f} TL (~{net_eur:,.0f} EUR).",
-                    400,
-                )
+            tl_tutar = getattr(config, "TL_MEVDUAT_TUTAR_TL", None)
+            ozet = tl_vade_sonu_hesapla(
+                toplam_eur=toplam_eur,
+                tl_agirlik=tahsis.agirliklar.get("tl_deposit", 0),
+                eur_try=v.eur_try,
+                brut_yillik=profil_o.brut_yillik,
+                gun=gun,
+                manuel_anapara_tl=tl_mevduat_tutar_tl or tl_tutar,
             )
-            if anapara_tl > config.TMSF_SIGORTA_LIMITI_TL:
+            if ozet:
+                doc.paragraf(_temiz(tl_vade_sonu_rapor_metni(ozet), 480))
+                for tmsf in tmsf_uyari_satirlari(ozet.anapara_tl):
+                    doc.madde(_temiz(tmsf, 220))
                 doc.madde(
                     _temiz(
-                        f"TMSF sigorta limiti ({config.TMSF_SIGORTA_LIMITI_TL:,.0f} TL) aşılıyor — "
-                        f"tutarı birden fazla bankaya bölmek sigorta kapsamını genişletir.",
+                        "Vadeden önce bozmada faiz kaybı olur — acil fon bu tutarın dışında tutulmalı.",
                         160,
                     )
                 )
-            doc.madde(
-                _temiz(
-                    "Vadeden önce bozmada faiz kaybı olur — acil fon bu tutarın dışında tutulmalı.",
-                    160,
-                )
-            )
 
     if tarama and (tarama.endeksler or tarama.hisseler):
         _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
 
-    _senaryo_bolumu(doc, snap, tahsis, config.KALAN_GUN, tarama=tarama)
+    from investor_profile import profil_mevduat_vadesi
+
+    _, profil_vade_gun = profil_mevduat_vadesi(tahsis.profil or YatirimProfili())
+    _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama)
 
     doc.bolum("Varlık Bazlı Strateji Notları")
     for var in danisman.varliklar:
@@ -952,7 +983,7 @@ def rapor_pdf_direkt_olustur(
         for b in danisman.denetim.bulgular[:5]:
             doc.madde(_temiz(f"[{b.seviye}] {b.baslik}", 120))
 
-    _backtest_bolumu(doc, tahsis.rejim.rejim, sabit_agirliklar=tahsis.agirliklar)
+    _backtest_bolumu(doc, tahsis.rejim.rejim, profil, sabit_agirliklar=tahsis.agirliklar)
 
     doc.footer_disclaimer()
     return doc.bytes()

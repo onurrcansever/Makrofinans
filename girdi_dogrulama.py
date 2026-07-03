@@ -232,6 +232,24 @@ def rejim_icin_degerler(gd: GirdiDogrulamaSonucu) -> Dict[str, float]:
     return out
 
 
+def girdi_rapor_uyarilari(snap) -> List[str]:
+    """PDF/HTML için girdi doğrulama uyarıları (CDS sıçrama, onay bekliyor)."""
+    satirlar: List[str] = []
+    gd = getattr(snap, "girdi_dogrulama", None)
+    if not gd:
+        return satirlar
+    if gd.rejim_donduruldu:
+        bekleyen = ", ".join(gd.onay_bekleyen) or "—"
+        satirlar.append(
+            f"Girdi sıçraması — makro rejim donduruldu (onay bekleyen: {bekleyen}). "
+            f"İkinci ardışık okumada teyit edilir."
+        )
+    for gs in gd.gostergeler.values():
+        if gs.uyari and gs.durum in ("ONAY_BEKLIYOR", "SUPHELI"):
+            satirlar.append(gs.uyari.replace("**", ""))
+    return satirlar
+
+
 def snap_rejim_icin(snap):
     """Rejim hesabı için onay bekleyen girdilerde önceki değerleri uygula."""
     from copy import deepcopy

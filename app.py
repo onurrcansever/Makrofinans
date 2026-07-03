@@ -11,7 +11,7 @@ from typing import Optional
 import config
 from investor_profile import RISK_SECENEKLERI, VADE_SECENEKLERI, YatirimProfili, profil_mevduat_vadesi, vade_kisa_mi
 from allocation_engine import tahsis_hesapla, VARLIKLAR
-from backtest import backtest_calistir, backtest_metrikleri
+from backtest import backtest_calistir, backtest_karsilastirma_uret
 from veri_kalitesi import veri_kalite_olustur
 from macro_data import cache_gecmisi, canli_snapshot, demo_snapshot
 from notifier import portfoy_raporu_olustur
@@ -95,6 +95,13 @@ with st.sidebar:
     )
     mod = st.radio("Veri modu", ["Canlı veri", "Demo (senaryo)"], index=0)
     toplam = st.number_input("Toplam portföy (EUR)", value=float(config.TOPLAM_EUR), step=1000.0)
+    tl_mevduat_tutar = st.number_input(
+        "TL mevduat tutarı (TL, isteğe bağlı)",
+        value=float(config.TL_MEVDUAT_TUTAR_TL or 0),
+        min_value=0.0,
+        step=50000.0,
+        help="0 bırakırsanız vade sonu simülasyonu önerilen portföy TL dilimini kullanır.",
+    )
     trans = st.number_input("Tranş sayısı", value=int(config.TRANS_SAYISI), min_value=1)
     bt_ay = st.slider("Backtest ay sayısı", 6, 18, 12)
     st.divider()
@@ -122,6 +129,7 @@ with st.sidebar:
 
 config.TOPLAM_EUR = toplam
 config.TRANS_SAYISI = int(trans)
+tl_mevduat_arg = float(tl_mevduat_tutar) if tl_mevduat_tutar > 0 else None
 canli_mod = mod == "Canlı veri"
 
 if "son_yenileme_sayaci" not in st.session_state:
@@ -175,8 +183,9 @@ def mevduat_cek(enflasyon: float, profil_vade: str, eur_try: float, kalan_gun: i
 
 
 @st.cache_data(ttl=3600, show_spinner="Backtest hesaplanıyor…")
-def backtest_veri(ay: int):
-    return backtest_calistir(ay)
+def backtest_veri(ay: int, vade: str, risk: str):
+    from investor_profile import YatirimProfili
+    return backtest_calistir(ay, profil=YatirimProfili(risk=risk, vade=vade))
 
 
 def _tarama_param(profil: YatirimProfili) -> dict:
@@ -411,6 +420,7 @@ with st.sidebar:
                     st.session_state.tarama_son = tarama_rapor
                 st.session_state.son_rapor = rapor_paketi_olustur(
                     snap, tahsis, profil, danisman, mevduat_ozet, tl_durum, toplam, tarama_rapor,
+                    tl_mevduat_tutar_tl=tl_mevduat_arg,
                 )
             st.session_state.rapor_hata = None
             st.toast("PDF rapor hazır — indirin", icon="✅")
@@ -453,6 +463,7 @@ with hdr_sag:
                     st.session_state.tarama_son = tarama_rapor
                 st.session_state.son_rapor = rapor_paketi_olustur(
                     snap, tahsis, profil, danisman, mevduat_ozet, tl_durum, toplam, tarama_rapor,
+                    tl_mevduat_tutar_tl=tl_mevduat_arg,
                 )
             st.session_state.rapor_hata = None
             st.toast("PDF rapor hazır", icon="✅")
@@ -806,27 +817,90 @@ elif sayfa == "Hisse & Endeks Taraması":
 
 # ══════════════════════════════════════════════════════════════
 elif sayfa == "Backtest":
-    st.header("Geçmiş Rejim Simülasyonu")
-    st.caption("CDS/enflasyon yaklaşık tablodan — yön analizi ve model drift kontrolü.")
-    bt = backtest_veri(bt_ay)
+    st.header("Backtest — Dinamik vs Statik")
+    st.caption(
+        "CDS/enflasyon yaklaşık tablodan — kesin getiri iddiası değil. "
+        "Dinamik rejim katmanının statik referansa karşı performansını test eder."
+    )
+    bt = backtest_veri(bt_ay, profil.vade, profil.risk)
     if bt:
-        met = backtest_metrikleri(bt, tahsis.rejim.rejim)
-        if met:
-            m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Sim. getiri", f"{met.toplam_getiri_pct:+.1f}%")
-            m2.metric("Max drawdown", f"{met.max_drawdown_pct:.1f}%")
-            m3.metric("Sharpe (yıllık)", f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—")
-            m4.metric("Rejim değişimi", met.rejim_degisim_sayisi)
-            m5.metric("En sık rejim", met.en_sik_rejim.replace("_", " "))
-            if met.model_drift:
-                st.error(met.drift_mesaji)
-            else:
-                st.caption(
-                    f"Mevcut rejim ({tahsis.rejim.rejim}) backtest'te "
-                    f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü — drift yok."
+        kars = backtest_karsilastirma_uret(
+            bt, tahsis.rejim.rejim, bugun_agirliklar=tahsis.agirliklar, profil=profil
+        )
+        if kars:
+            if kars.dinamik_dezavantaj:
+                st.error(kars.uyari_mesaji)
+            st.info(kars.ozet.replace("**", ""))
+
+            met = kars.dinamik
+            ref = kars.referans_statik
+            karsi = kars.karsi_olgusal
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(
+                    "Dinamik Sharpe",
+                    f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—",
+                    f"getiri {met.toplam_getiri_pct:+.1f}%",
                 )
-            for n in met.notlar:
+            with c2:
+                st.metric(
+                    "Referans statik Sharpe",
+                    f"{ref.sharpe_yillik:.2f}" if ref.sharpe_yillik is not None else "—",
+                    f"getiri {ref.toplam_getiri_pct:+.1f}%",
+                    delta_color="normal" if kars.en_iyi_strateji == "Referans statik" else "off",
+                )
+            with c3:
+                if karsi:
+                    st.metric(
+                        "Bugünkü ağırlıklar (sabit)",
+                        f"{karsi.sharpe_yillik:.2f}" if karsi.sharpe_yillik is not None else "—",
+                        f"getiri {karsi.toplam_getiri_pct:+.1f}%",
+                    )
+                else:
+                    st.metric("En iyi strateji", kars.en_iyi_strateji)
+
+            cmp_rows = [
+                {
+                    "Metrik": "Sharpe",
+                    "Dinamik": met.sharpe_yillik,
+                    "Referans statik": ref.sharpe_yillik,
+                    "Bugünkü sabit": karsi.sharpe_yillik if karsi else None,
+                },
+                {
+                    "Metrik": "Getiri %",
+                    "Dinamik": met.toplam_getiri_pct,
+                    "Referans statik": ref.toplam_getiri_pct,
+                    "Bugünkü sabit": karsi.toplam_getiri_pct if karsi else None,
+                },
+                {
+                    "Metrik": "Max DD %",
+                    "Dinamik": met.max_drawdown_pct,
+                    "Referans statik": ref.max_drawdown_pct,
+                    "Bugünkü sabit": karsi.max_drawdown_pct if karsi else None,
+                },
+            ]
+            st.dataframe(pd.DataFrame(cmp_rows), use_container_width=True, hide_index=True)
+
+            if kars.rejim_dagilimi:
+                st.subheader("Rejim dağılımı")
+                rej_df = pd.DataFrame([
+                    {"Rejim": r.replace("_", " "), "Süre %": p}
+                    for r, p in kars.rejim_dagilimi.items()
+                ])
+                st.bar_chart(rej_df.set_index("Rejim"))
+                if kars.belirsiz_oran_pct >= 30:
+                    st.warning(
+                        f"BELIRSIZ oranı %{kars.belirsiz_oran_pct:.0f} — "
+                        "dinamik katman ayırt edici değil."
+                    )
+
+            if met.model_drift:
+                st.warning(met.drift_mesaji)
+
+            for n in met.notlar + ref.notlar[:1]:
                 st.caption(f"ℹ️ {n}")
+
         bt_df = pd.DataFrame([{
             "Ay": s.tarih, "Rejim": s.rejim_etiket, "EUR/TRY": s.eur_try,
             "CDS": s.cds, "Öncelik": s.oncelikli_varlik,
@@ -834,6 +908,7 @@ elif sayfa == "Backtest":
             "TL %": round(s.agirliklar.get("tl_deposit", 0) * 100, 1),
             "BIST %": round(s.agirliklar.get("bist", 0) * 100, 1),
         } for s in bt])
+        st.subheader("Aylık tahsis geçmişi")
         st.dataframe(bt_df, use_container_width=True, hide_index=True)
         st.line_chart(bt_df.set_index("Ay")[["Altın %", "TL %", "BIST %"]])
     else:

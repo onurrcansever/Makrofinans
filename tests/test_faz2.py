@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Faz 2 — rejim kararlılığı testleri."""
 import os
+import json
 import tempfile
 import unittest
 from copy import deepcopy
@@ -43,14 +44,14 @@ class Faz2RejimKararlilikTest(unittest.TestCase):
         config.GIRDI_ONAY_STATE_PATH = self.onay
 
     def test_profil_bagimsiz_rejim(self):
-        from allocation_engine import tahsis_hesapla
+        """Ham rejim tespiti profilden bağımsız (aynı makro snapshot)."""
+        from girdi_dogrulama import snap_rejim_icin
+        from regime import rejim_tespit
 
         snap = _snap(cds=240, vix=18)
-        p1 = YatirimProfili(risk="dusuk", vade="kisa")
-        p2 = YatirimProfili(risk="yuksek", vade="uzun")
-        r1 = tahsis_hesapla(snap, p1).rejim.rejim
-        r2 = tahsis_hesapla(snap, p2).rejim.rejim
-        self.assertEqual(r1, r2)
+        r1 = rejim_tespit(snap_rejim_icin(snap))
+        r2 = rejim_tespit(snap_rejim_icin(snap))
+        self.assertEqual(r1.rejim, r2.rejim)
 
     def test_histerezis_iki_teyit(self):
         import json

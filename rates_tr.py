@@ -45,6 +45,115 @@ class MevduatKarsilastirma:
     getiri_notu: str = ""
 
 
+@dataclass
+class TlVadeSonuOzeti:
+    """Vade sonu net tutar simülasyonu — taban açıkça portföy dilimi veya manuel tutar."""
+    taban: str  # portfoy_dilimi | manuel
+    toplam_eur: float
+    tl_agirlik: float
+    tl_dilim_eur: float
+    kur: float
+    anapara_tl: float
+    gun: int
+    brut_oran: float
+    stopaj_orani: float
+    brut_faiz: float
+    stopaj_tutar: float
+    net_tl: float
+    net_eur: float
+
+
+def tl_vade_sonu_hesapla(
+    toplam_eur: float,
+    tl_agirlik: float,
+    eur_try: float,
+    brut_yillik: float,
+    gun: int,
+    manuel_anapara_tl: Optional[float] = None,
+) -> Optional[TlVadeSonuOzeti]:
+    """
+    Vade sonu net tutar simülasyonu.
+    manuel_anapara_tl verilirse portföy dilimi yerine o tutar kullanılır.
+    """
+    if not eur_try or eur_try <= 0 or gun <= 0:
+        return None
+
+    if manuel_anapara_tl is not None and manuel_anapara_tl > 0:
+        taban = "manuel"
+        anapara_tl = float(manuel_anapara_tl)
+        tl_dilim_eur = anapara_tl / eur_try
+        tl_agirlik_eff = tl_dilim_eur / toplam_eur if toplam_eur > 0 else 0.0
+    else:
+        taban = "portfoy_dilimi"
+        tl_dilim_eur = toplam_eur * tl_agirlik
+        anapara_tl = tl_dilim_eur * eur_try
+        tl_agirlik_eff = tl_agirlik
+
+    if anapara_tl <= 0:
+        return None
+
+    stopaj = stopaj_orani(gun, "TL")
+    brut_faiz = anapara_tl * brut_yillik * (gun / 365)
+    stopaj_tutar = brut_faiz * stopaj
+    net_tl = anapara_tl + brut_faiz - stopaj_tutar
+
+    return TlVadeSonuOzeti(
+        taban=taban,
+        toplam_eur=toplam_eur,
+        tl_agirlik=tl_agirlik_eff,
+        tl_dilim_eur=tl_dilim_eur,
+        kur=eur_try,
+        anapara_tl=anapara_tl,
+        gun=gun,
+        brut_oran=brut_yillik,
+        stopaj_orani=stopaj,
+        brut_faiz=brut_faiz,
+        stopaj_tutar=stopaj_tutar,
+        net_tl=net_tl,
+        net_eur=net_tl / eur_try,
+    )
+
+
+def tmsf_uyari_satirlari(anapara_tl: float) -> List[str]:
+    """TMSF sigorta limiti — aşım uyarısı veya bilgi notu."""
+    limit = config.TMSF_SIGORTA_LIMITI_TL
+    if anapara_tl <= 0:
+        return []
+    if anapara_tl > limit:
+        return [
+            f"TMSF sigorta limiti ({limit:,.0f} TL) aşılıyor — "
+            f"mevduat tutarı ~{anapara_tl:,.0f} TL. "
+            f"Tutarı birden fazla bankaya bölmek sigorta kapsamını genişletir."
+        ]
+    return [
+        f"TMSF bilgi: mevduat tutarı ~{anapara_tl:,.0f} TL — "
+        f"bireysel sigorta limiti {limit:,.0f} TL altında."
+    ]
+
+
+def tl_vade_sonu_rapor_metni(ozet: TlVadeSonuOzeti) -> str:
+    """PDF/HTML için şeffaf vade sonu net tutar açıklaması."""
+    if ozet.taban == "manuel":
+        taban = (
+            f"Taban: **sizin girdiğiniz mevduat tutarı** "
+            f"(~{ozet.anapara_tl:,.0f} TL ≈ {ozet.tl_dilim_eur:,.0f} EUR @ {ozet.kur:.2f})."
+        )
+    else:
+        portfoy_tl = ozet.toplam_eur * ozet.kur
+        taban = (
+            f"Taban: **önerilen TL mevduat dilimi** — portföyün tamamı değil "
+            f"({ozet.toplam_eur:,.0f} EUR × %{ozet.tl_agirlik * 100:.1f} = "
+            f"{ozet.tl_dilim_eur:,.0f} EUR → ~{ozet.anapara_tl:,.0f} TL @ {ozet.kur:.2f}; "
+            f"tüm portföy ~{portfoy_tl:,.0f} TL)."
+        )
+    return (
+        f"Vade sonu net tutar simülasyonu — {taban} "
+        f"Stopaj %{ozet.stopaj_orani * 100:.0f} ({config.TL_STOPAJ_KAYNAK}): "
+        f"brüt faiz +{ozet.brut_faiz:,.0f} TL, stopaj −{ozet.stopaj_tutar:,.0f} TL → "
+        f"vade sonu ~{ozet.net_tl:,.0f} TL (~{ozet.net_eur:,.0f} EUR)."
+    )
+
+
 def _eur_bazli_tahmini(net_yillik_pct: float, tl_enflasyon: float) -> float:
     """Reel kur sabit varsayımı: TL'nin EUR karşısında enflasyon farkı kadar zayıfladığı senaryo."""
     return net_yillik_pct - (tl_enflasyon - config.EUR_ENFLASYON_VARSAYILAN)

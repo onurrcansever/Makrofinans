@@ -39,7 +39,7 @@ class Faz5BacktestTest(unittest.TestCase):
     def test_karsi_olgusal_uretilir(self):
         sat = _satirlar()
         w = {"eur_cash": 0.5, "gold": 0.3, "tl_deposit": 0.2}
-        k = backtest_karsi_olgusal_metrikleri(sat, w)
+        k = backtest_karsi_olgusal_metrikleri(sat, w, etiket="Test")
         self.assertIsNotNone(k)
         self.assertEqual(k.en_sik_rejim, "SABIT")
         self.assertIsNotNone(k.toplam_getiri_pct)

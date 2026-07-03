@@ -285,14 +285,24 @@ def denetim_calistir(
         ))
 
     if rejim != "TL_FIRSAT" and tl_v and tl_v.sinyal == "GUCLU_AL":
-        _ekle(bulgular, DenetimBulgusu(
-            "UYARI", "rejim",
-            "Güçlü TL sinyali ama rejim TL fırsat değil",
-            f"Rejim: **{tahsis.rejim.etiket}**.",
-            f"TL kartı: **Güçlü alım** (%{tl_v.agirlik_pct:.0f}).",
-            "TL ağırlığı makro skordan geliyor; rejim etiketi ile çelişiyor gibi görünebilir — dikkatli olun.",
-            "tl_deposit",
-        ))
+        if tahsis.tl_rejim_sinirlandi or tahsis.tl_risk_sinirlandi:
+            _ekle(bulgular, DenetimBulgusu(
+                "BILGI", "rejim",
+                "TL otomatik sınırlandı (rejim/risk)",
+                f"Rejim: **{tahsis.rejim.etiket}**.",
+                f"TL payı **%{tl_v.agirlik_pct:.0f}** — rejim veya risk tavanı uygulandı.",
+                "Carry trade faiz avantajı risk toleransının üstüne çıkmadı.",
+                "tl_deposit",
+            ))
+        else:
+            _ekle(bulgular, DenetimBulgusu(
+                "UYARI", "rejim",
+                "Güçlü TL sinyali ama rejim TL fırsat değil",
+                f"Rejim: **{tahsis.rejim.etiket}**.",
+                f"TL kartı: **Güçlü alım** (%{tl_v.agirlik_pct:.0f}).",
+                "TL ağırlığı makro skordan geliyor; rejim etiketi ile çelişiyor gibi görünebilir — dikkatli olun.",
+                "tl_deposit",
+            ))
 
     bist_v = _varlik_bul(varliklar, "bist")
     if rejim in ("KRIZ", "EM_STRES") and bist_v and bist_v.sinyal in ("GUCLU_AL", "AL"):

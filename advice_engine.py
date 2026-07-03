@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 import config
-from allocation_engine import TahsisSonucu, VARLIKLAR
+from allocation_engine import TahsisSonucu, VARLIKLAR, tl_profil_risk_tavan
 from investor_profile import VADE_SECENEKLERI, YatirimProfili, vade_kisa_mi
 from macro_data import MacroSnapshot
 from market_context import MakroBaglam, makro_baglam_olustur
@@ -101,6 +101,18 @@ def _altin_aciklama(snap, tahsis, profil, baglam: Optional[MakroBaglam]) -> Varl
 
     if profil.risk == "dusuk":
         nedenler.append("Düşük risk profilinizle uyumlu: fiziki/hesap altın volatil hisseye göre daha öngörülebilir.")
+
+    altin_3m = snap.altin_3m_degisim
+    if altin_3m is not None and altin_3m < config.ALTIN_MOMENTUM_ESIK:
+        dikkat.append(
+            f"Son 3 ay **{altin_3m:+.1f}%** — momentum zayıf; "
+            "tahsis koruma amaçlı, **kademeli alım** uygun."
+        )
+        if sig == "GUCLU_AL":
+            sig, lbl = "AL", "Alım önerisi"
+        elif sig == "AL" and w >= 0.15:
+            sig, lbl = "TUT", "Tutun / kademeli"
+            ok, renk = "→", "sari"
 
     if w < 0.05:
         dikkat.append("Mevcut makro ve profil kombinasyonunda altın ağırlığı düşük tutuldu.")
@@ -198,6 +210,16 @@ def _tl_aciklama(
         nedenler.append(
             "Reel getiri negatif — TL payı otomatik sınırlandı; fazla EUR/altın/USD'ye aktarıldı."
         )
+    if tahsis.tl_risk_sinirlandi:
+        nedenler.append(
+            f"**{profil.risk}** risk profili — kısa vadeli reel carry olsa bile "
+            f"TL kur riski sınırlı tutuldu (max %{tl_profil_risk_tavan(profil, tahsis.rejim.rejim)*100:.0f})."
+        )
+    if tahsis.tl_rejim_sinirlandi:
+        nedenler.append(
+            f"Rejim **{tahsis.rejim.etiket}** — TL_FIRSAT değil; "
+            f"TL payı %{config.TL_REJIM_DISI_MAX_ORAN*100:.0f} tavanı ile sınırlandı."
+        )
     if (snap.veri.cds_5y_bp or 300) > 300:
         dikkat.append(f"CDS {snap.veri.cds_5y_bp:.0f} bp yüksek — kur riski TL getirisini yiyebilir.")
     if tahsis.rejim.rejim == "KRIZ":
@@ -210,6 +232,15 @@ def _tl_aciklama(
             ok, renk = ("→", "sari") if sig == "TUT" else ("↘", "kirmizi")
         dikkat.append(
             f"Mevduat reel **{reel_mev:+.1f} pp** — enflasyon altında; güçlü alım uygun değil."
+        )
+
+    if tahsis.rejim.rejim != "TL_FIRSAT" and sig in ("GUCLU_AL", "AL"):
+        sig = "TUT" if w >= 0.05 else "AZALT"
+        lbl = "Tutun / kademeli" if sig == "TUT" else "Azaltın"
+        ok, renk = ("→", "sari") if sig == "TUT" else ("↘", "kirmizi")
+        dikkat.append(
+            f"Rejim **{tahsis.rejim.etiket}** — TL fırsat koşulları sağlanmıyor; "
+            "güçlü alım sinyali verilmedi."
         )
 
     reel_politika = (snap.veri.tcmb_politika_faizi or 37) - (snap.enflasyon_tr_yillik or 35)

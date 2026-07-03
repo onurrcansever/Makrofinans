@@ -49,6 +49,7 @@ class MacroSnapshot:
     eur_try_1g_degisim: Optional[float] = None
     vix_1g_degisim: Optional[float] = None
     altin_1g_degisim: Optional[float] = None
+    altin_3m_degisim: Optional[float] = None
     bist_vol_30g: Optional[float] = None
     bist_vol_1g_degisim: Optional[float] = None
     veri_kaynak: str = "canli"
@@ -304,6 +305,7 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
         "eur_try_1g_degisim": eur_try_1g,
         "vix_1g_degisim": vix_a["degisim_1g"],
         "altin_1g_degisim": altin_a["degisim_1g"],
+        "altin_3m_degisim": altin_a["degisim_pct"],
         "bist_vol_30g": bist["vol"],
         "bist_vol_1g_degisim": bist["vol_1g"],
     }, kaynak
@@ -342,7 +344,7 @@ def demo_snapshot() -> MacroSnapshot:
     altin = piyasa["altin_usd_oz"]
     gumus = piyasa["gumus_usd_oz"]
 
-    return MacroSnapshot(
+    snap = MacroSnapshot(
         veri=veri,
         altin_usd_oz=altin,
         gumus_usd_oz=gumus,
@@ -360,12 +362,36 @@ def demo_snapshot() -> MacroSnapshot:
         eur_try_1g_degisim=piyasa.get("eur_try_1g_degisim"),
         vix_1g_degisim=piyasa.get("vix_1g_degisim"),
         altin_1g_degisim=piyasa.get("altin_1g_degisim"),
+        altin_3m_degisim=piyasa.get("altin_3m_degisim"),
         bist_vol_30g=piyasa.get("bist_vol_30g"),
         bist_vol_1g_degisim=piyasa.get("bist_vol_1g_degisim"),
         veri_kaynak="demo",
         cekim_uyarilari=[],
         kaynak_haritasi=kaynak,
     )
+
+    from girdi_dogrulama import girdi_dogrulama_uygula
+
+    gd = girdi_dogrulama_uygula(
+        {
+            "cds": veri.cds_5y_bp,
+            "enflasyon": snap.enflasyon_tr_yillik,
+            "tcmb_faizi": veri.tcmb_politika_faizi,
+            "eur_try": veri.eur_try,
+            "altin_usd": altin,
+        }
+    )
+    snap.girdi_dogrulama = gd
+    snap.rejim_donduruldu = gd.rejim_donduruldu
+    if gd.uyarilar:
+        snap.cekim_uyarilari = list(gd.uyarilar)
+    for anahtar, gs in gd.gostergeler.items():
+        if gs.durum == "ONAY_BEKLIYOR":
+            kaynak[anahtar] = (kaynak.get(anahtar, "") + " [onay bekliyor]").strip()
+        elif gs.durum == "SUPHELI":
+            kaynak[anahtar] = (kaynak.get(anahtar, "") + " [SUPHELI]").strip()
+    snap.kaynak_haritasi = kaynak
+    return snap
 
 
 def canli_snapshot(taze: bool = True) -> MacroSnapshot:
@@ -450,6 +476,7 @@ def canli_snapshot(taze: bool = True) -> MacroSnapshot:
         eur_try_1g_degisim=piyasa.get("eur_try_1g_degisim"),
         vix_1g_degisim=piyasa.get("vix_1g_degisim"),
         altin_1g_degisim=piyasa.get("altin_1g_degisim"),
+        altin_3m_degisim=piyasa.get("altin_3m_degisim"),
         bist_vol_30g=piyasa.get("bist_vol_30g"),
         bist_vol_1g_degisim=piyasa.get("bist_vol_1g_degisim"),
         veri_kaynak="canli",

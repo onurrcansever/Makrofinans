@@ -38,14 +38,15 @@ def _kur_soku(
     tarama=None,
 ) -> SenaryoSatir:
     eur = snap.veri.eur_try or 35.0
-    net_tl, gun, _ = profil_mevduat_parametreleri(vade_gun, snap.veri.tl_mevduat_brut_faiz)
+    net_tl, gun, kaynak = profil_mevduat_parametreleri(vade_gun, snap.veri.tl_mevduat_brut_faiz)
     be = breakeven_eur_try(eur, net_tl, gun)
     carpan = float(getattr(config, "SENARYO_KUR_SOKU_CARPANI", 1.05))
     sok_kur = be * carpan
     tl_eur_zarar = -((sok_kur / be) - 1.0) * 100
     port_etki = _portfoy_eur_etkisi(tahsis, tl_eur_zarar)
     ozet = (
-        f"Kur vade sonunda başabaşın %{(carpan-1)*100:.0f} üzerine ({sok_kur:.2f}) çıkarsa: "
+        f"Profil vadesi ({gun} gün, {kaynak}) başabaş {be:.2f} TRY/EUR — "
+        f"vade sonunda kur %{(carpan-1)*100:.0f} üzerine ({sok_kur:.2f}) çıkarsa: "
         f"TL mevduat EUR bazlı ~%{tl_eur_zarar:.1f}, portföy toplam ~%{port_etki:.1f}."
     )
     etf_not = ""
@@ -67,6 +68,7 @@ def _kur_soku(
         ozet=ozet,
         tablo_baslik=["Gösterge", "Mevcut", "Senaryo"],
         tablo_satirlar=[
+            ["Profil vadesi (gün)", f"{gun}", f"{gun}"],
             ["EUR/TRY spot", f"{eur:.2f}", f"{eur:.2f}"],
             ["Başa baş kur", f"{be:.2f}", f"{be:.2f}"],
             ["Vade sonu kur", "—", f"{sok_kur:.2f}"],
@@ -77,19 +79,40 @@ def _kur_soku(
 
 
 def _cds_stresi(snap: MacroSnapshot, tahsis: TahsisSonucu, vade_gun: int) -> SenaryoSatir:
+    from allocation_engine import tahsis_hesapla
+
     cds_stres = float(getattr(config, "SENARYO_CDS_STRES_BP", 280))
     mevcut_cds = snap.veri.cds_5y_bp or 250
     mevcut_tavan = tahsis.tl_tavan_oran
+    mevcut_tl = tahsis.agirliklar.get("tl_deposit", 0)
     veri_stres = deepcopy(snap.veri)
     veri_stres.cds_5y_bp = cds_stres
     stres_karar = karar_ver(veri_stres, vade_gun=vade_gun)
     yeni_tavan = stres_karar.tavan_oran if stres_karar.kapi1_gecti else 0.0
-    hedef_tl = min(tahsis.agirliklar.get("tl_deposit", 0), yeni_tavan)
-    ozet = (
-        f"CDS {cds_stres:.0f} bp stresinde Kapı 2 tavanı %{mevcut_tavan*100:.0f}→"
-        f"%{yeni_tavan*100:.0f}; TL payı ~%{tahsis.agirliklar.get('tl_deposit',0)*100:.0f}→"
-        f"~%{hedef_tl*100:.0f} hedeflenir."
-    )
+
+    snap_stres = deepcopy(snap)
+    snap_stres.veri = veri_stres
+    profil = tahsis.profil
+    tahsis_stres = tahsis_hesapla(snap_stres, profil)
+    hedef_tl = tahsis_stres.agirliklar.get("tl_deposit", 0)
+    mevcut_eur = tahsis.agirliklar.get("eur_cash", 0)
+    stres_eur = tahsis_stres.agirliklar.get("eur_cash", 0)
+    eur_kayma = (stres_eur - mevcut_eur) * 100
+    tavan_baglayici = mevcut_tl >= mevcut_tavan - 0.008
+
+    if abs(hedef_tl - mevcut_tl) < 0.005:
+        ozet = (
+            f"CDS {cds_stres:.0f} bp stresinde tavan %{mevcut_tavan*100:.0f}→%{yeni_tavan*100:.0f}; "
+            f"TL payı %{mevcut_tl*100:.0f}→%{hedef_tl*100:.0f} — "
+            f"{'tavan zaten bağlayıcı değil' if not tavan_baglayici else 'skor etkisi sınırlı'}; "
+            f"EUR payı {eur_kayma:+.1f} pp kaydı (tam tahsis yeniden hesaplandı)."
+        )
+    else:
+        ozet = (
+            f"CDS {cds_stres:.0f} bp stresinde Kapı 2 tavanı %{mevcut_tavan*100:.0f}→"
+            f"%{yeni_tavan*100:.0f}; tam tahsis yeniden hesaplandı — "
+            f"TL payı ~%{mevcut_tl*100:.0f}→~%{hedef_tl*100:.0f}."
+        )
     return SenaryoSatir(
         ad="CDS stresi",
         ozet=ozet,
@@ -97,7 +120,9 @@ def _cds_stresi(snap: MacroSnapshot, tahsis: TahsisSonucu, vade_gun: int) -> Sen
         tablo_satirlar=[
             ["CDS (bp)", f"{mevcut_cds:.0f}", f"{cds_stres:.0f}"],
             ["TL tavan (4 kapı)", f"%{mevcut_tavan*100:.0f}", f"%{yeni_tavan*100:.0f}"],
-            ["Önerilen TL payı", f"%{tahsis.agirliklar.get('tl_deposit',0)*100:.0f}", f"%{hedef_tl*100:.0f}"],
+            ["Tavan bağlayıcı mı?", "Evet" if tavan_baglayici else "Hayır", "—"],
+            ["Önerilen TL payı", f"%{mevcut_tl*100:.0f}", f"%{hedef_tl*100:.0f}"],
+            ["EUR payı", f"%{mevcut_eur*100:.0f}", f"%{stres_eur*100:.0f}"],
         ],
     )
 
@@ -140,6 +165,10 @@ def senaryo_analizi_uret(
     vade_gun: Optional[int] = None,
     tarama=None,
 ) -> List[SenaryoSatir]:
+    from investor_profile import profil_mevduat_vadesi
+
+    if vade_gun is None and tahsis.profil:
+        _, vade_gun = profil_mevduat_vadesi(tahsis.profil)
     gun = vade_gun or config.KALAN_GUN
     return [
         _kur_soku(snap, tahsis, gun, tarama=tarama),

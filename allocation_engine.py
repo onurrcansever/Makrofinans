@@ -34,6 +34,9 @@ class TahsisSonucu:
     profil_notlari: List[str] = field(default_factory=list)
     tl_mevduat_reel: Optional[float] = None
     tl_reel_sinirlandi: bool = False
+    tl_rejim_sinirlandi: bool = False
+    tl_risk_sinirlandi: bool = False
+    altin_momentum_sinirlandi: bool = False
 
 
 def _skor_sinirla(s: float) -> float:
@@ -49,10 +52,35 @@ def tl_reel_negatif_max_oran(reel_mev: float) -> float:
     return config.TL_REEL_NEGATIF_MAX_ORAN
 
 
+def tl_profil_risk_tavan(profil: YatirimProfili, rejim: str) -> float:
+    """
+    Risk toleransı × rejim — kısa vadeli reel pozitif carry, düşük riskte sınırlı.
+    Faiz avantajı risk profilini ezmemeli.
+    """
+    if rejim in ("KRIZ", "EM_STRES"):
+        return 0.0
+    if rejim == "TL_FIRSAT":
+        return {
+            "dusuk": config.TL_DUSUK_RISK_FIRSAT_MAX,
+            "orta": config.TL_ORTA_RISK_FIRSAT_MAX,
+            "yuksek": config.TL_YUKSEK_RISK_FIRSAT_MAX,
+        }.get(profil.risk, config.TL_ORTA_RISK_FIRSAT_MAX)
+    return {
+        "dusuk": config.TL_DUSUK_RISK_MAX_ORAN,
+        "orta": config.TL_REJIM_DISI_MAX_ORAN,
+        "yuksek": config.TL_YUKSEK_RISK_DISI_MAX,
+    }.get(profil.risk, config.TL_REJIM_DISI_MAX_ORAN)
+
+
+def _fazlalik_dagit(agirliklar: Dict[str, float], fark: float, dagilim: Tuple[float, float, float]) -> None:
+    eur, gold, usd = dagilim
+    agirliklar["eur_cash"] += fark * eur
+    agirliklar["gold"] += fark * gold
+    agirliklar["usd_cash"] += fark * usd
+
+
 def _tl_fazlalik_dagit(agirliklar: Dict[str, float], fark: float) -> None:
-    agirliklar["eur_cash"] += fark * 0.55
-    agirliklar["gold"] += fark * 0.30
-    agirliklar["usd_cash"] += fark * 0.15
+    _fazlalik_dagit(agirliklar, fark, (0.55, 0.30, 0.15))
 
 
 def _varlik_skorlari(
@@ -169,7 +197,11 @@ def _skorlari_agirliga_cevir(
     return {k: sinirli[k] / t for k in VARLIKLAR}
 
 
-def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None) -> TahsisSonucu:
+def tahsis_hesapla(
+    snap: MacroSnapshot,
+    profil: Optional[YatirimProfili] = None,
+    ham_rejim: bool = False,
+) -> TahsisSonucu:
     profil = profil or YatirimProfili()
     min_a, max_a, kalan_gun, mutlak_tavan = profil_sinirlari(profil)
 
@@ -177,14 +209,16 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
     eski_kalan = config.KALAN_GUN
     config.KALAN_GUN = kalan_gun
 
-    rejim = rejim_kararli_uygula(
-        snap_rejim_icin(snap),
-        getattr(snap, "girdi_dogrulama", None),
-    )
-    if rejim.degisim_gerekce:
-        adimlar_pre = [rejim.degisim_gerekce]
+    if ham_rejim:
+        from regime import rejim_tespit
+        rejim = rejim_tespit(snap)
+        adimlar_pre = ["[Backtest] Ham rejim — histerezis/geçiş bölgesi devre dışı"]
     else:
-        adimlar_pre = []
+        rejim = rejim_kararli_uygula(
+            snap_rejim_icin(snap),
+            getattr(snap, "girdi_dogrulama", None),
+        )
+        adimlar_pre = [rejim.degisim_gerekce] if rejim.degisim_gerekce else []
 
     if rejim.rejim == "BELIRSIZ" and rejim.komşu_rejimler:
         r1, r2 = rejim.komşu_rejimler
@@ -208,6 +242,9 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
     mevduat_vade_adi, mevduat_vade_gun = profil_mevduat_vadesi(profil)
     tl_mevduat_reel: Optional[float] = None
     tl_reel_sinirlandi = False
+    tl_rejim_sinirlandi = False
+    tl_risk_sinirlandi = False
+    altin_momentum_sinirlandi = False
 
     # Mevcut 4 kapılı TL tavanını uygula (profil mevduat vadesi = Kapı 3 gün sayısı)
     tl_sonuc = karar_ver(snap.veri, vade_gun=mevduat_vade_gun)
@@ -252,6 +289,34 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
                 f"[Mevduat reel {tl_mevduat_reel:+.1f} pp] TL payı "
                 f"%{agirliklar['tl_deposit']*100:.0f} — güçlü alım uygun değil."
             )
+
+    if rejim.rejim != "TL_FIRSAT" and agirliklar["tl_deposit"] > config.TL_REJIM_DISI_MAX_ORAN:
+        rejim_tavan = min(tl_tavan, config.TL_REJIM_DISI_MAX_ORAN)
+        skorlar["tl_deposit"] = min(skorlar["tl_deposit"], config.TL_REJIM_DISI_SKOR_TAVAN)
+        fark = agirliklar["tl_deposit"] - rejim_tavan
+        agirliklar["tl_deposit"] = rejim_tavan
+        _tl_fazlalik_dagit(agirliklar, fark)
+        tl_rejim_sinirlandi = True
+        adimlar.append(
+            f"[Rejim {rejim.etiket}] TL_FIRSAT değil — TL payı "
+            f"%{config.TL_REJIM_DISI_MAX_ORAN*100:.0f} ile sınırlandı; "
+            f"fazla %{fark*100:.1f} EUR/altın/USD'ye aktarıldı."
+        )
+
+    risk_tavan = tl_profil_risk_tavan(profil, rejim.rejim)
+    if agirliklar["tl_deposit"] > risk_tavan:
+        fark = agirliklar["tl_deposit"] - risk_tavan
+        agirliklar["tl_deposit"] = risk_tavan
+        _tl_fazlalik_dagit(agirliklar, fark)
+        tl_risk_sinirlandi = True
+        adimlar.append(
+            f"[Risk {profil.risk}] TL carry sınırı %{risk_tavan*100:.0f} — "
+            f"faiz avantajı risk toleransını aşmamalı; fazla %{fark*100:.1f} EUR/altın/USD'ye aktarıldı."
+        )
+
+    altin_3m = snap.altin_3m_degisim
+    if altin_3m is not None and altin_3m < config.ALTIN_MOMENTUM_ESIK:
+        skorlar["gold"] = min(skorlar["gold"], config.ALTIN_MOMENTUM_SKOR_TAVAN)
 
     if rejim.rejim == "KRIZ":
         sablon = {
@@ -303,7 +368,32 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
 
     t = sum(agirliklar.values())
     agirliklar = {k: v / t for k, v in agirliklar.items()}
-    agirliklar = {k: min(v, mutlak_tavan) if k == "tl_deposit" else v for k, v in agirliklar.items()}
+
+    tl_efektif_tavan = min(mutlak_tavan, tl_tavan, risk_tavan)
+    if rejim.rejim != "TL_FIRSAT":
+        tl_efektif_tavan = min(tl_efektif_tavan, config.TL_REJIM_DISI_MAX_ORAN)
+        tl_efektif_tavan = min(tl_efektif_tavan, tl_profil_risk_tavan(profil, rejim.rejim))
+    if tl_mevduat_reel is not None and tl_mevduat_reel <= config.TL_REEL_NEGATIF_ESIK:
+        tl_efektif_tavan = min(tl_efektif_tavan, tl_reel_negatif_max_oran(tl_mevduat_reel))
+
+    if agirliklar["tl_deposit"] > tl_efektif_tavan:
+        fark = agirliklar["tl_deposit"] - tl_efektif_tavan
+        agirliklar["tl_deposit"] = tl_efektif_tavan
+        _tl_fazlalik_dagit(agirliklar, fark)
+
+    altin_3m = snap.altin_3m_degisim
+    if altin_3m is not None and altin_3m < config.ALTIN_MOMENTUM_ESIK:
+        max_g = config.ALTIN_MOMENTUM_MAX_ORAN
+        if agirliklar["gold"] > max_g:
+            fark = agirliklar["gold"] - max_g
+            agirliklar["gold"] = max_g
+            _fazlalik_dagit(agirliklar, fark, (0.50, 0.0, 0.50))
+            altin_momentum_sinirlandi = True
+            adimlar.append(
+                f"[Altın momentum {altin_3m:+.1f}% 3A] Pay "
+                f"%{max_g*100:.0f} ile sınırlandı — kademeli alım önerilir."
+            )
+
     t = sum(agirliklar.values())
     agirliklar = {k: v / t for k, v in agirliklar.items()}
 
@@ -339,4 +429,7 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
         profil_notlari=profil_notlari,
         tl_mevduat_reel=tl_mevduat_reel,
         tl_reel_sinirlandi=tl_reel_sinirlandi,
+        tl_rejim_sinirlandi=tl_rejim_sinirlandi,
+        tl_risk_sinirlandi=tl_risk_sinirlandi,
+        altin_momentum_sinirlandi=altin_momentum_sinirlandi,
     )

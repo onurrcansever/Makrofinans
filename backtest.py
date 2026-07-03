@@ -16,6 +16,7 @@ import pandas as pd
 import config
 from allocation_engine import tahsis_hesapla
 from decision_engine import PiyasaVerisi
+from investor_profile import YatirimProfili
 from macro_data import MacroSnapshot
 
 # Yaklaşık makro tablo (CDS bp, enflasyon %, TCMB %) — literatür / piyasa ortalamaları
@@ -104,9 +105,46 @@ class BacktestMetrik:
     drift_mesaji: str
     aylik_getiriler: List[float]
     notlar: List[str]
+    etiket: str = "Dinamik rejim"
 
 
-def backtest_calistir(ay_sayisi: int = 12) -> List[BacktestSatir]:
+@dataclass
+class BacktestKarsilastirma:
+    """Dinamik vs statik portföy karşılaştırması — raporda öne çıkarılır."""
+    dinamik: BacktestMetrik
+    karsi_olgusal: Optional[BacktestMetrik]
+    referans_statik: BacktestMetrik
+    rejim_dagilimi: Dict[str, float]
+    belirsiz_oran_pct: float
+    dinamik_dezavantaj: bool
+    en_iyi_strateji: str
+    uyari_mesaji: str
+    ozet: str
+    satirlar: List[BacktestSatir] = None
+
+
+def statik_referans_agirliklari(profil: Optional[YatirimProfili] = None) -> Dict[str, float]:
+    """Profil riskine göre pasif referans — rejim değiştirmez, kontrol listesi portföyü."""
+    risk = (profil or YatirimProfili()).risk
+    w = dict(config.STATIK_REFERANS_AGIRLIKLARI.get(risk, config.STATIK_REFERANS_AGIRLIKLARI["orta"]))
+    t = sum(w.values())
+    return {k: v / t for k, v in w.items()}
+
+
+def rejim_dagilimi(satirlar: List[BacktestSatir]) -> Dict[str, float]:
+    if not satirlar:
+        return {}
+    frek: Dict[str, int] = {}
+    for s in satirlar:
+        frek[s.rejim] = frek.get(s.rejim, 0) + 1
+    n = len(satirlar)
+    return {r: c / n * 100 for r, c in sorted(frek.items(), key=lambda x: -x[1])}
+
+
+def backtest_calistir(
+    ay_sayisi: int = 12,
+    profil: Optional[YatirimProfili] = None,
+) -> List[BacktestSatir]:
     eurtry = _yf_aylik("EURTRY=X", ay_sayisi)
     bist = _yf_aylik("XU100.IS", ay_sayisi)
     btc = _yf_aylik("BTC-USD", ay_sayisi)
@@ -193,7 +231,7 @@ def backtest_calistir(ay_sayisi: int = 12) -> List[BacktestSatir]:
             veri_kaynak="backtest",
             veri_zamani=ts.strftime("%Y-%m-%d"),
         )
-        tahsis = tahsis_hesapla(snap)
+        tahsis = tahsis_hesapla(snap, profil, ham_rejim=True)
         oncelik = max(tahsis.agirliklar, key=tahsis.agirliklar.get)
         sonuclar.append(
             BacktestSatir(
@@ -310,12 +348,14 @@ def backtest_metrikleri(
         drift_mesaji=drift_msg,
         aylik_getiriler=aylik,
         notlar=notlar,
+        etiket="Dinamik rejim",
     )
 
 
 def backtest_karsi_olgusal_metrikleri(
     satirlar: List[BacktestSatir],
     sabit_agirliklar: Dict[str, float],
+    etiket: str = "Bugünkü ağırlıklar (sabit)",
 ) -> Optional[BacktestMetrik]:
     """
     Karşı-olgusal simülasyon: bugünkü rejim/tahsis ağırlıkları geçmiş 12 aya sabit uygulanır.
@@ -366,6 +406,18 @@ def backtest_karsi_olgusal_metrikleri(
     vol_yillik = std * (12 ** 0.5) * 100
     sharpe = (ort / std * (12 ** 0.5)) if std > 1e-9 else None
 
+    notlar = [
+        f"{etiket}: ağırlıklar geçmiş fiyatlara sabit uygulandı, rejim geçişi yok.",
+    ]
+    if "Referans" in etiket:
+        notlar.append(
+            "Profil riskine göre tanımlı pasif dağılım — dinamik katmanın kontrol listesi alternatifi."
+        )
+    else:
+        notlar.append(
+            "Bugünkü tahsisin geçmişte hiç dokunulmadan uygulanması — karşı-olgusal test."
+        )
+
     return BacktestMetrik(
         toplam_getiri_pct=toplam_getiri,
         max_drawdown_pct=max_dd * 100,
@@ -377,10 +429,110 @@ def backtest_karsi_olgusal_metrikleri(
         model_drift=False,
         drift_mesaji="",
         aylik_getiriler=aylik,
-        notlar=[
-            "Karşı-olgusal: bugünkü portföy ağırlıkları geçmiş fiyatlara sabit uygulandı.",
-            "Rejim geçmişi yok sayıldı — bugünkü stratejinin geçmişte ne yapacağını gösterir.",
-        ],
+        notlar=notlar,
+        etiket=etiket,
+    )
+
+
+def backtest_karsilastirma_uret(
+    satirlar: List[BacktestSatir],
+    mevcut_rejim: str,
+    bugun_agirliklar: Optional[Dict[str, float]] = None,
+    profil: Optional[YatirimProfili] = None,
+) -> Optional[BacktestKarsilastirma]:
+    """
+    Üç yollu karşılaştırma: aylık dinamik rejim vs bugünkü ağırlıklar sabit vs profil referansı.
+    """
+    if len(satirlar) < 3:
+        return None
+
+    profil = profil or YatirimProfili()
+    dinamik = backtest_metrikleri(satirlar, mevcut_rejim)
+    if not dinamik:
+        return None
+
+    karsi = None
+    if bugun_agirliklar:
+        karsi = backtest_karsi_olgusal_metrikleri(
+            satirlar, bugun_agirliklar, etiket="Bugünkü ağırlıklar (sabit)"
+        )
+
+    referans = backtest_karsi_olgusal_metrikleri(
+        satirlar,
+        statik_referans_agirliklari(profil),
+        etiket=f"Referans statik ({profil.risk} risk)",
+    )
+    if not referans:
+        return None
+
+    dagilim = rejim_dagilimi(satirlar)
+    belirsiz = dagilim.get("BELIRSIZ", 0.0)
+
+    adaylar = {"dinamik": dinamik, "referans": referans}
+    if karsi:
+        adaylar["karsi"] = karsi
+
+    def _skor(m: BacktestMetrik) -> float:
+        return m.sharpe_yillik if m.sharpe_yillik is not None else -999.0
+
+    en_iyi_key = max(adaylar, key=lambda k: _skor(adaylar[k]))
+    en_iyi = adaylar[en_iyi_key]
+    din_sh = dinamik.sharpe_yillik
+    ref_sh = referans.sharpe_yillik
+    kar_sh = karsi.sharpe_yillik if karsi else None
+
+    dinamik_dezavantaj = False
+    uyari = ""
+    if din_sh is not None and ref_sh is not None:
+        if ref_sh - din_sh >= config.BACKTEST_UYARI_SHARPE_FARK:
+            dinamik_dezavantaj = True
+            uyari = (
+                f"Dinamik rejim katmanı son {len(satirlar)} ay simülasyonunda "
+                f"statik referansın gerisinde (Sharpe {din_sh:.2f} vs {ref_sh:.2f}). "
+                "Rejim değişimlerine güvenmek yerine profil bazlı statik ağırlıkları "
+                "kontrol listesi olarak kullanmak daha tutarlı olabilir."
+            )
+    if karsi and din_sh is not None and kar_sh is not None:
+        if kar_sh - din_sh >= config.BACKTEST_UYARI_SHARPE_FARK:
+            dinamik_dezavantaj = True
+            ek = (
+                f" Bugünkü ağırlıkları sabit tutmak (Sharpe {kar_sh:.2f}) "
+                f"dinamik rejimden ({din_sh:.2f}) daha iyi sonuç verirdi."
+            )
+            uyari = (uyari + ek) if uyari else ek.strip()
+
+    if belirsiz >= 40:
+        uyari = (
+            f"Rejim sınıflandırmasının %{belirsiz:.0f}'i BELIRSIZ — "
+            "dinamik katmanın ayırt ediciliği düşük. "
+            + (uyari or "")
+        ).strip()
+
+    en_iyi_etiket = {
+        "dinamik": "Dinamik rejim",
+        "referans": "Referans statik",
+        "karsi": "Bugünkü ağırlıklar (sabit)",
+    }.get(en_iyi_key, en_iyi.etiket)
+
+    din_sh_txt = f"{din_sh:.2f}" if din_sh is not None else "—"
+    ref_sh_txt = f"{ref_sh:.2f}" if ref_sh is not None else "—"
+    ozet = (
+        f"Son {len(satirlar)} ay: en iyi simülasyon **{en_iyi_etiket}** "
+        f"(Sharpe {en_iyi.sharpe_yillik:.2f}, getiri {en_iyi.toplam_getiri_pct:+.1f}%) — "
+        f"dinamik rejim Sharpe {din_sh_txt}, referans statik {ref_sh_txt}."
+    )
+
+    return BacktestKarsilastirma(
+        dinamik=dinamik,
+        karsi_olgusal=karsi,
+        referans_statik=referans,
+        rejim_dagilimi=dagilim,
+        belirsiz_oran_pct=belirsiz,
+        dinamik_dezavantaj=dinamik_dezavantaj,
+        en_iyi_strateji=en_iyi_etiket,
+        uyari_mesaji=uyari,
+        ozet=ozet,
+        satirlar=satirlar,
     )
 
 

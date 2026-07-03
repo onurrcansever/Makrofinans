@@ -77,7 +77,7 @@ def profil_sinirlari(profil: YatirimProfili) -> Tuple[Dict[str, float], Dict[str
     }
     max_a = {
         "eur_cash": 0.55, "usd_cash": 0.30, "tl_deposit": 0.50,
-        "gold": 0.35, "silver": 0.12, "bist": 0.15, "crypto": 0.08,
+        "gold": 0.35, "silver": 0.08, "bist": 0.15, "crypto": 0.08,
     }
     kalan_gun = VADE_GUN.get(profil.vade, 730)
     mutlak_tavan = 0.50
@@ -152,7 +152,12 @@ def profil_skor_ayari(profil: YatirimProfili) -> Dict[str, float]:
     if profil.vade == "kisa_3":
         delta["eur_cash"] += 18
         delta["usd_cash"] += 12
-        delta["tl_deposit"] += 5
+        if profil.risk == "yuksek":
+            delta["tl_deposit"] += 2
+        elif profil.risk == "orta":
+            delta["tl_deposit"] += 0
+        else:
+            delta["tl_deposit"] -= 12
         delta["bist"] -= 18
         delta["crypto"] -= 25
         delta["gold"] -= 5
@@ -160,7 +165,12 @@ def profil_skor_ayari(profil: YatirimProfili) -> Dict[str, float]:
     elif profil.vade == "kisa_6":
         delta["eur_cash"] += 14
         delta["usd_cash"] += 10
-        delta["tl_deposit"] += 3
+        if profil.risk == "dusuk":
+            delta["tl_deposit"] -= 8
+        elif profil.risk == "orta":
+            delta["tl_deposit"] += 1
+        else:
+            delta["tl_deposit"] += 3
         delta["bist"] -= 14
         delta["crypto"] -= 18
 
@@ -191,8 +201,14 @@ def profil_degerlendirme(profil: YatirimProfili, rejim: str) -> List[str]:
 
     if profil.vade == "kisa_3":
         notlar.append(
-            "0–3 ay: makro çok hızlı değişir — nakit/mevduat ağırlıklı, BIST/kripto kapalı veya minimal."
+            "0–3 ay: vade filtresi risk profilinizi büyük ölçüde **eziyor** — "
+            "BIST/kripto kapalı veya minimal; yüksek risk seçseniz bile portföy mevduat ağırlıklı kalır."
         )
+        if profil.risk == "yuksek":
+            notlar.append(
+                "Yüksek risk + 0–3 ay: getiri beklentiniz kısa vade kısıtı nedeniyle "
+                "tahsis tablosuna yansımaz — bu bilinçli bir tasarım tercihidir."
+            )
     elif profil.vade == "kisa_6":
         notlar.append(
             "0–6 ay: volatil varlıklar sınırlı; **TL 6 ay** mevduat ve EUR likidite öncelikli."
