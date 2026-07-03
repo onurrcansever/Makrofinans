@@ -13,7 +13,7 @@ raporu üretir. Nihai kararı her zaman siz verirsiniz.
 """
 import os
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 try:
     from dotenv import load_dotenv
@@ -216,6 +216,87 @@ TL_STOPAJ_TABLOSU: List[Tuple[int, float]] = [
 DOVIZ_STOPAJ_ORANI = float(os.getenv("DOVIZ_STOPAJ", "0.25"))
 TMSF_SIGORTA_LIMITI_TL = float(os.getenv("TMSF_SIGORTA_LIMITI_TL", "650000"))
 BACKTEST_REJIM_MIN_ORAN = float(os.getenv("BACKTEST_REJIM_MIN_ORAN", "10"))
+
+# ------------------------------------------------------------------
+# Faz 7 — Temel skor (ETF/hisse) ve bileşik karar
+# ------------------------------------------------------------------
+BILESKE_TEKNIK_AGIRLIK = float(os.getenv("BILESKE_TEKNIK_AGIRLIK", "0.40"))
+BILESKE_TEMEL_AGIRLIK = float(os.getenv("BILESKE_TEMEL_AGIRLIK", "0.60"))
+BILESKE_AL_ESIK = float(os.getenv("BILESKE_AL_ESIK", "80"))
+BILESKE_DIkkat_ESIK = float(os.getenv("BILESKE_DIkkat_ESIK", "65"))
+BILESKE_BEKLE_ESIK = float(os.getenv("BILESKE_BEKLE_ESIK", "50"))
+
+# ETF sektör → makro kategori (rejim puan tablosu anahtarı)
+ETF_SEKTOR_KATEGORI: Dict[str, str] = {
+    "dunya": "hisse_global",
+    "abd": "hisse_global",
+    "avrupa": "hisse_global",
+    "esg": "hisse_global",
+    "teknoloji": "teknoloji",
+    "gelisen": "gelisen",
+    "tahvil": "tahvil",
+    "altin": "emtia",
+    "temettu": "hisse_global",
+}
+
+# Rejim → ETF kategori → puan (max 30)
+REJIM_ETF_KATEGORI_PUAN: Dict[str, Dict[str, float]] = {
+    "NOTR": {"hisse_global": 15, "tahvil": 25, "gelisen": 10, "teknoloji": 15, "emtia": 12},
+    "RISK_ON": {"hisse_global": 25, "gelisen": 25, "tahvil": 5, "teknoloji": 25, "emtia": 8},
+    "ENFLASYON_KORUMA": {"emtia": 28, "tahvil": 5, "hisse_global": 10, "teknoloji": 5, "gelisen": 8},
+    "BELIRSIZ": {"hisse_global": 15, "tahvil": 15, "gelisen": 15, "teknoloji": 15, "emtia": 15},
+    "TL_FIRSAT": {"hisse_global": 18, "tahvil": 20, "gelisen": 12, "teknoloji": 15, "emtia": 10},
+    "EM_STRES": {"tahvil": 22, "emtia": 20, "hisse_global": 8, "gelisen": 5, "teknoloji": 5},
+    "KRIZ": {"tahvil": 25, "emtia": 25, "hisse_global": 5, "gelisen": 3, "teknoloji": 3},
+}
+
+# Hisse sektör → makro sektör grubu
+HISSE_SEKTOR_GRUBU: Dict[str, str] = {
+    "defansif": "defansif",
+    "tuketim": "defansif",
+    "teknoloji": "teknoloji",
+    "buyume": "dongusel",
+    "sanayi": "dongusel",
+    "hava": "dongusel",
+    "holding": "dongusel",
+    "savunma": "dongusel",
+    "enerji": "enerji",
+    "finans": "finans",
+}
+
+# Rejim → hisse sektör grubu → puan (max 30)
+REJIM_HISSE_SEKTOR_PUAN: Dict[str, Dict[str, float]] = {
+    "NOTR": {"defansif": 25, "dongusel": 10, "teknoloji": 15, "enerji": 12, "finans": 15},
+    "RISK_ON": {"teknoloji": 25, "dongusel": 20, "defansif": 10, "enerji": 15, "finans": 12},
+    "ENFLASYON_KORUMA": {"enerji": 25, "finans": 15, "teknoloji": 5, "defansif": 12, "dongusel": 10},
+    "BELIRSIZ": {"defansif": 15, "dongusel": 15, "teknoloji": 15, "enerji": 15, "finans": 15},
+    "TL_FIRSAT": {"finans": 22, "defansif": 18, "dongusel": 12, "teknoloji": 12, "enerji": 10},
+    "EM_STRES": {"defansif": 22, "enerji": 18, "finans": 12, "teknoloji": 5, "dongusel": 8},
+    "KRIZ": {"defansif": 25, "enerji": 15, "finans": 10, "teknoloji": 3, "dongusel": 5},
+}
+
+# ETF kategori min. yatırım ufku (gün) — profil vadesi bunun altındaysa vade puanı 0
+ETF_MIN_UFUK_GUN: Dict[str, int] = {
+    "dunya": 181,
+    "abd": 181,
+    "avrupa": 181,
+    "teknoloji": 181,
+    "esg": 181,
+    "temettu": 181,
+    "gelisen": 365,
+    "altin": 181,
+    "tahvil": 92,
+}
+
+# Profil risk → kabul edilebilir yıllık vol (%), 30G gerçekleşen vol ile karşılaştırılır
+PROFIL_MAX_VOL_YILLIK: Dict[str, float] = {
+    "dusuk": 22.0,
+    "orta": 32.0,
+    "yuksek": 45.0,
+}
+
+# USD bazlı ETF (EUR yatırımcı için kur şoku notu)
+USD_BAZLI_ETF_SEKTORLER = frozenset({"abd", "teknoloji"})
 
 
 @dataclass

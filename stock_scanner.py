@@ -78,6 +78,12 @@ class HisseAnaliz:
     haber_notu: str = ""
     haber_sayisi: int = 0
     teknik_skor: float = 0.0
+    temel_skor: float = 0.0
+    bilesik_skor: float = 0.0
+    vade_uyum_puani: float = 0.0
+    vade_uygun: bool = True
+    temel_not: str = ""
+    vol_30g: Optional[float] = None
     hikaye: str = ""
     isin: str = ""
     revolut_ticker: str = ""
@@ -106,31 +112,66 @@ class TaramaSonucu:
     profil_notlari: List[str] = field(default_factory=list)
 
 
+def _skaler(val) -> Optional[float]:
+    """Series/DataFrame/numpy skaler → float."""
+    if isinstance(val, pd.DataFrame):
+        if val.empty:
+            return None
+        val = val.iloc[-1, 0]
+    elif isinstance(val, pd.Series):
+        val = val.iloc[-1] if len(val) else None
+    try:
+        f = float(val)
+        return f if pd.notna(f) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _seri_1d(obj) -> pd.Series:
+    """Kapanış verisini tek sütunlu Series'e indirger."""
+    if isinstance(obj, pd.DataFrame):
+        if obj.empty:
+            return pd.Series(dtype=float)
+        obj = obj.iloc[:, 0]
+    if not isinstance(obj, pd.Series):
+        return pd.Series(dtype=float)
+    return obj.dropna()
+
+
+def _son_fiyat(seri: pd.Series) -> Optional[float]:
+    seri = _seri_1d(seri)
+    if seri.empty:
+        return None
+    return _skaler(seri.iloc[-1])
+
+
 def _rsi(seri: pd.Series, period: int = 14) -> Optional[float]:
+    """Wilder RSI — EWM düzeltmeli (endüstri standardı; rolling-mean'den daha az gürültülü)."""
+    seri = _seri_1d(seri)
     if len(seri) < period + 1:
         return None
     delta = seri.diff()
-    gain = delta.clip(lower=0).rolling(period).mean()
-    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    gain = delta.clip(lower=0).ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     rs = gain / loss.replace(0, 1e-10)
     val = 100 - (100 / (1 + rs))
-    v = val.iloc[-1]
-    return float(v) if pd.notna(v) else None
+    return _skaler(val.iloc[-1])
 
 
 def _sma(seri: pd.Series, n: int) -> Optional[float]:
+    seri = _seri_1d(seri)
     if len(seri) < n:
         return None
-    v = seri.rolling(n).mean().iloc[-1]
-    return float(v) if pd.notna(v) else None
+    return _skaler(seri.rolling(n).mean().iloc[-1])
 
 
 def _degisim(seri: pd.Series, gun: int) -> Optional[float]:
+    seri = _seri_1d(seri)
     if len(seri) < gun + 1:
         return None
-    eski = float(seri.iloc[-gun - 1])
-    yeni = float(seri.iloc[-1])
-    if eski == 0:
+    eski = _skaler(seri.iloc[-gun - 1])
+    yeni = _skaler(seri.iloc[-1])
+    if eski is None or yeni is None or eski == 0:
         return None
     return (yeni - eski) / eski * 100
 
@@ -139,13 +180,23 @@ def _close_al(df: pd.DataFrame, sembol: str) -> pd.Series:
     if df.empty:
         return pd.Series(dtype=float)
     try:
+        raw = None
         if isinstance(df.columns, pd.MultiIndex):
-            if sembol in df.columns.get_level_values(0):
-                return df[sembol]["Close"].dropna()
-        elif len(df.columns) == 1 or "Close" not in df.columns:
-            return df.iloc[:, 0].dropna()
-        else:
-            return df["Close"].dropna()
+            lvl0 = df.columns.get_level_values(0)
+            if sembol in lvl0:
+                raw = df[sembol]["Close"]
+            else:
+                for t in lvl0.unique():
+                    if str(t).upper() == str(sembol).upper():
+                        raw = df[t]["Close"]
+                        break
+        elif "Close" in df.columns:
+            raw = df["Close"]
+            if isinstance(raw, pd.DataFrame) and sembol in raw.columns:
+                raw = raw[sembol]
+        elif len(df.columns) >= 1:
+            raw = df.iloc[:, 0]
+        return _seri_1d(raw)
     except Exception:
         pass
     return pd.Series(dtype=float)
@@ -156,6 +207,8 @@ def _sinyal_uret(
     rsi: Optional[float],
     sma20: Optional[float],
     sma50: Optional[float],
+    degisim_3ay: Optional[float] = None,
+    degisim_1ay: Optional[float] = None,
 ) -> Tuple[str, float, str]:
     if rsi is None or sma50 is None:
         return "VERI_YOK", 0.0, "Yetersiz fiyat verisi"
@@ -163,7 +216,10 @@ def _sinyal_uret(
     skor = 50.0
     gerekceler = []
 
-    if 28 <= rsi <= 45:
+    # Düşen bıçak koruması: 3 ayda -%25'ten fazla kayıp varsa dip RSI alım sinyali sayılmaz
+    dusen_bicak = degisim_3ay is not None and degisim_3ay < -25
+
+    if 28 <= rsi <= 45 and not dusen_bicak:
         skor += 25
         gerekceler.append(f"RSI {rsi:.0f} — dipten dönüş bölgesi")
         sinyal = "ALIM_FIRSATI"
@@ -189,6 +245,10 @@ def _sinyal_uret(
         skor -= 15
         gerekceler.append(f"RSI {rsi:.0f} — düşen bıçak riski")
         sinyal = "UZAK_DUR"
+    elif dusen_bicak and rsi <= 45:
+        skor -= 10
+        gerekceler.append(f"RSI {rsi:.0f} ama 3A {degisim_3ay:+.0f}% — dip henüz doğrulanmadı")
+        sinyal = "BEKLE"
     else:
         sinyal = "BEKLE"
         gerekceler.append(f"RSI {rsi:.0f} — net sinyal yok")
@@ -200,6 +260,18 @@ def _sinyal_uret(
         elif sma20 < sma50 and fiyat < sma20:
             skor -= 10
             gerekceler.append("Kısa vade trend aşağı")
+
+    # Momentum katmanı (faktör literatürü: 3-12 ay momentum kalıcıdır; aşırıda ters çevirir)
+    if degisim_3ay is not None:
+        if 5 <= degisim_3ay <= 40:
+            skor += 8
+            gerekceler.append(f"3A momentum {degisim_3ay:+.0f}%")
+        elif degisim_3ay > 60:
+            skor -= 5
+            gerekceler.append(f"3A {degisim_3ay:+.0f}% — aşırı ısınma riski")
+        elif degisim_3ay < -15:
+            skor -= 8
+            gerekceler.append(f"3A momentum zayıf ({degisim_3ay:+.0f}%)")
 
     return sinyal, max(0, min(100, skor)), "; ".join(gerekceler)
 
@@ -229,8 +301,12 @@ def _indir(semboller: List[str], period: str = "1y") -> pd.DataFrame:
     if not parcalar:
         return pd.DataFrame()
     if len(parcalar) == 1:
-        return parcalar[0]
-    return pd.concat(parcalar, axis=1)
+        out = parcalar[0]
+    else:
+        out = pd.concat(parcalar, axis=1)
+    if isinstance(out.columns, pd.MultiIndex):
+        out = out.loc[:, ~out.columns.duplicated(keep="first")]
+    return out
 
 
 def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) -> EndeksOzet:
@@ -238,11 +314,14 @@ def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) 
     if close.empty:
         return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
 
-    fiyat = float(close.iloc[-1])
+    fiyat = _son_fiyat(close)
+    if fiyat is None:
+        return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
     rsi = _rsi(close)
     sma20, sma50 = _sma(close, 20), _sma(close, 50)
+    d1ay, d3ay = _degisim(close, 21), _degisim(close, 63)
     piyasa = "BIST" if sym.endswith(".IS") else "NASDAQ" if sym in ("^IXIC", "^NDX") else "SP500"
-    sinyal, skor, _ = _sinyal_uret(fiyat, rsi, sma20, sma50)
+    sinyal, skor, _ = _sinyal_uret(fiyat, rsi, sma20, sma50, degisim_3ay=d3ay, degisim_1ay=d1ay)
     sektor = "sanayi" if piyasa == "BIST" else "teknoloji"
     rh = rejim_hisse_ayarla(sinyal, skor, "", piyasa, sektor, makro_rejim, snap)
     skor = max(0, min(100, skor + rh.skor_delta))
@@ -281,22 +360,32 @@ def _hisse_analiz(
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
         )
 
-    fiyat = float(close.iloc[-1])
+    fiyat = _son_fiyat(close)
+    if fiyat is None:
+        return HisseAnaliz(
+            sembol, ad, piyasa, None, None, None, None, None, None, None,
+            "VERI_YOK", 0, "Veri yok", sektor=sektor,
+            isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
+        )
     rsi = _rsi(close)
     sma20, sma50 = _sma(close, 20), _sma(close, 50)
-    sinyal, skor, gerekce = _sinyal_uret(fiyat, rsi, sma20, sma50)
+    d1ay, d3ay = _degisim(close, 21), _degisim(close, 63)
+    sinyal, skor, gerekce = _sinyal_uret(
+        fiyat, rsi, sma20, sma50, degisim_3ay=d3ay, degisim_1ay=d1ay,
+    )
     teknik_skor = skor
 
     from hisse_trend_filtresi import trend_filtresi_uygula
+    d1g = _degisim(close, 1)
     _h = HisseAnaliz(
         sembol=sembol, ad=ad, piyasa=piyasa, fiyat=fiyat,
-        degisim_1g=_degisim(close, 1), degisim_1ay=_degisim(close, 21),
-        degisim_3ay=_degisim(close, 63), rsi=rsi, sma20=sma20, sma50=sma50,
+        degisim_1g=d1g, degisim_1ay=d1ay,
+        degisim_3ay=d3ay, rsi=rsi, sma20=sma20, sma50=sma50,
         sinyal=sinyal, skor=skor, gerekce=gerekce, sektor=sektor,
         teknik_skor=teknik_skor, isin=isin, revolut_ticker=revolut_ticker,
         varlik_turu=varlik_turu,
     )
-    trend_filtresi_uygula(_h, close)
+    trend_filtresi_uygula(_h, close, profil=profil)
     sinyal, skor, gerekce = _h.sinyal, _h.skor, _h.gerekce
 
     rh = rejim_hisse_ayarla(sinyal, skor, gerekce, piyasa, sektor, makro_rejim, snap)
@@ -320,9 +409,9 @@ def _hisse_analiz(
         ad=ad,
         piyasa=piyasa,
         fiyat=fiyat,
-        degisim_1g=_degisim(close, 1),
-        degisim_1ay=_degisim(close, 21),
-        degisim_3ay=_degisim(close, 63),
+        degisim_1g=d1g,
+        degisim_1ay=d1ay,
+        degisim_3ay=d3ay,
         rsi=rsi,
         sma20=sma20,
         sma50=sma50,
@@ -381,17 +470,40 @@ def _hikaye_uret(h: HisseAnaliz) -> str:
 
 
 def _firsatlari_sec(hisseler: List[HisseAnaliz], min_skor: float = 55) -> List[HisseAnaliz]:
+    esik = max(min_skor, config.BILESKE_BEKLE_ESIK)
     return sorted(
-        [h for h in hisseler if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM") and h.skor >= min_skor],
-        key=lambda x: -x.skor,
+        [
+            h
+            for h in hisseler
+            if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM")
+            and _bilesik(h) >= esik
+        ],
+        key=lambda x: -_bilesik(x),
     )
+
+
+def _bilesik(h: HisseAnaliz) -> float:
+    return float(getattr(h, "bilesik_skor", None) or h.skor or 0)
 
 
 def _etf_sirala(hisseler: List[HisseAnaliz], makro_rejim: str) -> List[HisseAnaliz]:
     return sorted(
         hisseler,
-        key=lambda x: (etf_oncelik(x.sektor, makro_rejim), -x.skor),
+        key=lambda x: (etf_oncelik(x.sektor, makro_rejim), -_bilesik(x)),
     )
+
+
+def _isin_dedup(hisseler: List["HisseAnaliz"]) -> List["HisseAnaliz"]:
+    """Aynı ISIN — farklı borsa kotasyonlarını tek fon olarak say."""
+    goren: dict = {}
+    cikis: List["HisseAnaliz"] = []
+    for h in sorted(hisseler, key=lambda x: -_bilesik(x)):
+        if h.isin:
+            if h.isin in goren:
+                continue
+            goren[h.isin] = h.sembol
+        cikis.append(h)
+    return cikis
 
 
 def tam_tarama(
@@ -442,13 +554,16 @@ def tam_tarama(
     from hisse_faktor import faktor_katmani_uygula
     faktor_katmani_uygula(tum, df)
 
-    firsatlar = profil_firsat_sinirla(_firsatlari_sec(tum, esik)[:20], profil)
+    from temel_skor import temel_skor_katmani_uygula
+    temel_skor_katmani_uygula(tum, df, makro_rejim, profil)
+
+    firsatlar = profil_firsat_sinirla(_isin_dedup(_firsatlari_sec(tum, esik)[:20]), profil)
     etfler = [h for h in tum if h.piyasa == "ETF"]
-    etf_firsat = _etf_sirala(_firsatlari_sec(etfler, esik)[:10], makro_rejim)
+    etf_firsat = _isin_dedup(_etf_sirala(_firsatlari_sec(etfler, esik)[:10], makro_rejim))
 
     aday_sem = {h.sembol for h in firsatlar} | {h.sembol for h in etf_firsat}
     from alim_uygunluk import alim_uygunluk_uygula
-    alim_uygunluk_uygula(tum, aday_sem, esik)
+    alim_uygunluk_uygula(tum, aday_sem, esik, profil=profil)
 
     for h in tum:
         h.hikaye = _hikaye_uret(h)
@@ -463,7 +578,7 @@ def tam_tarama(
 
     return TaramaSonucu(
         endeksler=endeksler,
-        hisseler=sorted(tum, key=lambda x: -x.skor),
+        hisseler=sorted(tum, key=lambda x: -_bilesik(x)),
         alim_firsatlari=firsatlar,
         etf_firsatlari=etf_firsat,
         uyarilar=uyarilar,

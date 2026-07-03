@@ -141,14 +141,14 @@ def _kotasyon_notu(h) -> str:
 
 
 def _madde_ek_bilgi(h) -> Optional[str]:
-    """Tabloda yer almayan ek uyarı/haber — yinelenen skor/RSI tekrarlanmaz."""
+    """Tabloda olmayan ek uyarı — temel not, haber, rejim."""
     parcalar = []
+    if getattr(h, "temel_not", ""):
+        parcalar.append(h.temel_not[:80])
     if getattr(h, "haber_notu", ""):
         parcalar.append(f"Haber: {_temiz(h.haber_notu, 60)}")
     if getattr(h, "rejim_notu", "") and h.rejim_notu not in ("", "Rejim uyumlu"):
         parcalar.append(f"Rejim: {_temiz(h.rejim_notu, 50)}")
-    if getattr(h, "profil_notu", "") and h.profil_notu not in ("", "Profil uyumlu"):
-        parcalar.append(f"Profil: {_temiz(h.profil_notu, 50)}")
     return " · ".join(parcalar) if parcalar else None
 
 
@@ -291,9 +291,9 @@ def _veri_kalite_bolumu(doc: "RaporPDF", vk: VeriKaliteRaporu) -> None:
     )
 
 
-def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int) -> None:
+def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int, tarama=None) -> None:
     try:
-        senaryolar = senaryo_analizi_uret(snap, tahsis, vade_gun)
+        senaryolar = senaryo_analizi_uret(snap, tahsis, vade_gun, tarama=tarama)
     except Exception:
         return
     if not senaryolar:
@@ -317,21 +317,21 @@ def _kanonik_aday_tablo(doc: "RaporPDF", hisseler: list) -> None:
         rows.append([
             _uygun_tablo_hucre(h),
             rt if h.piyasa == "ETF" else h.sembol,
-            _temiz(h.ad, 16),
+            _temiz(h.ad, 14),
             h.piyasa,
-            _temiz(SINYAL_ETIKET.get(h.sinyal, h.sinyal), 10),
-            _sayi(h.skor, 0),
+            _sayi(getattr(h, "teknik_skor", h.skor), 0),
+            _sayi(getattr(h, "temel_skor", 0), 0),
+            _sayi(getattr(h, "bilesik_skor", h.skor), 0),
             _pct(h.degisim_1ay, 0),
-            _sayi(h.rsi, 0) if h.rsi is not None else "—",
-            _temiz(getattr(h, "isin", "") or "—", 14),
-            _kotasyon_notu(h),
+            _temiz(getattr(h, "isin", "") or "—", 12),
+            _kotasyon_notu(h) or _temiz(getattr(h, "temel_not", ""), 18),
         ])
     doc.tablo(
-        ["Karar", "Sembol", "Varlık", "Piyasa", "Sinyal", "Skor", "1A", "RSI", "ISIN", "Not"],
+        ["Karar", "Sembol", "Varlık", "Piy.", "Teknik", "Temel", "Bileşik", "1A", "ISIN", "Not"],
         rows,
-        font_boyut=5.5,
-        satir_yuk=3.6,
-        col_w=[w * x for x in (0.09, 0.08, 0.17, 0.07, 0.09, 0.05, 0.06, 0.05, 0.14, 0.20)],
+        font_boyut=5.2,
+        satir_yuk=3.5,
+        col_w=[w * x for x in (0.08, 0.07, 0.14, 0.05, 0.07, 0.07, 0.07, 0.06, 0.12, 0.27)],
     )
 
 
@@ -932,7 +932,7 @@ def rapor_pdf_direkt_olustur(
     if tarama and (tarama.endeksler or tarama.hisseler):
         _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
 
-    _senaryo_bolumu(doc, snap, tahsis, config.KALAN_GUN)
+    _senaryo_bolumu(doc, snap, tahsis, config.KALAN_GUN, tarama=tarama)
 
     doc.bolum("Varlık Bazlı Strateji Notları")
     for var in danisman.varliklar:

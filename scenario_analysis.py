@@ -31,7 +31,12 @@ def _portfoy_eur_etkisi(tahsis: TahsisSonucu, tl_eur_etki_pct: float) -> float:
     return w * tl_eur_etki_pct
 
 
-def _kur_soku(snap: MacroSnapshot, tahsis: TahsisSonucu, vade_gun: int) -> SenaryoSatir:
+def _kur_soku(
+    snap: MacroSnapshot,
+    tahsis: TahsisSonucu,
+    vade_gun: int,
+    tarama=None,
+) -> SenaryoSatir:
     eur = snap.veri.eur_try or 35.0
     net_tl, gun, _ = profil_mevduat_parametreleri(vade_gun, snap.veri.tl_mevduat_brut_faiz)
     be = breakeven_eur_try(eur, net_tl, gun)
@@ -43,6 +48,20 @@ def _kur_soku(snap: MacroSnapshot, tahsis: TahsisSonucu, vade_gun: int) -> Senar
         f"Kur vade sonunda başabaşın %{(carpan-1)*100:.0f} üzerine ({sok_kur:.2f}) çıkarsa: "
         f"TL mevduat EUR bazlı ~%{tl_eur_zarar:.1f}, portföy toplam ~%{port_etki:.1f}."
     )
+    etf_not = ""
+    if tarama and getattr(tarama, "etf_firsatlari", None):
+        usd_etfs = [
+            h.revolut_ticker or h.sembol.split(".")[0]
+            for h in tarama.etf_firsatlari
+            if h.sektor in config.USD_BAZLI_ETF_SEKTORLER
+        ]
+        if usd_etfs:
+            eur_usd = snap.eur_usd or 1.08
+            etf_not = (
+                f" USD bazlı ETF ({', '.join(usd_etfs[:4])}): EUR/USD paritesi "
+                f"({eur_usd:.2f}) TL kur şokundan bağımsız ek kur riski taşır."
+            )
+            ozet += etf_not
     return SenaryoSatir(
         ad="Kur şoku",
         ozet=ozet,
@@ -119,10 +138,11 @@ def senaryo_analizi_uret(
     snap: MacroSnapshot,
     tahsis: TahsisSonucu,
     vade_gun: Optional[int] = None,
+    tarama=None,
 ) -> List[SenaryoSatir]:
     gun = vade_gun or config.KALAN_GUN
     return [
-        _kur_soku(snap, tahsis, gun),
+        _kur_soku(snap, tahsis, gun, tarama=tarama),
         _cds_stresi(snap, tahsis, gun),
         _tcmb_faiz(snap, gun),
     ]
