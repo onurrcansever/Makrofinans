@@ -13,6 +13,8 @@ from decision_engine import karar_ver
 from investor_profile import YatirimProfili, profil_degerlendirme, profil_mevduat_vadesi, profil_sinirlari, profil_skor_ayari
 from macro_data import MacroSnapshot
 from regime import RejimSonucu, rejim_tespit
+from regime_stability import rejim_kararli_uygula
+from girdi_dogrulama import snap_rejim_icin
 
 VARLIKLAR = ["eur_cash", "usd_cash", "tl_deposit", "gold", "silver", "bist", "crypto"]
 
@@ -157,10 +159,30 @@ def tahsis_hesapla(snap: MacroSnapshot, profil: Optional[YatirimProfili] = None)
     eski_kalan = config.KALAN_GUN
     config.KALAN_GUN = kalan_gun
 
-    rejim = rejim_tespit(snap)
-    skorlar = _varlik_skorlari(snap, rejim, profil)
+    rejim = rejim_kararli_uygula(
+        snap_rejim_icin(snap),
+        getattr(snap, "girdi_dogrulama", None),
+    )
+    if rejim.degisim_gerekce:
+        adimlar_pre = [rejim.degisim_gerekce]
+    else:
+        adimlar_pre = []
+
+    if rejim.rejim == "BELIRSIZ" and rejim.komşu_rejimler:
+        r1, r2 = rejim.komşu_rejimler
+        skor1 = _varlik_skorlari(
+            snap, RejimSonucu(rejim=r1, etiket=r1, aciklama="", guven=0.5), profil
+        )
+        skor2 = _varlik_skorlari(
+            snap, RejimSonucu(rejim=r2, etiket=r2, aciklama="", guven=0.5), profil
+        )
+        skorlar = {k: (skor1[k] + skor2[k]) / 2.0 for k in VARLIKLAR}
+    else:
+        skorlar = _varlik_skorlari(snap, rejim, profil)
     agirliklar = _skorlari_agirliga_cevir(skorlar, min_a, max_a)
-    adimlar = list(rejim.adimlar)
+    adimlar = adimlar_pre + list(rejim.adimlar)
+    if rejim.gecis_notu:
+        adimlar.append(f"[Geçiş bölgesi] {rejim.gecis_notu}")
     adimlar.append(f"[Profil] {profil.ozet()} · yatırım ufku {kalan_gun} gün")
     uyarilar = list(snap.cekim_uyarilari)
     profil_notlari = profil_degerlendirme(profil, rejim.rejim)

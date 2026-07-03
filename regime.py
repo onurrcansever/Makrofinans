@@ -10,6 +10,7 @@ from typing import List, Optional
 
 import config
 from macro_data import MacroSnapshot
+from siyasi_esik import esikler
 
 
 @dataclass
@@ -19,6 +20,10 @@ class RejimSonucu:
     aciklama: str
     guven: float  # 0-1
     adimlar: List[str] = field(default_factory=list)
+    degisim_gerekce: str = ""
+    donduruldu: bool = False
+    komşu_rejimler: tuple = ()
+    gecis_notu: str = ""
 
 
 REJIMLER = {
@@ -28,6 +33,7 @@ REJIMLER = {
     "ENFLASYON_KORUMA": "Enflasyon koruma",
     "RISK_ON": "Risk iştahı yüksek",
     "NOTR": "Nötr / dengeli",
+    "BELIRSIZ": "Belirsiz / geçiş bölgesi",
 }
 
 
@@ -37,8 +43,11 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
 
     # --- Kriz kontrolü (en yüksek öncelik) ---
     siyasi = v.siyasi_risk_makale_sayisi
-    if siyasi is not None and siyasi >= config.SIYASI_RISK_MAKALE_ESIGI:
-        adimlar.append(f"Siyasi haber sayısı ({siyasi}) eşiği aştı -> KRİZ")
+    es = esikler()
+    if siyasi is not None and siyasi >= es["kriz"]:
+        adimlar.append(
+            f"Siyasi haber ({siyasi}) >= kriz eşiği ({es['kriz']}, taban {es['taban']}) -> KRİZ"
+        )
         return RejimSonucu(
             rejim="KRIZ",
             etiket=REJIMLER["KRIZ"],
@@ -69,6 +78,9 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
     if snap.vix is not None and snap.vix > 25:
         em_stres_puan += 1
         adimlar.append(f"VIX yükselmiş ({snap.vix:.1f})")
+    if snap.bist_vol_30g is not None and snap.bist_vol_30g > 42:
+        em_stres_puan += 1
+        adimlar.append(f"BIST vol yüksek ({snap.bist_vol_30g:.1f}% — yerel stres)")
 
     if em_stres_puan >= 2:
         return RejimSonucu(
@@ -83,20 +95,33 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
     enflasyon = snap.enflasyon_tr_yillik or 35.0
     tcmb = v.tcmb_politika_faizi or (v.tl_mevduat_brut_faiz or 0.40) * 100
     reel_faiz = tcmb - enflasyon
+    savas_yuksek = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_YUKSEK_ESIGI
+    savas_aktif = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_ESIGI
+    jeopolitik_kesinti = savas_aktif  # Kapı 2 ×0.9 jeopolitik çarpanı aktifken risk-on yasak
+    cds_uyari = list(getattr(snap, "cekim_uyarilari", []) or [])
+    cds_supheli = any("CDS" in u for u in cds_uyari)
     tl_firsat = (
         cds is not None
         and cds < 280
         and reel_faiz > 0
-        and (siyasi or 0) < config.SIYASI_RISK_MAKALE_ESIGI // 2
+        and (siyasi or 0) < es["temkin"]
+        and not savas_yuksek
     )
     if tl_firsat:
         adimlar.append(f"Reel faiz pozitif (~{reel_faiz:.1f}pp), CDS makul -> TL fırsat")
+        # Güven, reel faiz marjı ve CDS mesafesine göre ölçeklenir (sabit 0.75 yerine)
+        guven = 0.60 + min(0.20, reel_faiz * 0.04) + min(0.10, (280 - cds) / 400)
         return RejimSonucu(
             rejim="TL_FIRSAT",
             etiket=REJIMLER["TL_FIRSAT"],
             aciklama="TL mevduat cazip; mevcut 4 kapılı tavan kuralları geçerli.",
-            guven=0.75,
+            guven=round(min(guven, 0.9), 2),
             adimlar=adimlar,
+        )
+    if not tl_firsat and savas_yuksek and cds is not None and cds < 280 and reel_faiz > 0:
+        adimlar.append(
+            f"Reel faiz pozitif ama jeopolitik haber yoğun "
+            f"({v.savas_risk_makale_sayisi}) -> TL fırsat rejimi askıya alındı"
         )
 
     # --- Enflasyon koruma ---
@@ -110,8 +135,15 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
             adimlar=adimlar,
         )
 
-    # --- Risk-on ---
-    if snap.vix is not None and snap.vix < 16 and (cds or 999) < 250:
+    # --- Risk-on — jeopolitik/CDS şüpheliyken kapalı ---
+    if (
+        snap.vix is not None
+        and snap.vix < 16
+        and (cds or 999) < 250
+        and not savas_aktif
+        and not jeopolitik_kesinti
+        and not cds_supheli
+    ):
         adimlar.append(f"VIX düşük ({snap.vix:.1f}), CDS sakin -> risk iştahı")
         return RejimSonucu(
             rejim="RISK_ON",
@@ -120,6 +152,13 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
             guven=0.65,
             adimlar=adimlar,
         )
+    if snap.vix is not None and snap.vix < 16 and (cds or 999) < 250:
+        if savas_aktif or jeopolitik_kesinti:
+            adimlar.append(
+                f"Jeopolitik haber ({v.savas_risk_makale_sayisi}) yüksek -> risk-on iptal, nötr"
+            )
+        elif cds_supheli:
+            adimlar.append("CDS çapraz kontrol / sıçrama uyarısı -> risk-on iptal, nötr")
 
     adimlar.append("Belirgin sinyal yok -> nötr rejim")
     return RejimSonucu(
