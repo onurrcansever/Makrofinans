@@ -416,8 +416,17 @@ def makro_baglam_olustur(
 
     tcmb = snap.veri.tcmb_politika_faizi or 37
     enf = snap.enflasyon_tr_yillik or 35
-    reel = tcmb - enf
-    tl_ok = "↗" if reel > 1 else ("→" if reel > 0 else "↘")
+    reel_politika = tcmb - enf
+    enf_kaynak = kh.get("enflasyon", "—")
+    reel_mevduat = None
+    if ykb_profil is not None:
+        _, profil_gun = profil_mevduat_vadesi(profil)
+        from yapikredi_rates import net_brut_oran
+        net_pct = net_brut_oran(ykb_profil, profil_gun) * 100
+        reel_mevduat = net_pct - enf
+    tl_ok = "↗" if (reel_mevduat or reel_politika) > 1 else (
+        "→" if (reel_mevduat or reel_politika) > 0 else "↘"
+    )
     tl_trend = (
         f"Profil vadeniz **{profil_vade_etiket}** brüt **%{ykb_profil:.1f}** (canlı)"
         if ykb_profil
@@ -426,17 +435,24 @@ def makro_baglam_olustur(
             else "Banka faizi: canlı veri bekleniyor."
         )
     )
+    if ykb_profil is not None and reel_mevduat is not None:
+        tl_canli = (
+            f"Banka net reel **{reel_mevduat:+.1f} pp** (net mevduat − enflasyon) · "
+            f"Politika faizi reel **{reel_politika:+.1f} pp** (TCMB − enflasyon) · "
+            f"Enflasyon **%{enf:.1f}** [{enf_kaynak}]"
+        )
+    else:
+        tl_canli = (
+            f"Politika faizi reel **{reel_politika:+.1f} pp** (TCMB **%{tcmb:.0f}** − enflasyon **%{enf:.0f}**) · "
+            f"Kaynak enflasyon: {enf_kaynak}"
+        )
     parcalar.append(BaglamParcasi(
         baslik=f"TL mevduat & getiri tanımı ({profil_vade_etiket})",
-        canli=(
-            f"Net **%{ykb_profil:.1f}** brüt (canlı) · yerel reel **{reel:+.1f} pp** "
-            f"(TL enflasyonu − net)"
-            if ykb_profil
-            else f"TCMB **%{tcmb:.0f}** · enflasyon ~**%{enf:.0f}** → yerel reel **{reel:+.1f} pp**"
-        ),
+        canli=tl_canli,
         konum=(
-            "**Yerel reel** TL satın alma gücünü ölçer; **EUR bazlı getiri** kur hareketine bağlıdır — "
-            "aynı şey değildir."
+            "**Mevduat reel** = banka net faiz − enflasyon (gerçek alım gücü). "
+            "**Politika reel** = TCMB faizi − enflasyon (makro/rejim göstergesi). "
+            "İkisi farklıdır — raporda karıştırmayın."
         ),
         trend=tl_trend,
         beklenti=_tl_beklenti(snap, tahsis, ykb_3ay),

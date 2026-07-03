@@ -45,18 +45,19 @@ def _tanimla(
     _GOSTERGE_TANIM.append((anahtar, etiket, deger_fn, max_saat, politika))
 
 
-_tanimla("eur_try", "EUR/TRY", lambda s: s.veri.eur_try, 24, "Frankfurter yedek; kur yoksa 4 kapı hesaplanamaz.")
-_tanimla("usd_try", "USD/TRY", lambda s: s.veri.usd_try, 24, "EUR/TRY ile türetilebilir.")
+_tanimla("eur_try", "EUR/TRY", lambda s: s.veri.eur_try, 1, "Yahoo spot; yoksa Frankfurter ECB (günlük).")
+_tanimla("usd_try", "USD/TRY", lambda s: s.veri.usd_try, 1, "Yahoo spot; yoksa Frankfurter ECB (günlük).")
 _tanimla("altin", "Altın (USD/oz)", lambda s: s.altin_usd_oz, 48, "FRED/yfinance yedek; altın tahsisi etkilenir.")
 _tanimla("gumus", "Gümüş (USD/oz)", lambda s: s.gumus_usd_oz, 48, "Altın oranından türetilebilir.")
-_tanimla("vix", "VIX", lambda s: s.vix, 48, "Rejim ve CDS proxy için kullanılır.")
+_tanimla("vix", "VIX (ABD)", lambda s: s.vix, 48, "Küresel rejim ve CDS proxy için kullanılır.")
+_tanimla("bist_vol", "BIST Vol (30G)", lambda s: s.bist_vol_30g, 48, "XU100 realize vol — yerel stres proxy (resmi TR VIX değil).")
 _tanimla("bist100", "BIST 100", lambda s: s.bist100, 48, "Yahoo gecikmeli; BIST tahsisi etkilenir.")
 _tanimla("btc", "Bitcoin", lambda s: s.btc_usd, 48, "Kripto tahsisi etkilenir.")
-_tanimla("cds", "CDS 5Y (bp)", lambda s: s.veri.cds_5y_bp, 24, "Proxy/model — EVDS veya manuel teyit önerilir.")
+_tanimla("cds", "CDS 5Y (bp)", lambda s: s.veri.cds_5y_bp, 6, "Çapraz doğrulama (Investing + manual); tek kaynak PROXY.")
 _tanimla("enflasyon", "Enflasyon TR (%)", lambda s: s.enflasyon_tr_yillik, 720, "EVDS/TÜİK aylık; yoksa son bilinen.")
 _tanimla("tl_mevduat", "TL mevduat (brüt)", lambda s: s.veri.tl_mevduat_brut_faiz, 168, "Yapı Kredi yoksa TCMB türetilmiş.")
 _tanimla("fed_faizi", "Fed fon faizi", lambda s: s.veri.fed_faizi, 168, "FRED yoksa ^IRX veya sabit yedek.")
-_tanimla("tcmb_faizi", "TCMB politika faizi", lambda s: s.veri.tcmb_politika_faizi, 168, "EVDS yoksa son bilinen.")
+_tanimla("tcmb_faizi", "TCMB politika faizi", lambda s: s.veri.tcmb_politika_faizi, 168, "TCMB.gov (PPK repo); yoksa manual_inputs.")
 _tanimla("siyasi_risk", "Siyasi risk (haber)", lambda s: s.veri.siyasi_risk_makale_sayisi, 6, "GDELT 6 saat önbellek.")
 _tanimla("rezerv", "Rezerv trend", lambda s: s.veri.rezerv_artiyor, 720, "EVDS; bilinmiyorsa Kapı 4 ×0,85.")
 
@@ -78,12 +79,26 @@ def _siniflandir(kaynak: str, deger: Any, anahtar: str = "") -> str:
         if "irx" in k or "proxy" in k or "hazine" in k:
             return "PROXY"
     if anahtar == "tcmb_faizi":
+        if "tcmb.gov" in k or "1 hafta repo" in k or "ppk" in k:
+            return "CANLI" if "önbellek" not in k else "GECIKMELI"
+        if "apifon4" in k or "aofm" in k or "fonlama maliyeti" in k:
+            return "PROXY"
         if "evds" in k:
             return "GECIKMELI" if "önbellek" in k else "CANLI"
         if any(x in k for x in ("ykb", "türetilmiş", "tahmin", "proxy", "banka proxy")):
             return "PROXY"
         if "manual" in k or "manuel" in k:
             return "MANUEL"
+
+    if anahtar == "cds":
+        if any(x in k for x in ("çapraz teyit yok", "çapraz kontrol", "sıçrama", "çelişki", "piyasa modeli")):
+            return "PROXY"
+        if "manual" in k or "manuel" in k:
+            return "MANUEL"
+        if "çapraz doğrulandı" in k or "doğrulandı" in k:
+            return "CANLI" if "önbellek" not in k else "GECIKMELI"
+        if "investing" in k and "çapraz" not in k:
+            return "PROXY"
 
     if any(x in k for x in ("manuel", "manual", "manual_inputs")):
         return "MANUEL"

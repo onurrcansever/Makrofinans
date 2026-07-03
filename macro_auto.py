@@ -100,32 +100,13 @@ def _eurtry_volatilite(gun: int = 90) -> Optional[float]:
 
 
 def _cds_wgb() -> Optional[float]:
-    """WorldGovernmentBonds CDS API (ücretsiz, key yok)."""
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://www.worldgovernmentbonds.com",
-        "Referer": "https://www.worldgovernmentbonds.com/cds-historical-data/turkey/5-year/",
-        "Content-Type": "application/json",
-    }
+    """WorldGovernmentBonds — data_sources.turkiye_cds_5y_wgb sarmalayıcı."""
     try:
-        sayfa = requests.get(
-            "https://www.worldgovernmentbonds.com/cds-historical-data/turkey/5-year/",
-            headers=headers,
-            timeout=TIMEOUT,
-        )
-        m = re.search(r"jsGlobalVars\s*=\s*(\{.*?\});", sayfa.text, re.DOTALL)
-        if not m:
-            return None
-        payload = json.loads(m.group(1))
-        endpoint = payload.get("ENDPOINT", "https://www.worldgovernmentbonds.com/wp-json/common/v1/historical")
-        r = requests.post(endpoint, json=payload, headers=headers, timeout=TIMEOUT)
-        res = r.json().get("result", {})
-        val = res.get("ultimoValore") or res.get("lastValData")
-        if val is not None and float(val) > 50:
-            return float(val)
+        import data_sources as ds
+        sonuc = ds.turkiye_cds_5y_wgb()
+        return sonuc[0] if sonuc else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _cds_piyasa_modeli(vix: Optional[float], siyasi: int) -> Tuple[float, str]:
@@ -143,43 +124,41 @@ def _cds_piyasa_modeli(vix: Optional[float], siyasi: int) -> Tuple[float, str]:
     )
 
 
+def _manuel_cds() -> Optional[Tuple[float, str]]:
+    try:
+        path = os.path.join(os.path.dirname(__file__), "manual_inputs.json")
+        if not os.path.isfile(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+        cds = m.get("cds_5y_bp")
+        tarih = m.get("guncelleme_tarihi")
+        if cds is None:
+            return None
+        val = float(cds)
+        tarih_not = f", güncelleme {tarih}" if tarih else ""
+        return val, f"manual_inputs.json — manuel CDS{tarih_not} (haftalık teyit önerilir)"
+    except Exception:
+        return None
+
+
 def cds_otomatik(
     vix: Optional[float] = None,
     siyasi: int = 5,
     evds_key: str = "",
+    taze: bool = False,
+    savas: int = 0,
 ) -> Tuple[float, str]:
-    """Türkiye 5Y CDS (bp) — otomatik."""
-    cached = _cache_oku("cds_5y", max_yas_s=1800)
-    if cached:
-        return cached[0], f"{cached[1]} (önbellek)"
+    """Türkiye 5Y CDS (bp) — çapraz doğrulamalı."""
+    from cds_guven import cds_guvenli_al
 
-    if evds_key:
-        try:
-            import data_sources as ds
-            items = ds._evds_get("TP.KKTCDS5Y", evds_key, gun_sayisi=30)
-            if not items:
-                items = ds._evds_get("TP.KTF13", evds_key, gun_sayisi=30)
-            if items:
-                for item in reversed(items):
-                    for k, v in item.items():
-                        if k in ("Tarih", "UNIXTIME"):
-                            continue
-                        if v not in (None, "", "None"):
-                            val = float(str(v).replace(",", "."))
-                            if val > 50:
-                                _cache_yaz("cds_5y", val, "TCMB EVDS")
-                                return val, "TCMB EVDS (canlı)"
-        except Exception:
-            pass
-
-    wgb = _cds_wgb()
-    if wgb:
-        _cache_yaz("cds_5y", wgb, "WorldGovernmentBonds")
-        return wgb, "WorldGovernmentBonds (canlı)"
-
-    bp, kaynak = _cds_piyasa_modeli(vix, siyasi)
-    _cache_yaz("cds_5y", bp, kaynak.split("—")[0].strip())
-    return bp, kaynak
+    sonuc = cds_guvenli_al(vix=vix, siyasi=siyasi, savas=savas, taze=taze)
+    meta = sonuc.kaynak
+    if sonuc.ham is not None and abs(sonuc.ham - sonuc.deger) > 1:
+        meta += f" · ham okuma {sonuc.ham:.0f} bp"
+    if not sonuc.dogrulandi:
+        meta += " · ⚠ çapraz teyit yok"
+    return sonuc.deger, meta
 
 
 def _enflasyon_worldbank() -> Optional[float]:
@@ -199,32 +178,24 @@ def _enflasyon_worldbank() -> Optional[float]:
     return None
 
 
-def enflasyon_otomatik(evds_key: str = "") -> Tuple[float, str]:
+def enflasyon_otomatik(evds_key: str = "", taze: bool = False) -> Tuple[float, str]:
     """Türkiye yıllık enflasyon (%). Öncelik: EVDS/TÜİK aylık → FRED yıllık → World Bank."""
-    cached = _cache_oku("enflasyon_tr", max_yas_s=86400)
-    if cached:
-        src = cached[1]
-        if any(x in src.lower() for x in ("world bank", "fred")):
-            return cached[0], f"{src} (önbellek — yıllık/gecikmeli; aylık TÜİK için EVDS TP.FG.J0)"
-        return cached[0], f"{src} (önbellek)"
+    if not taze:
+        cached = _cache_oku("enflasyon_tr", max_yas_s=86400)
+        if cached:
+            src = cached[1]
+            if any(x in src.lower() for x in ("world bank", "fred")):
+                return cached[0], f"{src} (önbellek — yıllık/gecikmeli; aylık TÜİK için EVDS TP.FG.J0)"
+            return cached[0], f"{src} (önbellek)"
 
     if evds_key:
         try:
             import data_sources as ds
-            for seri, etiket in (
-                ("TP.FG.J0", "TÜFE yıllık değişim"),
-                ("TP.FG.J01", "TÜFE endeks"),
-            ):
-                items = ds._evds_get(seri, evds_key, gun_sayisi=400)
-                if items:
-                    for item in reversed(items):
-                        for k, v in item.items():
-                            if k in ("Tarih", "UNIXTIME"):
-                                continue
-                            if v not in (None, "", "None"):
-                                val = float(str(v).replace(",", "."))
-                                _cache_yaz("enflasyon_tr", val, "TCMB EVDS")
-                                return val, f"TCMB EVDS {seri} — {etiket} (TÜİK, resmi)"
+            tufe = ds.evds_tufe_yoy(evds_key)
+            if tufe:
+                val, detay = tufe
+                _cache_yaz("enflasyon_tr", val, "TCMB EVDS")
+                return val, f"TCMB EVDS — {detay} (TÜİK, resmi)"
         except Exception:
             pass
 
@@ -265,38 +236,29 @@ def _manuel_tcmb() -> Optional[Tuple[float, str]]:
         return None
 
 
-def tcmb_faizi_otomatik(evds_key: str = "") -> Tuple[float, str]:
-    """TCMB politika / fonlama faizi (%). Öncelik: EVDS → manuel → YKB proxy."""
-    cached = _cache_oku("tcmb_faizi", max_yas_s=3600)
-    if cached:
-        src = cached[1]
-        if "YKB" in src or "türetilmiş" in src.lower() or "tahmin" in src.lower():
-            return cached[0], f"{src} (önbellek — banka proxy, EVDS/manuel teyit önerilir)"
-        return cached[0], f"{src} (önbellek)"
+def tcmb_faizi_otomatik(evds_key: str = "", taze: bool = False) -> Tuple[float, str]:
+    """TCMB politika faizi (%). Öncelik: TCMB.gov (PPK repo) → manuel → YKB proxy.
+    Not: EVDS TP.APIFON4 ağırlıklı ortalama fonlama maliyetidir (~%40), politika faizi değil."""
+    del evds_key  # rezerv/enflasyon için EVDS; politika faizi tcmb.gov.tr
+    if not taze:
+        cached = _cache_oku("tcmb_faizi", max_yas_s=3600)
+        if cached:
+            src = cached[1].lower()
+            yanlis = any(x in src for x in ("apifon4", "aofm", "fonlama maliyeti"))
+            if not yanlis:
+                if "ykb" in src or "türetilmiş" in src or "tahmin" in src:
+                    return cached[0], f"{cached[1]} (önbellek — banka proxy, TCMB.gov teyit önerilir)"
+                return cached[0], f"{cached[1]} (önbellek)"
 
-    if evds_key:
-        try:
-            import data_sources as ds
-            for seri in (
-                "TP.KTF21",       # 1 hafta vadeli repo
-                "TP.APIFON4",
-                "TP.API.REP.ORT.G214",
-                "TP.KTF17",
-            ):
-                items = ds._evds_get(seri, evds_key, gun_sayisi=60)
-                if items:
-                    for item in reversed(items):
-                        for k, v in item.items():
-                            if k in ("Tarih", "UNIXTIME"):
-                                continue
-                            if v not in (None, "", "None"):
-                                raw = float(str(v).replace(",", "."))
-                                val = raw if raw > 1 else raw * 100
-                                if 5 < val < 100:
-                                    _cache_yaz("tcmb_faizi", val, "TCMB EVDS")
-                                    return val, f"TCMB EVDS {seri} — politika/piyasa faizi (resmi)"
-        except Exception:
-            pass
+    try:
+        import data_sources as ds
+        ppk = ds.tcmb_politika_faizi_resmi()
+        if ppk:
+            val, kaynak = ppk
+            _cache_yaz("tcmb_faizi", val, kaynak.split("—")[0].strip())
+            return val, kaynak
+    except Exception:
+        pass
 
     manuel = _manuel_tcmb()
     if manuel:
