@@ -278,17 +278,23 @@ def backtest_metrikleri(
     drift_msg = ""
     if mevcut_rejim:
         mevcut_oran = frek.get(mevcut_rejim, 0) / len(rejimler) * 100
-        if mevcut_oran < 20:
+        if mevcut_oran < config.BACKTEST_REJIM_MIN_ORAN:
             drift = True
             drift_msg = (
                 f"Mevcut rejim ({mevcut_rejim}) backtest döneminde yalnızca "
-                f"%{mevcut_oran:.0f} süre görüldü — model drift uyarısı."
+                f"%{mevcut_oran:.0f} süre görüldü (eşik %{config.BACKTEST_REJIM_MIN_ORAN:.0f}) — "
+                f"simülasyon bugünkü koşulları yansıtmıyor olabilir."
             )
 
     notlar = [
         "Portföy simülasyonu: aylık yeniden dengeleme, TL getirisi EUR bazında (faiz − kur).",
-        "CDS/enflasyon yaklaşık tablodan — kesin performans iddiası değildir.",
+        "CDS/enflasyon yaklaşık tablodan; jeopolitik/rezerv sabit varsayımlı — kesin performans iddiası değildir.",
     ]
+    if mevcut_rejim and mevcut_oran == 0:
+        notlar.append(
+            f"⚠️ Mevcut rejim ({mevcut_rejim}) son {len(rejimler)} ay simülasyonda hiç oluşmadı — "
+            "Sharpe ve getiri metrikleri bugünkü stratejiyi test etmemiş sayılır."
+        )
     if sharpe is not None and sharpe < 0:
         notlar.append("Negatif Sharpe — rejim kuralları bu dönemde EUR nakitte kalmaktan zayıf kalmış olabilir.")
 
@@ -304,6 +310,77 @@ def backtest_metrikleri(
         drift_mesaji=drift_msg,
         aylik_getiriler=aylik,
         notlar=notlar,
+    )
+
+
+def backtest_karsi_olgusal_metrikleri(
+    satirlar: List[BacktestSatir],
+    sabit_agirliklar: Dict[str, float],
+) -> Optional[BacktestMetrik]:
+    """
+    Karşı-olgusal simülasyon: bugünkü rejim/tahsis ağırlıkları geçmiş 12 aya sabit uygulanır.
+    """
+    if len(satirlar) < 3 or not sabit_agirliklar:
+        return None
+
+    w = sabit_agirliklar
+    t = sum(w.values())
+    if t <= 0:
+        return None
+    w = {k: v / t for k, v in w.items()}
+
+    aylik: List[float] = []
+    for i in range(1, len(satirlar)):
+        prev, cur = satirlar[i - 1], satirlar[i]
+        tl_faiz_ay = (prev.tcmb / 100) / 12
+        kur_degisim = _pct(prev.eur_try, cur.eur_try)
+        r_varlik = {
+            "eur_cash": 0.0,
+            "usd_cash": 0.0,
+            "tl_deposit": tl_faiz_ay - kur_degisim,
+            "gold": _pct(prev.altin_usd, cur.altin_usd),
+            "silver": _pct(prev.altin_usd, cur.altin_usd) * 0.85,
+            "bist": _pct(prev.bist100, cur.bist100),
+            "crypto": _pct(prev.btc_usd, cur.btc_usd),
+        }
+        port = sum(w.get(k, 0) * r_varlik.get(k, 0) for k in w)
+        aylik.append(port)
+
+    if not aylik:
+        return None
+
+    import statistics
+
+    kum = 1.0
+    zirve = 1.0
+    max_dd = 0.0
+    for r in aylik:
+        kum *= 1 + r
+        zirve = max(zirve, kum)
+        dd = (kum - zirve) / zirve if zirve > 0 else 0
+        max_dd = min(max_dd, dd)
+
+    toplam_getiri = (kum - 1) * 100
+    ort = statistics.mean(aylik)
+    std = statistics.stdev(aylik) if len(aylik) > 1 else 0.0
+    vol_yillik = std * (12 ** 0.5) * 100
+    sharpe = (ort / std * (12 ** 0.5)) if std > 1e-9 else None
+
+    return BacktestMetrik(
+        toplam_getiri_pct=toplam_getiri,
+        max_drawdown_pct=max_dd * 100,
+        sharpe_yillik=sharpe,
+        volatilite_yillik_pct=vol_yillik,
+        rejim_degisim_sayisi=0,
+        en_sik_rejim="SABIT",
+        mevcut_rejim_oran_pct=100.0,
+        model_drift=False,
+        drift_mesaji="",
+        aylik_getiriler=aylik,
+        notlar=[
+            "Karşı-olgusal: bugünkü portföy ağırlıkları geçmiş fiyatlara sabit uygulandı.",
+            "Rejim geçmişi yok sayıldı — bugünkü stratejinin geçmişte ne yapacağını gösterir.",
+        ],
     )
 
 

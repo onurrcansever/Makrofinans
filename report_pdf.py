@@ -105,6 +105,53 @@ def _hisse_sirala(hisseler: list) -> list:
     )
 
 
+def _isin_birlestir_gosterim(hisseler: list) -> list:
+    """Aynı ISIN — tek satır; kotasyonlar not sütununda."""
+    goren: dict = {}
+    cikis: list = []
+    for h in _hisse_sirala(hisseler):
+        isin = (getattr(h, "isin", "") or "").strip()
+        if not isin:
+            cikis.append(h)
+            continue
+        if isin in goren:
+            mevcut = goren[isin]
+            tickers = getattr(mevcut, "_kotasyonlar", [mevcut.sembol])
+            if h.sembol not in tickers:
+                tickers.append(h.sembol)
+            mevcut._kotasyonlar = tickers
+            rt = getattr(h, "revolut_ticker", "") or ""
+            if rt and rt not in (getattr(mevcut, "_revolut_list", []) or []):
+                mevcut._revolut_list = (getattr(mevcut, "_revolut_list", []) or []) + [rt]
+            continue
+        h._kotasyonlar = [h.sembol]
+        goren[isin] = h
+        cikis.append(h)
+    return cikis
+
+
+def _kotasyon_notu(h) -> str:
+    tickers = getattr(h, "_kotasyonlar", None) or [h.sembol]
+    if len(tickers) > 1:
+        return f"Kot: {', '.join(tickers[:4])}"
+    rt = getattr(h, "revolut_ticker", "") or ""
+    if rt and rt != h.sembol.split(".")[0]:
+        return f"Revolut: {rt}"
+    return _temiz(getattr(h, "alim_uygun_not", ""), 22)
+
+
+def _madde_ek_bilgi(h) -> Optional[str]:
+    """Tabloda yer almayan ek uyarı/haber — yinelenen skor/RSI tekrarlanmaz."""
+    parcalar = []
+    if getattr(h, "haber_notu", ""):
+        parcalar.append(f"Haber: {_temiz(h.haber_notu, 60)}")
+    if getattr(h, "rejim_notu", "") and h.rejim_notu not in ("", "Rejim uyumlu"):
+        parcalar.append(f"Rejim: {_temiz(h.rejim_notu, 50)}")
+    if getattr(h, "profil_notu", "") and h.profil_notu not in ("", "Profil uyumlu"):
+        parcalar.append(f"Profil: {_temiz(h.profil_notu, 50)}")
+    return " · ".join(parcalar) if parcalar else None
+
+
 def _skor_sirala(hisseler: list) -> list:
     return sorted(
         hisseler,
@@ -258,55 +305,129 @@ def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int) -> None:
             doc.tablo(s.tablo_baslik, s.tablo_satirlar)
 
 
-def _backtest_bolumu(doc: "RaporPDF", rejim: str, ay: int = 12) -> None:
+def _kanonik_aday_tablo(doc: "RaporPDF", hisseler: list) -> None:
+    """Tek kanonik alım adayları tablosu — ISIN birleştirmeli."""
+    if not hisseler:
+        return
+    birlestir = _isin_birlestir_gosterim(hisseler)
+    w = doc._w()
+    rows = []
+    for h in birlestir[:25]:
+        rt = getattr(h, "revolut_ticker", "") or h.sembol.split(".")[0]
+        rows.append([
+            _uygun_tablo_hucre(h),
+            rt if h.piyasa == "ETF" else h.sembol,
+            _temiz(h.ad, 16),
+            h.piyasa,
+            _temiz(SINYAL_ETIKET.get(h.sinyal, h.sinyal), 10),
+            _sayi(h.skor, 0),
+            _pct(h.degisim_1ay, 0),
+            _sayi(h.rsi, 0) if h.rsi is not None else "—",
+            _temiz(getattr(h, "isin", "") or "—", 14),
+            _kotasyon_notu(h),
+        ])
+    doc.tablo(
+        ["Karar", "Sembol", "Varlık", "Piyasa", "Sinyal", "Skor", "1A", "RSI", "ISIN", "Not"],
+        rows,
+        font_boyut=5.5,
+        satir_yuk=3.6,
+        col_w=[w * x for x in (0.09, 0.08, 0.17, 0.07, 0.09, 0.05, 0.06, 0.05, 0.14, 0.20)],
+    )
+
+
+def _backtest_bolumu(
+    doc: "RaporPDF",
+    rejim: str,
+    ay: int = 12,
+    sabit_agirliklar: Optional[dict] = None,
+) -> None:
     try:
         satirlar = backtest_calistir(ay)
         met = backtest_metrikleri(satirlar, rejim)
+        karsi = None
+        if sabit_agirliklar:
+            from backtest import backtest_karsi_olgusal_metrikleri
+            karsi = backtest_karsi_olgusal_metrikleri(satirlar, sabit_agirliklar)
     except Exception:
         return
     if not met:
         return
-    if met.model_drift and met.drift_mesaji:
-        doc.bolum("Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)")
-        doc.madde(_temiz(met.drift_mesaji, 160))
-        for n in met.notlar[:3]:
-            doc.madde(_temiz(n, 160))
-        return
-    if rejim and met.mevcut_rejim_oran_pct < config.BACKTEST_REJIM_MIN_ORAN:
-        doc.bolum("Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)")
-        doc.madde(
-            _temiz(
-                f"Mevcut rejim ({rejim}) backtest döneminde "
-                f"yalnızca %{met.mevcut_rejim_oran_pct:.0f} görüldü — Sharpe/getiri özeti gizlendi.",
-                160,
-            )
-        )
-        for n in met.notlar[:3]:
-            doc.madde(_temiz(n, 160))
-        return
-    doc.bolum("Backtest & Model İstikrarı")
-    sharpe = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
-    doc.kutu(
-        f"Son {ay} ay simülasyon · Sharpe {sharpe}",
-        _temiz(
-            f"Toplam getiri {met.toplam_getiri_pct:+.1f}% · Max drawdown {met.max_drawdown_pct:.1f}% · "
-            f"Volatilite (yıllık) {met.volatilite_yillik_pct:.1f}% · "
-            f"Rejim değişimi {met.rejim_degisim_sayisi} · "
-            f"En sık rejim: {met.en_sik_rejim.replace('_', ' ')}",
-            350,
-        ),
+    bilgi_amacli = (
+        met.model_drift
+        or (rejim and met.mevcut_rejim_oran_pct < config.BACKTEST_REJIM_MIN_ORAN)
     )
-    if rejim:
-        doc.madde(
+    baslik = (
+        "Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)"
+        if bilgi_amacli
+        else "Backtest & Model İstikrarı"
+    )
+    doc.bolum(baslik)
+    if bilgi_amacli:
+        if met.drift_mesaji:
+            doc.madde(_temiz(met.drift_mesaji, 160))
+        elif rejim:
+            doc.madde(
+                _temiz(
+                    f"Mevcut rejim ({rejim}) backtest döneminde "
+                    f"yalnızca %{met.mevcut_rejim_oran_pct:.0f} görüldü — "
+                    "Sharpe/getiri özeti gizlendi.",
+                    160,
+                )
+            )
+    else:
+        sharpe = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
+        doc.kutu(
+            f"Son {ay} ay simülasyon · Sharpe {sharpe}",
             _temiz(
-                f"Mevcut rejim ({rejim}) backtest döneminde "
-                f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü.",
-                160,
+                f"Toplam getiri {met.toplam_getiri_pct:+.1f}% · Max drawdown {met.max_drawdown_pct:.1f}% · "
+                f"Volatilite (yıllık) {met.volatilite_yillik_pct:.1f}% · "
+                f"Rejim değişimi {met.rejim_degisim_sayisi} · "
+                f"En sık rejim: {met.en_sik_rejim.replace('_', ' ')}",
+                350,
+            ),
+        )
+        if rejim:
+            doc.madde(
+                _temiz(
+                    f"Mevcut rejim ({rejim}) backtest döneminde "
+                    f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü.",
+                    160,
+                )
+            )
+
+    if karsi and not bilgi_amacli:
+        sharpe_k = f"{karsi.sharpe_yillik:.2f}" if karsi.sharpe_yillik is not None else "—"
+        sharpe_g = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
+        w = doc._w()
+        doc.paragraf("Geçmiş simülasyon vs karşı-olgusal (bugünkü ağırlıklar sabit):")
+        doc.tablo(
+            ["Metrik", "Dinamik rejim", "Karşı-olgusal"],
+            [
+                ["Toplam getiri", f"{met.toplam_getiri_pct:+.1f}%", f"{karsi.toplam_getiri_pct:+.1f}%"],
+                ["Sharpe", sharpe_g, sharpe_k],
+                ["Max drawdown", f"{met.max_drawdown_pct:.1f}%", f"{karsi.max_drawdown_pct:.1f}%"],
+                ["Volatilite", f"{met.volatilite_yillik_pct:.1f}%", f"{karsi.volatilite_yillik_pct:.1f}%"],
+            ],
+            font_boyut=7,
+            satir_yuk=4,
+            col_w=[w * 0.40, w * 0.30, w * 0.30],
+        )
+    elif karsi and bilgi_amacli:
+        doc.paragraf(
+            _temiz(
+                f"Karşı-olgusal (bugünkü ağırlıklar sabit): getiri {karsi.toplam_getiri_pct:+.1f}%, "
+                f"max DD {karsi.max_drawdown_pct:.1f}%.",
+                200,
             )
         )
-    for n in met.notlar[:3]:
+
+    for n in met.notlar[:2]:
         doc.madde(_temiz(n, 160))
-    if satirlar:
+    if karsi:
+        for n in karsi.notlar[:1]:
+            doc.madde(_temiz(n, 160))
+
+    if satirlar and not bilgi_amacli:
         w = doc._w()
         rows = []
         for s in satirlar[-6:]:
@@ -371,81 +492,30 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         )
 
     uygun_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "UYGUN"])
-    if uygun_list:
-        doc.paragraf(f"AL — {len(uygun_list)} varlık")
-        _tablo_hisse_ozet(doc, uygun_list, detayli=True, font=5.5)
-        for h in uygun_list[:8]:
-            doc.madde(_hisse_detay_madde(h))
-
     sinirli_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "SINIRLI"])
-    if sinirli_list:
-        doc.paragraf(f"DİKKAT — sınırlı uygun — {len(sinirli_list)} varlık (küçük pay veya bekle)")
-        _tablo_hisse_ozet(doc, sinirli_list[:15], detayli=True, font=5.5)
-        for h in sinirli_list[:6]:
-            doc.madde(_hisse_detay_madde(h))
+    etf_firsat = getattr(tarama, "etf_firsatlari", None) or []
 
-    if tarama.alim_firsatlari:
-        doc.paragraf(f"Alım adayları (profil filtreli) — {len(tarama.alim_firsatlari)} varlık")
-        _tablo_hisse_ozet(doc, _hisse_sirala(tarama.alim_firsatlari[:20]), detayli=True, font=5.5)
-        for h in tarama.alim_firsatlari[:8]:
-            doc.madde(_hisse_detay_madde(h))
-    else:
+    # Tek kanonik tablo — AL, DİKKAT ve ETF tekrarları birleştirildi
+    kanonik = _hisse_sirala(uygun_list + sinirli_list + etf_firsat)
+    if kanonik:
+        al_n = len(uygun_list)
+        dikkat_n = len(sinirli_list)
+        etf_n = len(etf_firsat)
+        doc.paragraf(
+            f"Kanonik alım adayları — AL: {al_n} · DİKKAT: {dikkat_n} · ETF: {etf_n} "
+            f"(aynı ISIN tek satır; detay aşağıdaki tabloda)"
+        )
+        _kanonik_aday_tablo(doc, kanonik)
+        ek_madde = 0
+        for h in kanonik:
+            ek = _madde_ek_bilgi(h)
+            if ek and ek_madde < 4:
+                doc.madde(_temiz(f"{_uygun_tablo_hucre(h)} · {h.ad}: {ek}", 180))
+                ek_madde += 1
+    elif not kanonik:
         doc.paragraf(
             "Profil filtreli alım adayı yok — BEKLE veya makro tahsis (mevduat/altın/EUR) öncelikli."
         )
-
-    etf_firsat = getattr(tarama, "etf_firsatlari", None) or []
-    if etf_firsat:
-        doc.paragraf(f"Revolut ETF adayları — {len(etf_firsat)} fon (UCITS · skor ≥55)")
-        etf_rows = []
-        for h in _hisse_sirala(etf_firsat[:12]):
-            rt = getattr(h, "revolut_ticker", "") or h.sembol.split(".")[0]
-            etf_rows.append([
-                _uygun_tablo_hucre(h),
-                rt,
-                _temiz(h.ad, 18),
-                _temiz(SINYAL_ETIKET.get(h.sinyal, h.sinyal), 10),
-                _sayi(h.skor, 0),
-                _pct(h.degisim_1ay, 0),
-                _sayi(h.rsi, 0) if h.rsi is not None else "—",
-                _sayi(getattr(h, "zirve_52h_pct", None), 0) if getattr(h, "zirve_52h_pct", None) else "—",
-                _temiz(getattr(h, "isin", "") or "—", 14),
-                _temiz(getattr(h, "alim_uygun_not", ""), 20),
-            ])
-        w = doc._w()
-        doc.tablo(
-            ["Karar", "Revolut", "ETF", "Sinyal", "Skor", "1A", "RSI", "52H", "ISIN", "Not"],
-            etf_rows,
-            font_boyut=5.5,
-            satir_yuk=3.6,
-            col_w=[w * x for x in (0.10, 0.07, 0.18, 0.09, 0.05, 0.06, 0.05, 0.05, 0.15, 0.20)],
-        )
-        for h in etf_firsat[:6]:
-            doc.madde(_hisse_detay_madde(h))
-
-    onemli = _hisse_sirala([
-        h for h in (tarama.hisseler or [])
-        if getattr(h, "alim_uygun", "") in ("UYGUN", "SINIRLI")
-        or h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM")
-    ])[:35]
-    if onemli:
-        doc.paragraf(f"Teknik özet — öncelikli {len(onemli)} varlık (alım uygunluğu + skor)")
-        _tablo_hisse_ozet(doc, onemli, detayli=False, font=5.2, ilk_sutun="sira")
-
-    if tarama.hisseler:
-        doc.paragraf(
-            "Piyasa bazında öne çıkanlar — bilgi amaçlı en yüksek skorlu 6 varlık; "
-            "alım kararı için yalnızca üstteki Alım uygunluk bölümüne bakın."
-        )
-        for piyasa in ("BIST", "SP500", "NASDAQ", "ETF"):
-            grup = _skor_sirala([
-                h for h in tarama.hisseler
-                if h.piyasa == piyasa and h.sinyal not in ("ASIRI_ALIM", "UZAK_DUR", "VERI_YOK")
-            ])[:6]
-            if not grup:
-                continue
-            doc.paragraf(f"{piyasa} — top 6 (alım uygunluğu + skor)")
-            _tablo_hisse_ozet(doc, grup, detayli=True, font=5.2, ilk_sutun="sira")
 
 
 class RaporPDF:
@@ -864,8 +934,6 @@ def rapor_pdf_direkt_olustur(
 
     _senaryo_bolumu(doc, snap, tahsis, config.KALAN_GUN)
 
-    _backtest_bolumu(doc, tahsis.rejim.rejim)
-
     doc.bolum("Varlık Bazlı Strateji Notları")
     for var in danisman.varliklar:
         if var.agirlik_pct < 0.5 and var.sinyal == "KACIN":
@@ -882,6 +950,8 @@ def rapor_pdf_direkt_olustur(
         doc.paragraf(_temiz(danisman.denetim.ozet, 200))
         for b in danisman.denetim.bulgular[:5]:
             doc.madde(_temiz(f"[{b.seviye}] {b.baslik}", 120))
+
+    _backtest_bolumu(doc, tahsis.rejim.rejim, sabit_agirliklar=tahsis.agirliklar)
 
     doc.footer_disclaimer()
     return doc.bytes()
