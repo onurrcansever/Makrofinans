@@ -17,6 +17,8 @@ from typing import Dict, Optional, Tuple
 
 import requests
 
+import config
+
 TIMEOUT = 15
 _CACHE_TTL = 3600  # 1 saat
 _CACHE: Dict[str, object] = {"ts": 0.0, "data": None}
@@ -48,14 +50,13 @@ class YapikrediMevduat:
 
 
 def stopaj_orani(gun: int, doviz: str = "TL") -> float:
-    """Türkiye mevduat stopajı (2026 — Yapı Kredi stopaj tablosu ile uyumlu)."""
+    """Türkiye mevduat stopajı — config.TL_STOPAJ_TABLOSU."""
     if doviz != "TL":
-        return 0.25
-    if gun <= 180:
-        return 0.10
-    if gun <= 365:
-        return 0.075
-    return 0.05
+        return config.DOVIZ_STOPAJ_ORANI
+    for max_gun, oran in config.TL_STOPAJ_TABLOSU:
+        if gun <= max_gun:
+            return oran
+    return config.TL_STOPAJ_TABLOSU[-1][1]
 
 
 def net_brut_oran(brut_yuzde: float, gun: int, doviz: str = "TL") -> float:
@@ -114,12 +115,16 @@ def yapikredi_tl_faizleri(
 
     oranlar: Dict[str, float] = {}
     urunler: Dict[str, str] = {}
-    for anahtar, gun in VADE_GUN.items():
-        faiz, urun = _tek_vade(tutar_tl, gun)
-        if faiz is None:
-            return None
-        oranlar[anahtar] = faiz
-        urunler[anahtar] = urun
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {anahtar: ex.submit(_tek_vade, tutar_tl, gun) for anahtar, gun in VADE_GUN.items()}
+        for anahtar, fut in futs.items():
+            faiz, urun = fut.result()
+            if faiz is None:
+                return None
+            oranlar[anahtar] = faiz
+            urunler[anahtar] = urun
 
     urun_ozet = urunler["tl_1y"] if len(set(urunler.values())) == 1 else "karışık (klasik/e-mevduat)"
     sonuc = YapikrediMevduat(
