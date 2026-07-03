@@ -27,7 +27,7 @@ görmenizi sağlar.
 | Anahtar | Nereden | Süre |
 |---|---|---|
 | `FRED_API_KEY` | https://fred.stlouisfed.org/docs/api/api_key.html | 2 dk, e-posta ile |
-| `EVDS_API_KEY` | https://evds2.tcmb.gov.tr/index.php?/evds/login | 5 dk, kayıt formu |
+| `EVDS_API_KEY` | https://evds3.tcmb.gov.tr (Profilim → API Key) | Ücretsiz, ~5 dk kayıt |
 | Telegram bot | `notifier.py` dosyasının başındaki yorumlara bakın | 5 dk |
 
 GDELT (siyasi/savaş risk taraması) ve Frankfurter (döviz kuru) için **anahtar
