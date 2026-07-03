@@ -198,6 +198,25 @@ REJIM_HISTEREZIS_TEYIT = int(os.getenv("REJIM_HISTEREZIS_TEYIT", "2"))
 REJIM_GECIS_CDS_ESIKLERI: List[float] = [250.0, 280.0, 300.0, 400.0]
 REJIM_GECIS_VIX_ESIK = float(os.getenv("REJIM_GECIS_VIX_ESIK", "16"))
 
+# ------------------------------------------------------------------
+# Faz 3 — Senaryo analizi
+# ------------------------------------------------------------------
+SENARYO_KUR_SOKU_CARPANI = float(os.getenv("SENARYO_KUR_SOKU_CARPANI", "1.05"))
+SENARYO_CDS_STRES_BP = float(os.getenv("SENARYO_CDS_STRES_BP", "280"))
+SENARYO_TCMB_DEGISIM_BP = float(os.getenv("SENARYO_TCMB_DEGISIM_BP", "300"))
+
+# ------------------------------------------------------------------
+# Faz 4 — Stopaj, TMSF
+# ------------------------------------------------------------------
+TL_STOPAJ_TABLOSU: List[Tuple[int, float]] = [
+    (180, float(os.getenv("TL_STOPAJ_6AY", "0.10"))),
+    (365, float(os.getenv("TL_STOPAJ_1Y", "0.075"))),
+    (99999, float(os.getenv("TL_STOPAJ_UZUN", "0.05"))),
+]
+DOVIZ_STOPAJ_ORANI = float(os.getenv("DOVIZ_STOPAJ", "0.25"))
+TMSF_SIGORTA_LIMITI_TL = float(os.getenv("TMSF_SIGORTA_LIMITI_TL", "650000"))
+BACKTEST_REJIM_MIN_ORAN = float(os.getenv("BACKTEST_REJIM_MIN_ORAN", "10"))
+
 
 @dataclass
 class Esikler:

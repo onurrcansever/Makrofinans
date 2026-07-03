@@ -21,6 +21,7 @@ from stock_universe import SEKTOR_ETIKET
 from tl_durum import TlDurumOzeti
 from veri_kalitesi import VeriKaliteRaporu, veri_kalite_olustur
 from backtest import backtest_calistir, backtest_metrikleri
+from scenario_analysis import senaryo_analizi_uret
 from alim_uygunluk import alim_aksiyon_hucre
 
 _FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
@@ -105,7 +106,10 @@ def _hisse_sirala(hisseler: list) -> list:
 
 
 def _skor_sirala(hisseler: list) -> list:
-    return sorted(hisseler, key=lambda h: -h.skor)
+    return sorted(
+        hisseler,
+        key=lambda h: (_UYGUN_SIRA.get(getattr(h, "alim_uygun", "IZLE"), 9), -h.skor),
+    )
 
 
 def _uygunluk_ozet_metin(tarama: TaramaSonucu) -> str:
@@ -240,6 +244,20 @@ def _veri_kalite_bolumu(doc: "RaporPDF", vk: VeriKaliteRaporu) -> None:
     )
 
 
+def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int) -> None:
+    try:
+        senaryolar = senaryo_analizi_uret(snap, tahsis, vade_gun)
+    except Exception:
+        return
+    if not senaryolar:
+        return
+    doc.bolum("Senaryo Analizi")
+    for s in senaryolar:
+        doc.kutu(s.ad, _temiz(s.ozet, 320))
+        if s.tablo_satirlar:
+            doc.tablo(s.tablo_baslik, s.tablo_satirlar)
+
+
 def _backtest_bolumu(doc: "RaporPDF", rejim: str, ay: int = 12) -> None:
     try:
         satirlar = backtest_calistir(ay)
@@ -247,6 +265,24 @@ def _backtest_bolumu(doc: "RaporPDF", rejim: str, ay: int = 12) -> None:
     except Exception:
         return
     if not met:
+        return
+    if met.model_drift and met.drift_mesaji:
+        doc.bolum("Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)")
+        doc.madde(_temiz(met.drift_mesaji, 160))
+        for n in met.notlar[:3]:
+            doc.madde(_temiz(n, 160))
+        return
+    if rejim and met.mevcut_rejim_oran_pct < config.BACKTEST_REJIM_MIN_ORAN:
+        doc.bolum("Model Geçmişi (bilgi amaçlı — bugünkü rejimi kapsamıyor)")
+        doc.madde(
+            _temiz(
+                f"Mevcut rejim ({rejim}) backtest döneminde "
+                f"yalnızca %{met.mevcut_rejim_oran_pct:.0f} görüldü — Sharpe/getiri özeti gizlendi.",
+                160,
+            )
+        )
+        for n in met.notlar[:3]:
+            doc.madde(_temiz(n, 160))
         return
     doc.bolum("Backtest & Model İstikrarı")
     sharpe = f"{met.sharpe_yillik:.2f}" if met.sharpe_yillik is not None else "—"
@@ -260,13 +296,11 @@ def _backtest_bolumu(doc: "RaporPDF", rejim: str, ay: int = 12) -> None:
             350,
         ),
     )
-    if met.model_drift and met.drift_mesaji:
-        doc.madde(_temiz(met.drift_mesaji, 160))
-    elif rejim:
+    if rejim:
         doc.madde(
             _temiz(
                 f"Mevcut rejim ({rejim}) backtest döneminde "
-                f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü — drift yok.",
+                f"%{met.mevcut_rejim_oran_pct:.0f} süre görüldü.",
                 160,
             )
         )
@@ -395,7 +429,7 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         or h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM")
     ])[:35]
     if onemli:
-        doc.paragraf(f"Teknik özet — öncelikli {len(onemli)} varlık (skor sıralı, bilgi amaçlı)")
+        doc.paragraf(f"Teknik özet — öncelikli {len(onemli)} varlık (alım uygunluğu + skor)")
         _tablo_hisse_ozet(doc, onemli, detayli=False, font=5.2, ilk_sutun="sira")
 
     if tarama.hisseler:
@@ -410,7 +444,7 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
             ])[:6]
             if not grup:
                 continue
-            doc.paragraf(f"{piyasa} — top 6 (skor sıralı)")
+            doc.paragraf(f"{piyasa} — top 6 (alım uygunluğu + skor)")
             _tablo_hisse_ozet(doc, grup, detayli=True, font=5.2, ilk_sutun="sira")
 
 
@@ -696,12 +730,13 @@ def rapor_pdf_direkt_olustur(
         ["Gösterge", "Değer", "Gösterge", "Değer"],
         [
             ["EUR/TRY", _sayi(v.eur_try), "USD/TRY", _sayi(v.usd_try)],
-            ["CDS 5Y", f"{_sayi(v.cds_5y_bp, 0)} bp", "VIX", _sayi(snap.vix, 1)],
-            ["TCMB faizi", f"%{_sayi(v.tcmb_politika_faizi, 1)}", "Enflasyon TR", f"%{_sayi(snap.enflasyon_tr_yillik, 1)}"],
-            ["Fed faizi", f"%{_sayi(v.fed_faizi, 2)}", "Altın/oz", f"${_sayi(snap.altin_usd_oz, 0)}"],
-            ["BIST 100", _sayi(snap.bist100, 0), "BTC", f"${_sayi(snap.btc_usd, 0)}"],
-            ["Siyasi risk", siyasi_metin, "Jeopolitik", savas_metin],
-            ["Rezerv (Kapı 4)", rezerv, "TL tavan", f"%{tahsis.tl_tavan_oran * 100:.0f}"],
+            ["CDS 5Y", f"{_sayi(v.cds_5y_bp, 0)} bp", "VIX (ABD)", _sayi(snap.vix, 1)],
+            ["BIST Vol (TR)", f"{_sayi(snap.bist_vol_30g, 1)}%", "Enflasyon TR", f"%{_sayi(snap.enflasyon_tr_yillik, 1)}"],
+            ["TCMB faizi", f"%{_sayi(v.tcmb_politika_faizi, 1)}", "Fed faizi", f"%{_sayi(v.fed_faizi, 2)}"],
+            ["Altın/oz", f"${_sayi(snap.altin_usd_oz, 0)}", "BIST 100", _sayi(snap.bist100, 0)],
+            ["BTC", f"${_sayi(snap.btc_usd, 0)}", "Siyasi risk", siyasi_metin],
+            ["Jeopolitik", savas_metin, "Rezerv (Kapı 4)", rezerv],
+            ["TL tavan", f"%{tahsis.tl_tavan_oran * 100:.0f}", "", ""],
         ],
         col_w=[w * 0.28, w * 0.22, w * 0.28, w * 0.22],
     )
@@ -790,9 +825,44 @@ def rapor_pdf_direkt_olustur(
             mev_rows,
             col_w=[doc._w() * 0.28, doc._w() * 0.14, doc._w() * 0.14, doc._w() * 0.22, doc._w() * 0.22],
         )
+        from yapikredi_rates import stopaj_orani
+
+        profil_o = next((o for o in mevduat.oranlar if o.vade == mevduat.profil_vade), None)
+        if profil_o and v.eur_try:
+            anapara_tl = config.TOPLAM_EUR * tahsis.agirliklar.get("tl_deposit", 0) * v.eur_try
+            gun = profil_o.vade_gun or 365
+            stopaj = stopaj_orani(gun, "TL")
+            brut_faiz = anapara_tl * profil_o.brut_yillik * (gun / 365)
+            stopaj_tutar = brut_faiz * stopaj
+            net_tl = anapara_tl + brut_faiz - stopaj_tutar
+            net_eur = net_tl / v.eur_try
+            doc.paragraf(
+                _temiz(
+                    f"Vade sonu net tutar (anapara ~{anapara_tl:,.0f} TL, stopaj %{stopaj*100:.1f}): "
+                    f"brüt faiz +{brut_faiz:,.0f} TL, stopaj −{stopaj_tutar:,.0f} TL → "
+                    f"net {net_tl:,.0f} TL (~{net_eur:,.0f} EUR).",
+                    350,
+                )
+            )
+            if anapara_tl > config.TMSF_SIGORTA_LIMITI_TL:
+                doc.madde(
+                    _temiz(
+                        f"TMSF sigorta limiti ({config.TMSF_SIGORTA_LIMITI_TL:,.0f} TL) aşılıyor — "
+                        f"tutarı birden fazla bankaya bölmek sigorta kapsamını genişletir.",
+                        160,
+                    )
+                )
+            doc.madde(
+                _temiz(
+                    "Vadeden önce bozmada faiz kaybı olur — acil fon bu tutarın dışında tutulmalı.",
+                    160,
+                )
+            )
 
     if tarama and (tarama.endeksler or tarama.hisseler):
         _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
+
+    _senaryo_bolumu(doc, snap, tahsis, config.KALAN_GUN)
 
     _backtest_bolumu(doc, tahsis.rejim.rejim)
 
