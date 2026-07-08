@@ -111,6 +111,53 @@ EOF
 launchctl bootout "gui/${UID_NUM}" "$CDS_PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/${UID_NUM}" "$CDS_PLIST" 2>/dev/null || true
 
+# WhatsApp alarmları — 09:00 ve 16:30 TR (Mac açıkken)
+ALARM_PLIST="$HOME/Library/LaunchAgents/tr.yatirim.asistani.alarm.plist"
+ALARM_SCRIPT="$APP_SUPPORT/alarm_sync.sh"
+cp "$SCRIPT_DIR/alarm_sync.sh" "$ALARM_SCRIPT"
+chmod +x "$ALARM_SCRIPT"
+
+cat > "$ALARM_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>tr.yatirim.asistani.alarm</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${ALARM_SCRIPT}</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${PROJECT_DIR}</string>
+  <key>StandardOutPath</key>
+  <string>${APP_SUPPORT}/alarm_sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>${APP_SUPPORT}/alarm_sync.log</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>9</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>16</integer>
+      <key>Minute</key>
+      <integer>30</integer>
+    </dict>
+  </array>
+</dict>
+</plist>
+EOF
+
+launchctl bootout "gui/${UID_NUM}" "$ALARM_PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/${UID_NUM}" "$ALARM_PLIST" 2>/dev/null || true
+echo "WhatsApp alarm LaunchAgent: 09:00 ve 16:30 TR (log: $APP_SUPPORT/alarm_sync.log)"
+
 for _ in $(seq 1 45); do
   if curl -sf "http://127.0.0.1:8502/_stcore/health" >/dev/null 2>&1; then
     echo "Sunucu hazır: http://127.0.0.1:8502"
