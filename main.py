@@ -27,7 +27,12 @@ import notifier
 from alerts import kontrol_ve_bildir
 from allocation_engine import tahsis_hesapla
 from decision_engine import karar_ver
+from investor_profile import YatirimProfili
 from macro_data import canli_snapshot, demo_snapshot
+
+
+def _profil_env() -> YatirimProfili:
+    return YatirimProfili(risk=config.INVESTOR_RISK, vade=config.INVESTOR_VADE)
 
 
 def main():
@@ -133,16 +138,16 @@ def main():
             notifier.telegrama_gonder(rapor, config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
         return
 
-    tahsis = tahsis_hesapla(snap)
+    tahsis = tahsis_hesapla(snap, _profil_env())
     rapor = notifier.portfoy_raporu_olustur(snap, tahsis)
 
     if args.alert_only:
         from alerts import rejim_degisti_mi
         if rejim_degisti_mi(tahsis):
-            kontrol_ve_bildir(tahsis, tam_rapor=rapor, telegram=True)
-            notifier.konsola_yazdir("Rejim değişti — Telegram alarmı gönderildi.")
+            kontrol_ve_bildir(tahsis, tam_rapor=rapor, bildir=True)
+            notifier.konsola_yazdir("Rejim değişti — bildirim gönderildi.")
         else:
-            kontrol_ve_bildir(tahsis, telegram=False)
+            kontrol_ve_bildir(tahsis, bildir=False)
             notifier.konsola_yazdir("Rejim değişmedi — bildirim gönderilmedi.")
     else:
         notifier.konsola_yazdir(rapor)

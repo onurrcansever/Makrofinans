@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 from allocation_engine import TahsisSonucu
+from investor_profile import vade_kisa_mi
 from macro_data import MacroSnapshot
 from market_context import MakroBaglam
 from rates_tr import MevduatKarsilastirma
@@ -46,6 +47,11 @@ def _varlik_bul(varliklar: List[Any], anahtar: str) -> Optional[Any]:
     return next((v for v in varliklar if v.anahtar == anahtar), None)
 
 
+def _enflasyon_resmi_kaynak(kaynak: str) -> bool:
+    k = (kaynak or "").lower()
+    return any(x in k for x in ("tüik", "resmi", "enflasyon_resmi", "tcmb evds"))
+
+
 def denetim_calistir(
     snap: MacroSnapshot,
     tahsis: TahsisSonucu,
@@ -53,6 +59,7 @@ def denetim_calistir(
     baglam: Optional[MakroBaglam] = None,
     mevduat: Optional[MevduatKarsilastirma] = None,
     oncelik: Optional[List[str]] = None,
+    tarama=None,
 ) -> DenetimRaporu:
     bulgular: List[DenetimBulgusu] = []
     kh = snap.kaynak_haritasi or {}
@@ -79,6 +86,25 @@ def denetim_calistir(
             vk.ozet,
             "CDS ve enflasyon için resmi kaynak teyidi önerilir.",
         ))
+
+    if tarama:
+        tarama_uyarilar = getattr(tarama, "uyarilar", None) or []
+        kur_yok = any(
+            "EUR bazlı 52H hesaplanamadı" in u for u in tarama_uyarilar
+        ) or any(
+            getattr(h, "bist_52h_kur_yok", False)
+            for h in getattr(tarama, "hisseler", []) or []
+            if str(getattr(h, "sembol", "")).endswith(".IS")
+        )
+        if kur_yok:
+            _ekle(bulgular, DenetimBulgusu(
+                "UYARI", "veri",
+                "EUR bazlı 52H hesaplanamadı",
+                "BIST değerleme riski için EUR bandı kullanılamıyor.",
+                "Kur (EURTRY=X) verisi çekilemedi — tabloda TL bandı gösteriliyor.",
+                "Yahoo Finance erişimini kontrol edin; DİKKAT kararı EUR olmadan verilmez.",
+                "bist",
+            ))
 
     # ── 1) Veri güncelliği ──────────────────────────────────────
     cds_kaynak = kh.get("cds", "")
@@ -125,7 +151,20 @@ def denetim_calistir(
             "TÜİK/EVDS canlı verisi yok.",
             "Reel getiri yorumları gerçek enflasyondan sapabilir — EVDS key opsiyonel.",
         ))
-    elif any(x in enf_kaynak.lower() for x in ("world bank", "fred", "yıllık")) and "evds" not in enf_kaynak.lower():
+    elif any(x in enf_kaynak.lower() for x in ("gecikmeli", "⚠")) and "evds" in enf_kaynak.lower():
+        _ekle(bulgular, DenetimBulgusu(
+            "UYARI", "veri",
+            "Enflasyon verisi güncel ay değil",
+            f"Reel faiz **%{enf:.1f}** ile hesaplanıyor.",
+            f"Kaynak: **{enf_kaynak}**.",
+            "TÜİK aylık bülten sonrası manual_inputs.json → "
+            "`enflasyon_tr_yillik` + `enflasyon_ay` (ör. 2026-6) güncelleyin.",
+        ))
+    elif (
+        not _enflasyon_resmi_kaynak(enf_kaynak)
+        and any(x in enf_kaynak.lower() for x in ("world bank", "fred"))
+        and "evds" not in enf_kaynak.lower()
+    ):
         _ekle(bulgular, DenetimBulgusu(
             "UYARI", "veri",
             "Enflasyon yıllık/gecikmeli kaynaktan (TÜİK değil)",
@@ -275,14 +314,34 @@ def denetim_calistir(
     # ── 4) Rejim vs sinyal çelişkileri ─────────────────────────
     tl_v = _varlik_bul(varliklar, "tl_deposit")
     if rejim == "TL_FIRSAT" and tl_v and tl_v.agirlik_pct < 8:
-        _ekle(bulgular, DenetimBulgusu(
-            "UYARI", "rejim",
-            "TL fırsat rejimi ama düşük tahsis",
-            f"Rejim: **{tahsis.rejim.etiket}** (TL cazip olmalı).",
-            f"TL tahsis yalnızca **%{tl_v.agirlik_pct:.0f}** — profil veya 4 kapı sınırlıyor.",
-            "Bu tutarlı olabilir; 4 kapı kuralları bilinçli sınırlama yapıyor.",
-            "tl_deposit",
-        ))
+        profil = tahsis.profil
+        vade_kisa = profil and vade_kisa_mi(profil.vade)
+        tl_tavan_pct = (tahsis.tl_tavan_oran or 0) * 100
+        sinirli = (
+            tahsis.tl_reel_sinirlandi
+            or tahsis.tl_rejim_sinirlandi
+            or tahsis.tl_risk_sinirlandi
+            or (tl_tavan_pct > 0 and tl_v.agirlik_pct >= tl_tavan_pct - 1.5)
+        )
+        if vade_kisa or sinirli:
+            _ekle(bulgular, DenetimBulgusu(
+                "BILGI", "rejim",
+                "TL fırsat rejimi — kısa vade / tavan TL payını sınırlıyor",
+                f"Rejim: **{tahsis.rejim.etiket}** (TL cazip olabilir).",
+                f"TL tahsis **%{tl_v.agirlik_pct:.0f}** — "
+                f"{'vade tabanı ve EUR likidite öncelikli' if vade_kisa else '4 kapı / risk / reel tavanı bağlayıcı'}.",
+                "Rejim etiketi makro koşulu yansıtır; tahsis **vade + kapı** önceliklidir.",
+                "tl_deposit",
+            ))
+        else:
+            _ekle(bulgular, DenetimBulgusu(
+                "UYARI", "rejim",
+                "TL fırsat rejimi ama düşük tahsis",
+                f"Rejim: **{tahsis.rejim.etiket}** (TL cazip olmalı).",
+                f"TL tahsis yalnızca **%{tl_v.agirlik_pct:.0f}** — profil veya 4 kapı sınırlıyor.",
+                "Bu tutarlı olabilir; 4 kapı kuralları bilinçli sınırlama yapıyor.",
+                "tl_deposit",
+            ))
 
     if rejim != "TL_FIRSAT" and tl_v and tl_v.sinyal == "GUCLU_AL":
         if tahsis.tl_rejim_sinirlandi or tahsis.tl_risk_sinirlandi:

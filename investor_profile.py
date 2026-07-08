@@ -116,8 +116,17 @@ def profil_sinirlari(profil: YatirimProfili) -> Tuple[Dict[str, float], Dict[str
 
     elif profil.vade == "kisa":
         min_a["eur_cash"] = max(min_a["eur_cash"], 0.20)
-        max_a["bist"] = min(max_a["bist"], 0.08)
-        max_a["crypto"] = min(max_a["crypto"], 0.03)
+        if profil.risk == "yuksek":
+            max_a["bist"] = min(max_a["bist"], 0.12)
+            max_a["crypto"] = min(max_a["crypto"], 0.05)
+            max_a["silver"] = min(max_a["silver"], 0.10)
+        elif profil.risk == "orta":
+            max_a["bist"] = min(max_a["bist"], 0.08)
+            max_a["crypto"] = min(max_a["crypto"], 0.03)
+        else:
+            max_a["bist"] = min(max_a["bist"], 0.06)
+            max_a["crypto"] = min(max_a["crypto"], 0.02)
+            max_a["silver"] = min(max_a["silver"], 0.05)
         kalan_gun = VADE_GUN["kisa"]
 
     elif profil.vade == "uzun":
@@ -177,8 +186,15 @@ def profil_skor_ayari(profil: YatirimProfili) -> Dict[str, float]:
     elif profil.vade == "kisa":
         delta["eur_cash"] += 10
         delta["usd_cash"] += 8
-        delta["bist"] -= 10
+        delta["bist"] -= 8
         delta["crypto"] -= 15
+        if profil.risk == "yuksek":
+            delta["bist"] += 10
+            delta["tl_deposit"] += 4
+            delta["silver"] -= 10
+        elif profil.risk == "orta":
+            delta["bist"] -= 2
+            delta["silver"] -= 3
 
     elif profil.vade == "uzun":
         delta["bist"] += 8
@@ -195,7 +211,21 @@ def profil_degerlendirme(profil: YatirimProfili, rejim: str) -> List[str]:
     if profil.risk == "dusuk" and rejim in ("EM_STRES", "KRIZ", "ENFLASYON_KORUMA"):
         notlar.append("Düşük risk profilinizle uyumlu: öneri defansif (EUR/altın ağırlıklı).")
     elif profil.risk == "yuksek" and rejim == "TL_FIRSAT":
-        notlar.append("Yüksek risk + TL fırsat rejimi: TL/BIST payı artırılabilir (4 kapı tavanına kadar).")
+        if profil.vade == "kisa":
+            notlar.append(
+                "Yüksek risk + TL fırsat rejimi: **0–12 ay vade** ana belirleyici — "
+                "BIST tavanı risk seviyesine göre **%12'ye** kadar kademelenir; "
+                "TL payı 4 kapı + vade tabanı ile sınırlı kalabilir."
+            )
+        elif vade_kisa_mi(profil.vade):
+            notlar.append(
+                "Yüksek risk + TL fırsat rejimi: kısa vade tavanları TL/BIST artışını "
+                "sınırlar — risk profili bu vadede **kademeli** etki eder."
+            )
+        else:
+            notlar.append(
+                "Yüksek risk + TL fırsat rejimi: TL/BIST payı artırılabilir (4 kapı tavanına kadar)."
+            )
     elif profil.risk == "yuksek" and rejim == "KRIZ":
         notlar.append("Yüksek risk profili olsa da KRİZ rejiminde sistem yine defansife çeker — bu bilinçli bir koruma.")
 
@@ -214,7 +244,16 @@ def profil_degerlendirme(profil: YatirimProfili, rejim: str) -> List[str]:
             "0–6 ay: volatil varlıklar sınırlı; **TL 6 ay** mevduat ve EUR likidite öncelikli."
         )
     elif profil.vade == "kisa":
-        notlar.append("0–12 ay: volatil varlıklar (BIST, kripto) üst sınırları düşürüldü.")
+        if profil.risk == "yuksek":
+            notlar.append(
+                "0–12 ay + yüksek risk: BIST tavanı **%12**, gümüş yerine BIST skoruna "
+                "öncelik verilir; mevduat/emtia ağırlığı yine baskın kalabilir."
+            )
+        else:
+            notlar.append(
+                "0–12 ay: volatil varlıklar (BIST, kripto) üst sınırları düşürüldü — "
+                "risk profili bu vadede **sınırlı** etki eder."
+            )
     elif profil.vade == "uzun":
         notlar.append("Uzun vade: büyüme varlıklarına (BIST, altın) daha fazla alan tanındı.")
 

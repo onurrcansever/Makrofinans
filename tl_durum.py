@@ -24,6 +24,10 @@ class TlDurumOzeti:
     rejim: str
     nedenler: List[str] = field(default_factory=list)
     alternatif: str = ""
+    baglayici_kisit: str = ""
+    baglayici_etiket: str = ""
+    oneri_cumlesi: str = ""
+    explain: List[dict] = field(default_factory=list)
 
 
 def tl_durum_olustur(
@@ -35,6 +39,10 @@ def tl_durum_olustur(
     rejim = tahsis.rejim.rejim
     w = tahsis.agirliklar.get("tl_deposit", 0) * 100
     tavan = tahsis.tl_tavan_oran * 100
+    baglayici = tahsis.tl_baglayici_kisit or ""
+    baglayici_etiket = tahsis.tl_baglayici_etiket or ""
+    oneri_cumlesi = tahsis.tl_oneri_cumlesi or ""
+    explain = list(tahsis.tl_explain or [])
     tcmb = v.tcmb_politika_faizi or 37
     enf = snap.enflasyon_tr_yillik or 35
     reel_politika = tcmb - enf
@@ -58,9 +66,13 @@ def tl_durum_olustur(
         )
         if mevduat.breakeven_eur_try and mevduat.kur_spot_eur_try:
             oran = mevduat.kur_spot_eur_try / mevduat.breakeven_eur_try
+            if oran < 1.0:
+                lehine = "TL carry lehine (spot < başabaş)"
+            else:
+                lehine = "kur riski yüksek (spot ≥ başabaş)"
             nedenler.append(
                 f"Başa baş kur: spot **{mevduat.kur_spot_eur_try:.2f}** · "
-                f"eşit getiri **{mevduat.breakeven_eur_try:.2f}** (oran {oran:.2f})."
+                f"eşit getiri **{mevduat.breakeven_eur_try:.2f}** (oran {oran:.2f}) — {lehine}."
             )
     else:
         reel_mevduat = reel_politika
@@ -104,14 +116,35 @@ def tl_durum_olustur(
     elif siyasi is not None:
         nedenler.append(
             f"Siyasi haber **{siyasi}**/{config.SIYASI_RISK_TARAMA_SAAT}s "
-            f"({esik_metni()})."
+            f"({esik_metni(guncel=siyasi)})."
         )
 
     savas = v.savas_risk_makale_sayisi
-    if savas is not None and savas >= 6:
+    if savas is not None and savas >= config.SAVAS_RISK_ESIGI:
         nedenler.append(
-            f"Jeopolitik/savaş haberleri **{savas}**/48s (Hürmüz, İran vb.) — "
-            f"enerji ve kur kanalı riski yüksek."
+            f"Orta Doğu jeopolitiği **{savas}**/48s (Hürmüz, İran) — "
+            f"enerji/altın kanalı; TL tavanı Kapı 1b ile sınırlanabilir."
+        )
+
+    if v.tl_makro_risk_aktif:
+        parcalar = []
+        if v.tl_faiz_indirim_haber and v.tl_faiz_indirim_haber >= config.TL_MAKRO_FAIZ_ESIGI:
+            parcalar.append(
+                f"faiz indirimi beklentisi **{v.tl_faiz_indirim_haber}** haber"
+            )
+        if v.tl_erken_secim_anormal:
+            parcalar.append(
+                f"erken seçim anormal sıklık **{v.tl_erken_secim_haber}** haber"
+            )
+        nedenler.append(
+            "TL makro haber riski: "
+            + ("; ".join(parcalar) if parcalar else "yüksek")
+            + " — kur baskısı; TL fırsat rejimi askıda veya sınırlı."
+        )
+    elif v.tl_faiz_indirim_haber is not None or v.tl_erken_secim_haber is not None:
+        nedenler.append(
+            f"TL makro haber: faiz indirimi beklentisi **{v.tl_faiz_indirim_haber or 0}**, "
+            f"erken seçim **{v.tl_erken_secim_haber or 0}** — normal aralık."
         )
 
     if rejim == "KRIZ" or tavan < 0.5 or w < 1:
@@ -163,26 +196,38 @@ def tl_durum_olustur(
         )
 
     if reel_mevduat > 0 and w >= 1:
-        nedenler.append(
-            f"Reel getiri pozitif (**{reel_mevduat:+.1f} pp**) — mevduat enflasyonu yeniyor; "
-            f"ancak makro rejim (**{tahsis.rejim.etiket}**), 4 kapı tavanı (**%{tavan:.0f}**) "
-            f"veya profil nedeniyle TL payı **%{w:.1f}** ile sınırlı (taktik dilim)."
+        baslik = (
+            f"TL %{w:.1f} — sınırlayan: {baglayici_etiket or 'makro tahsis'}"
+            if baglayici_etiket
+            else "TL minimal — reel pozitif ama tam tahsis verilmiyor"
         )
+        if oneri_cumlesi:
+            nedenler.append(oneri_cumlesi)
+        else:
+            nedenler.append(
+                f"Reel getiri pozitif (**{reel_mevduat:+.1f} pp**) — mevduat enflasyonu yeniyor; "
+                f"ancak makro rejim (**{tahsis.rejim.etiket}**), 4 kapı tavanı (**%{tavan:.0f}**) "
+                f"veya profil nedeniyle TL payı **%{w:.1f}** ile sınırlı (taktik dilim)."
+            )
         if tahsis.tl_reel_sinirlandi:
             nedenler.append(
                 "Not: reel negatif kısıt devrede değil; düşük pay makro tahsis kararından."
             )
         return TlDurumOzeti(
             durum="SINIRLI",
-            baslik="TL minimal — reel pozitif ama tam tahsis verilmiyor",
+            baslik=baslik,
             agirlik_pct=w,
             tavan_pct=tavan,
             rejim=rejim,
             nedenler=nedenler,
             alternatif="Küçük TL dilimi mevduat; ana para EUR/altın. Kur riski devam eder.",
+            baglayici_kisit=baglayici,
+            baglayici_etiket=baglayici_etiket,
+            oneri_cumlesi=oneri_cumlesi,
+            explain=explain,
         )
 
-    return TlDurumOzeti(
+    result = TlDurumOzeti(
         durum="SINIRLI",
         baslik="TL mevduat minimal — makro nötr veya zayıf sinyal",
         agirlik_pct=w,
@@ -190,4 +235,9 @@ def tl_durum_olustur(
         rejim=rejim,
         nedenler=nedenler,
         alternatif="Ana para EUR'da; TL yalnızca küçük taktik pay.",
+        baglayici_kisit=baglayici,
+        baglayici_etiket=baglayici_etiket,
+        oneri_cumlesi=oneri_cumlesi,
+        explain=explain,
     )
+    return result

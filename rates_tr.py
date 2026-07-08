@@ -176,10 +176,19 @@ def _getiri_notu_metni(
     ]
     if eur_try and breakeven:
         oran = eur_try / breakeven
-        satirlar.append(
-            f"Başa baş kur: spot {eur_try:.2f} · eşit getiri kuru ≈ {breakeven:.2f} "
-            f"(oran {oran:.2f}) — 1.0 üzeri TL mevduat EUR mevduata göre avantajlı sayılır."
-        )
+        if oran < 1.0:
+            yorum = (
+                f"Başa baş kur: spot {eur_try:.2f} · eşit getiri kuru ≈ {breakeven:.2f} "
+                f"(oran {oran:.2f}) — **1,0 altı**: kur başabaşa seviyeye kadar yükselse bile "
+                f"TL mevduat carry lehine; spot sabit kalırsa TL tarafı EUR mevduata göre avantajlı sayılır."
+            )
+        else:
+            yorum = (
+                f"Başa baş kur: spot {eur_try:.2f} · eşit getiri kuru ≈ {breakeven:.2f} "
+                f"(oran {oran:.2f}) — **1,0 üstü**: spot zaten eşit getiri kurunun üzerinde; "
+                f"kur oynaklığı TL mevduatı EUR'a göre dezavantajlı kılabilir."
+            )
+        satirlar.append(yorum)
     return " ".join(satirlar)
 
 

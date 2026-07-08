@@ -108,7 +108,6 @@ def _gdelt_cache_yaz(anahtar: str, count: int) -> None:
 
 def siyasi_risk_al(kelimeler: list, taze: bool = False) -> Tuple[int, str]:
     from risk_scan import siyasi_risk_say
-    from siyasi_esik import baseline_guncelle
 
     cache_key = "siyasi_v2"
     saat = config.SIYASI_RISK_TARAMA_SAAT
@@ -122,7 +121,6 @@ def siyasi_risk_al(kelimeler: list, taze: bool = False) -> Tuple[int, str]:
         n = DEFAULT_SIYASI_RISK
         kaynak = f"{kaynak} · yedek {DEFAULT_SIYASI_RISK}"
 
-    baseline_guncelle(n)
     if not taze:
         _gdelt_cache_yaz(cache_key, n)
     if detay:
@@ -147,6 +145,23 @@ def savas_risk_al(kelimeler: list = None, taze: bool = False) -> Tuple[int, str,
     if sonuc.detay:
         kaynak = f"{kaynak} · {sonuc.detay}"
     return sonuc.sayi, kaynak, sonuc.guvenilir
+
+
+def tl_makro_risk_al(taze: bool = False) -> Tuple[dict, str]:
+    """TL makro haber — faiz indirimi beklentisi, erken seçim sıçraması."""
+    from tl_makro_risk import tl_makro_risk_tara
+
+    sonuc = tl_makro_risk_tara(saat=config.SIYASI_RISK_TARAMA_SAAT)
+    veri = {
+        "tl_makro_risk_aktif": sonuc.tl_makro_risk_aktif,
+        "tl_faiz_indirim_haber": sonuc.faiz_indirim_sayisi,
+        "tl_erken_secim_haber": sonuc.erken_secim_sayisi,
+        "tl_erken_secim_anormal": sonuc.erken_secim_anormal,
+    }
+    kaynak = sonuc.kaynak
+    if sonuc.detay:
+        kaynak = f"{kaynak} · {sonuc.detay}"
+    return veri, kaynak
 
 
 def rezerv_trend_al(api_key: str = "") -> Tuple[Optional[bool], str]:

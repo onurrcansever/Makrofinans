@@ -68,13 +68,12 @@ TRANS_BEKLEME_HAFTA = 4
 # ------------------------------------------------------------------
 SIYASI_RISK_ANAHTAR_KELIMELER = [
     "kayyum atandı", "gözaltına alındı", "tutuklandı", "mutlak butlan",
-    "OHAL ilan", "sermaye kontrolü", "erken seçim", "darbe girişimi",
+    "OHAL ilan", "sermaye kontrolü", "darbe girişimi",
     "devre kesici", "TCMB müdahale",
 ]
 # Google News sorguları — GDELT'ten daha dar; magazin gözaltı haberlerini dışlar
 SIYASI_GOOGLE_SORGULARI = [
     '"kayyum atandı" belediye Türkiye',
-    '"erken seçim" Türkiye',
     '"OHAL ilan" OR "darbe girişimi" Türkiye',
     '"TCMB müdahale" OR "devre kesici" Türkiye',
     '"mutlak butlan" OR "sermaye kontrolü" Türkiye',
@@ -109,6 +108,50 @@ SAVAS_RISK_YUKSEK_ESIGI = int(os.getenv("SAVAS_RISK_YUKSEK", "15"))  # tavan ça
 SAVAS_TAVAN_CARPANI = float(os.getenv("SAVAS_TAVAN_CARPANI", "0.90"))
 
 # ------------------------------------------------------------------
+# TL makro haber riski — faiz indirimi beklentisi, erken seçim sıçraması
+# (Orta Doğu jeopolitiğinden ayrı; doğrudan kur/TL kanalı)
+# ------------------------------------------------------------------
+TL_MAKRO_FAIZ_SORGULARI = [
+    '"faiz indirimi" beklentisi TCMB Türkiye',
+    '"faiz düşürme" beklentisi Türkiye',
+    '"politika faizi" indirim PPK Türkiye',
+]
+TL_MAKRO_SECIM_SORGULARI = [
+    '"erken seçim kararı" Türkiye',
+    '"seçim tarihi" ilan Türkiye',
+    '"sandığa" erken seçim Türkiye',
+]
+# Geriye dönük alias — tek sorgu yerine karar odaklı liste
+TL_MAKRO_SECIM_SORGUSU = TL_MAKRO_SECIM_SORGULARI[0]
+TL_MAKRO_SECIM_TABAN_VARSAYILAN = int(os.getenv("TL_MAKRO_SECIM_TABAN", "20"))
+TL_MAKRO_SECIM_KARAR_ESIGI = int(os.getenv("TL_MAKRO_SECIM_KARAR_ESIK", "6"))
+TL_MAKRO_SECIM_ANORMAL_MUTLAK = int(os.getenv("TL_MAKRO_SECIM_ANORMAL_MUTLAK", "45"))
+TL_MAKRO_FAIZ_ESIGI = int(os.getenv("TL_MAKRO_FAIZ_ESIK", "8"))
+TL_MAKRO_FAIZ_TABAN_VARSAYILAN = int(os.getenv("TL_MAKRO_FAIZ_TABAN", "4"))
+TL_MAKRO_TABAN_GUN = int(os.getenv("TL_MAKRO_TABAN_GUN", "14"))
+TL_MAKRO_ANORMAL_CARPAN = float(os.getenv("TL_MAKRO_ANORMAL_CARPAN", "1.5"))
+TL_MAKRO_ANORMAL_ARTIS = int(os.getenv("TL_MAKRO_ANORMAL_ARTIS", "6"))
+TL_MAKRO_TAVAN_CARPANI = float(os.getenv("TL_MAKRO_TAVAN_CARPANI", "0.85"))
+
+# ------------------------------------------------------------------
+# TL karar motoru v2 — state, PPK/FOMC takvimi
+# ------------------------------------------------------------------
+TL_ENGINE_STATE_PATH = os.getenv("TL_ENGINE_STATE_PATH", ".tl_engine_state.json")
+PPK_BEKLE_GUN = int(os.getenv("PPK_BEKLE_GUN", "7"))
+
+from datetime import date as _date  # noqa: E402
+
+TCMB_PPK_TAKVIM = [
+    _date(2026, 1, 23), _date(2026, 3, 19), _date(2026, 4, 24), _date(2026, 6, 19),
+    _date(2026, 7, 24), _date(2026, 8, 21), _date(2026, 9, 18), _date(2026, 10, 23),
+    _date(2026, 11, 20), _date(2026, 12, 18),
+]
+FOMC_TAKVIM = [
+    _date(2026, 1, 28), _date(2026, 3, 18), _date(2026, 5, 6), _date(2026, 6, 17),
+    _date(2026, 7, 29), _date(2026, 9, 16), _date(2026, 11, 4), _date(2026, 12, 16),
+]
+
+# ------------------------------------------------------------------
 # API anahtarları (ortam değişkenlerinden okunur, .env dosyasına yazın)
 # ------------------------------------------------------------------
 FRED_API_KEY = os.getenv("FRED_API_KEY", "")          # ABD Fed faizi için: https://fred.stlouisfed.org/docs/api/api_key.html
@@ -127,7 +170,7 @@ WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")
 WHATSAPP_TO = os.getenv("WHATSAPP_TO", "")              # alıcı numara
 NOTIFY_SINIRLI = os.getenv("NOTIFY_SINIRLI", "false").lower() in ("1", "true", "yes")
 INVESTOR_RISK = os.getenv("INVESTOR_RISK", "orta")
-INVESTOR_VADE = os.getenv("INVESTOR_VADE", "orta")
+INVESTOR_VADE = os.getenv("INVESTOR_VADE", "kisa_6")
 
 # ------------------------------------------------------------------
 # Eski uyumluluk — artık kullanılmıyor (tüm makro veriler otomatik)

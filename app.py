@@ -10,19 +10,31 @@ from typing import Optional
 
 import config
 from investor_profile import RISK_SECENEKLERI, VADE_SECENEKLERI, YatirimProfili, profil_mevduat_vadesi, vade_kisa_mi
-from allocation_engine import tahsis_hesapla, VARLIKLAR
-from backtest import backtest_calistir, backtest_karsilastirma_uret
+from allocation_engine import VARLIKLAR
+from backtest import backtest_karsilastirma_uret
 from veri_kalitesi import veri_kalite_olustur
-from macro_data import cache_gecmisi, canli_snapshot, demo_snapshot
+from macro_data import cache_gecmisi
 from notifier import portfoy_raporu_olustur
-from rates_tr import mevduat_analizi
-from stock_scanner import SINYAL_ETIKET, tam_tarama
+from stock_scanner import SINYAL_ETIKET
 from stock_universe import SEKTOR_ETIKET
-from advice_engine import danisman_raporu_olustur
 from alim_uygunluk import alim_aksiyon_kisa
+from bist_52h_eur import format_52h_metin
 from advisor_ui import danisman_paneli
-from tl_durum import tl_durum_olustur
+from tefas_ui import tefas_paneli
+from kullanici_portfoy import KullaniciPortfoy, MevcutPozisyon, varsayilan_portfoy
+from birlesik_oneri_ui import birlesik_oneri_paneli
+from varliklarim_ui import varliklarim_paneli, oneri_aktar_butonu
+from regime_uyum import rejim_gosterim_metni
 from investment_report import rapor_paketi_olustur
+from ui_theme import (
+    inject_tradingview_theme,
+    plotly_area_line,
+    plotly_hbar,
+    plotly_vbar,
+    render_df_table,
+    render_live_banner,
+    render_metric_strip,
+)
 
 _UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
 
@@ -70,6 +82,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_tradingview_theme()
 
 with st.sidebar:
     st.header("Yatırımcı profiliniz")
@@ -82,7 +95,7 @@ with st.sidebar:
     vade_etiket = st.selectbox(
         "Yatırım vadesi",
         list(VADE_SECENEKLERI.keys()),
-        index=2,
+        index=1,
         format_func=lambda k: VADE_SECENEKLERI[k],
     )
     profil = YatirimProfili(risk=risk_etiket, vade=vade_etiket)
@@ -91,17 +104,99 @@ with st.sidebar:
     st.header("Ayarlar")
     sayfa = st.radio(
         "Bölüm",
-        ["Portföy Tahsisi", "AI Danışman", "TL Mevduat Faizleri", "Hisse & Endeks Taraması", "Backtest"],
+        ["Portföy Tahsisi", "Varlıklarım", "AI Danışman", "TL Mevduat Faizleri", "TEFAS Fonları", "Hisse & Endeks Taraması", "Backtest"],
     )
     mod = st.radio("Veri modu", ["Canlı veri", "Demo (senaryo)"], index=0)
-    toplam = st.number_input("Toplam portföy (EUR)", value=float(config.TOPLAM_EUR), step=1000.0)
-    tl_mevduat_tutar = st.number_input(
-        "TL mevduat tutarı (TL, isteğe bağlı)",
-        value=float(config.TL_MEVDUAT_TUTAR_TL or 0),
-        min_value=0.0,
-        step=50000.0,
-        help="0 bırakırsanız vade sonu simülasyonu önerilen portföy TL dilimini kullanır.",
+    st.session_state.hisse_haber_tara = st.checkbox(
+        "Derin haber taraması (~1 dk ek süre)",
+        value=st.session_state.get("hisse_haber_tara", False),
+        help="Hisse/endeks taramasında Google News katmanı — açılış yüklemesine dahil edilir.",
     )
+
+    if "kullanici_portfoy" not in st.session_state:
+        st.session_state.kullanici_portfoy = varsayilan_portfoy()
+    kp_sb = st.session_state.kullanici_portfoy
+    mev_sb = kp_sb.mevcut_tl_mevduat()
+
+    para_birimi = st.selectbox(
+        "Portföy para birimi",
+        ["EUR", "TL"],
+        index=0 if kp_sb.para_birimi == "EUR" else 1,
+    )
+    toplam = st.number_input(
+        f"Toplam portföy ({para_birimi})",
+        value=float(kp_sb.toplam),
+        step=1000.0 if para_birimi == "EUR" else 50000.0,
+        min_value=0.0,
+    )
+
+    with st.expander("Mevcut pozisyonlarım", expanded=False):
+        st.caption("Örn. tüm paranız Yapı Kredi 90 gün vadeli hesapta — birleşik öneri buna göre hesaplanır.")
+        mevduat_var = st.checkbox(
+            "TL vadeli mevduat",
+            value=mev_sb is not None,
+            key="kp_mevduat_var",
+        )
+        mev_bank = st.text_input("Banka", value=mev_sb.banka if mev_sb else "Yapı Kredi")
+        mev_tutar = st.number_input(
+            "Mevduat tutarı (TL)",
+            value=float(mev_sb.tutar if mev_sb else (toplam if para_birimi == "TL" else 0)),
+            min_value=0.0,
+            step=10000.0,
+        )
+        mev_vade = st.number_input(
+            "Vade (gün)",
+            value=int(mev_sb.vade_gun if mev_sb else 90),
+            min_value=1,
+            max_value=730,
+            step=1,
+        )
+        mev_faiz = st.number_input(
+            "Brüt faiz (% yıllık)",
+            value=float(mev_sb.brut_faiz if mev_sb else 42.0),
+            min_value=0.0,
+            max_value=100.0,
+            step=0.5,
+        )
+        tefas_kod = st.text_input(
+            "TEFAS fon kodu (isteğe bağlı)",
+            value=next((p.fon_kodu for p in kp_sb.pozisyonlar if p.tur == "tefas"), ""),
+            placeholder="YHS",
+        ).strip().upper()
+        tefas_tutar = st.number_input(
+            "TEFAS tutarı (TL, isteğe bağlı)",
+            value=float(next((p.tutar for p in kp_sb.pozisyonlar if p.tur == "tefas"), 0.0)),
+            min_value=0.0,
+            step=10000.0,
+        )
+
+    pozisyonlar: list = []
+    if mevduat_var and mev_tutar > 0:
+        pozisyonlar.append(
+            MevcutPozisyon(
+                tur="tl_mevduat",
+                tutar=float(mev_tutar),
+                para_birimi="TL",
+                banka=mev_bank.strip() or "Banka",
+                vade_gun=int(mev_vade),
+                brut_faiz=float(mev_faiz),
+            )
+        )
+    if tefas_kod and tefas_tutar > 0:
+        pozisyonlar.append(
+            MevcutPozisyon(
+                tur="tefas",
+                tutar=float(tefas_tutar),
+                para_birimi="TL",
+                fon_kodu=tefas_kod,
+            )
+        )
+    st.session_state.kullanici_portfoy = KullaniciPortfoy(
+        para_birimi=para_birimi,
+        toplam=float(toplam),
+        pozisyonlar=pozisyonlar,
+    )
+
     trans = st.number_input("Tranş sayısı", value=int(config.TRANS_SAYISI), min_value=1)
     bt_ay = st.slider("Backtest ay sayısı", 6, 18, 12)
     st.divider()
@@ -115,7 +210,8 @@ with st.sidebar:
     if st.button("CDS kaynaklarını yenile", use_container_width=True):
         cds_kaynak_ozet.clear()
         st.session_state["cds_son_kaynak"] = cds_kaynak_ozet(st.session_state.son_yenileme_sayaci)
-        st.cache_data.clear()
+        veri_onbellegi_temizle()
+        onbellek_gecersiz_kil()
         st.rerun()
     st.divider()
     otoyenile = st.toggle("Otomatik yenileme", value=False)
@@ -127,9 +223,9 @@ with st.sidebar:
     aralik_dk = int(aralik_etiket.split()[0])
     yenile = st.button("Şimdi yenile", type="primary", use_container_width=True)
 
-config.TOPLAM_EUR = toplam
+config.TOPLAM_EUR = toplam  # snap sonrası EUR'a çevrilir
 config.TRANS_SAYISI = int(trans)
-tl_mevduat_arg = float(tl_mevduat_tutar) if tl_mevduat_tutar > 0 else None
+kullanici_portfoy = st.session_state.kullanici_portfoy
 canli_mod = mod == "Canlı veri"
 
 if "son_yenileme_sayaci" not in st.session_state:
@@ -146,46 +242,14 @@ if "hisse_haber_tara" not in st.session_state:
     st.session_state.hisse_haber_tara = False
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def cds_kaynak_ozet(_tick: int = 0):
-    from cds_sync import cds_guncelleme_calistir
-    return cds_guncelleme_calistir()
-
-
-@st.cache_data(ttl=180, show_spinner=False)
-def veri_cek(canli: bool, _tick: int = 0):
-    return canli_snapshot(taze=True) if canli else demo_snapshot()
-
-
-@st.cache_data(ttl=120, show_spinner=False)
-def tarama_cek(
-    canli: bool,
-    rejim: str,
-    snap_veri_kaynak: str,
-    _tick: int = 0,
-    haber_tara: bool = False,
-    profil_risk: str = "orta",
-    profil_vade: str = "orta",
-):
-    del snap_veri_kaynak
-    snap = veri_cek(canli, _tick)
-    profil = YatirimProfili(risk=profil_risk, vade=profil_vade)
-    return tam_tarama(
-        makro_rejim=rejim, demo=not canli, snap=snap, haber_tara=haber_tara, profil=profil,
-    )
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def mevduat_cek(enflasyon: float, profil_vade: str, eur_try: float, kalan_gun: int):
-    return mevduat_analizi(
-        enflasyon, profil_vade=profil_vade, eur_try=eur_try, kalan_gun=kalan_gun,
-    )
-
-
-@st.cache_data(ttl=3600, show_spinner="Backtest hesaplanıyor…")
-def backtest_veri(ay: int, vade: str, risk: str):
-    from investor_profile import YatirimProfili
-    return backtest_calistir(ay, profil=YatirimProfili(risk=risk, vade=vade))
+from app_veri import (
+    backtest_veri,
+    cds_kaynak_ozet,
+    mevduat_cek,
+    tarama_cek,
+    veri_onbellegi_temizle,
+)
+from app_onbellek import onbellek_gecersiz_kil, onbellek_sayfa_hazirla, uygulama_onbellegi_al
 
 
 def _tarama_param(profil: YatirimProfili) -> dict:
@@ -197,6 +261,9 @@ def _tarama_param(profil: YatirimProfili) -> dict:
 
 def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -> None:
     """Hisse & ETF tarama sayfası gövdesi — spinner yerine satır içi durum."""
+    if tarama is None:
+        st.info("Tarama henüz yüklenmedi — birkaç saniye içinde liste görünecek.")
+        return
     if guncelleniyor:
         st.caption("🔄 Tarama arka planda güncelleniyor — liste bir önceki sonucu gösteriyor.")
 
@@ -231,7 +298,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
         "Sinyal": SINYAL_ETIKET.get(e.sinyal, e.sinyal),
         "Skor": round(e.skor, 0),
     } for e in tarama.endeksler])
-    st.dataframe(endeks_df, use_container_width=True, hide_index=True)
+    render_df_table(endeks_df)
 
     st.subheader("Revolut ETF — alım adayları")
     st.caption(
@@ -322,7 +389,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
         "1 Ay %": round(h.degisim_1ay, 2) if h.degisim_1ay is not None else None,
         "3 Ay %": round(h.degisim_3ay, 2) if getattr(h, "degisim_3ay", None) is not None else None,
         "SMA200": round(h.sma200, 2) if getattr(h, "sma200", None) else None,
-        "52H %": round(h.zirve_52h_pct, 1) if getattr(h, "zirve_52h_pct", None) is not None else None,
+        "52H": format_52h_metin(h),
         "Peer %": round(h.peer_yuzdelik, 0) if getattr(h, "peer_yuzdelik", None) is not None else None,
         "Endeks farkı": round(h.endeks_gore, 1) if getattr(h, "endeks_gore", None) is not None else None,
         "RSI": round(h.rsi, 1) if h.rsi else None,
@@ -339,7 +406,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
         "Gerekçe": h.gerekce,
     } for h in filtrelenmis])
 
-    st.dataframe(hisse_df, use_container_width=True, hide_index=True)
+    render_df_table(hisse_df, max_height=560)
 
     st.caption(
         "Evren: BIST/SP500/NASDAQ blue-chip + Revolut UCITS ETF (~23 fon). "
@@ -351,9 +418,8 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, *, guncelleniyor: bool = False) -
 
 
 def _onbellek_temizle():
-    veri_cek.clear()
-    mevduat_cek.clear()
-    # Hisse taraması önbelleği korunur — yalnızca Hisse sayfasında yenilenir
+    veri_onbellegi_temizle()
+    onbellek_gecersiz_kil()
 
 
 if otoyenile:
@@ -364,43 +430,97 @@ if otoyenile:
 
 if yenile:
     st.session_state.son_yenileme_sayaci += 1
-    st.session_state.tarama_son = None
-    tarama_cek.clear()
     _onbellek_temizle()
-    backtest_veri.clear()
+    st.session_state["_son_yenileme_toast"] = True
 
 
 _tick = st.session_state.son_yenileme_sayaci
 _profil_anahtar = f"{profil.risk}_{profil.vade}"
 if st.session_state.get("tarama_profil_key") != _profil_anahtar:
     st.session_state.tarama_profil_key = _profil_anahtar
-    st.session_state.tarama_son = None
-    tarama_cek.clear()
+    onbellek_gecersiz_kil()
 
 st.title("Makro Portföy Asistanı")
 st.caption("Karar-destek aracı — otomatik işlem yapmaz, finansal tavsiye değildir.")
 
-with st.status("Canlı veriler çekiliyor… (~5 sn)", expanded=True) as _yukleme:
-    snap = veri_cek(canli_mod, _tick)
-    _yukleme.update(label=f"Veri hazır — {snap.veri_zamani}", state="complete")
-
-tahsis = tahsis_hesapla(snap, profil)
-# Hisse taraması yalnızca Hisse sayfasında çalışır (diğer sekmeler anında açılır)
-tarama_ozet = st.session_state.tarama_son
-profil_mevduat_etiket, profil_mevduat_gun = profil_mevduat_vadesi(profil)
-mevduat_ozet = mevduat_cek(
-    snap.enflasyon_tr_yillik or 35.0,
-    profil_mevduat_etiket,
-    snap.veri.eur_try or 35.0,
-    profil_mevduat_gun,
+_ob = uygulama_onbellegi_al(
+    canli_mod=canli_mod,
+    tick=_tick,
+    profil=profil,
+    profil_anahtar=_profil_anahtar,
+    kp=kullanici_portfoy,
+    haber_tara=st.session_state.hisse_haber_tara,
+    bt_ay=bt_ay,
 )
-danisman = danisman_raporu_olustur(snap, tahsis, profil, tarama_ozet, mevduat=mevduat_ozet)
-tl_durum = tl_durum_olustur(snap, tahsis, mevduat_ozet)
+if st.session_state.get("app_onbellek_key"):
+    _durum = "temel veriler hazır"
+    if _ob.birlesik_tam:
+        _durum = "tüm bölümler hazır"
+    st.caption(
+        f"✓ {_durum.capitalize()} ({_ob.yukleme_zamani}) — "
+        "makro/TL kararı anında · TEFAS/BIST detayı aşağıda yüklenir"
+    )
+if st.session_state.pop("_son_yenileme_toast", False):
+    st.toast(f"Veriler güncellendi · {_ob.yukleme_zamani}", icon="🔄")
+
+snap = _ob.snap
+tahsis = _ob.tahsis
+tarama_ozet = _ob.tarama
+mevduat_ozet = _ob.mevduat_ozet
+danisman = _ob.danisman
+tl_durum = _ob.tl_durum
+profil_mevduat_etiket = _ob.profil_mevduat_etiket
+profil_mevduat_gun = _ob.profil_mevduat_gun
+birlesik = _ob.birlesik
+
+
+def _sayfa_onbellegi_hazirla(ob):
+    """Aktif sekme için ağır veriyi yükle."""
+    return onbellek_sayfa_hazirla(
+        ob,
+        sayfa,
+        canli_mod=canli_mod,
+        tick=_tick,
+        profil=profil,
+        kp=kullanici_portfoy,
+        haber_tara=st.session_state.hisse_haber_tara,
+        bt_ay=bt_ay,
+    )
+
+
+_eur_try = snap.veri.eur_try or 35.0
+config.TOPLAM_EUR = kullanici_portfoy.toplam_eur(_eur_try)
+toplam_eur = config.TOPLAM_EUR
+_mev_poz = kullanici_portfoy.mevcut_tl_mevduat()
+tl_mevduat_arg = float(_mev_poz.tutar) if _mev_poz else None
+
+
+def _tutar_pb(eur_tutar: float) -> tuple:
+    if kullanici_portfoy.para_birimi == "TL":
+        return eur_tutar * _eur_try, "TL"
+    return eur_tutar, "EUR"
+
+def _rapor_paketi_hazirla(tarama_rapor):
+    return rapor_paketi_olustur(
+        snap,
+        tahsis,
+        profil,
+        danisman,
+        mevduat_ozet,
+        tl_durum,
+        toplam_eur,
+        tarama_rapor,
+        tl_mevduat_tutar_tl=tl_mevduat_arg,
+        birlesik_oneri=birlesik,
+        varlik_store=_ob.varlik_store,
+        kullanici_portfoy=kullanici_portfoy,
+        para_birimi=kullanici_portfoy.para_birimi,
+    )
 
 with st.sidebar:
     st.divider()
     st.subheader("Anlık yatırım raporu")
-    st.caption("Canlı veriler → antetli PDF rapor (makro + hisse/endeks taraması)")
+    st.caption("Makro + tarama + öneri detayı + Varlıklarım pozisyonları")
 
     if st.button(
         "Yatırım raporu oluştur",
@@ -418,10 +538,7 @@ with st.sidebar:
                         **_tarama_param(profil),
                     )
                     st.session_state.tarama_son = tarama_rapor
-                st.session_state.son_rapor = rapor_paketi_olustur(
-                    snap, tahsis, profil, danisman, mevduat_ozet, tl_durum, toplam, tarama_rapor,
-                    tl_mevduat_tutar_tl=tl_mevduat_arg,
-                )
+                st.session_state.son_rapor = _rapor_paketi_hazirla(tarama_rapor)
             st.session_state.rapor_hata = None
             st.toast("PDF rapor hazır — indirin", icon="✅")
         except Exception as exc:
@@ -461,10 +578,7 @@ with hdr_sag:
                         **_tarama_param(profil),
                     )
                     st.session_state.tarama_son = tarama_rapor
-                st.session_state.son_rapor = rapor_paketi_olustur(
-                    snap, tahsis, profil, danisman, mevduat_ozet, tl_durum, toplam, tarama_rapor,
-                    tl_mevduat_tutar_tl=tl_mevduat_arg,
-                )
+                st.session_state.son_rapor = _rapor_paketi_hazirla(tarama_rapor)
             st.session_state.rapor_hata = None
             st.toast("PDF rapor hazır", icon="✅")
         except Exception as exc:
@@ -500,13 +614,15 @@ if otoyenile:
 else:
     st.caption(f"Son çekim: **{snap.veri_zamani}** · Otomatik yenileme kapalı")
 
-durum_renk = "info" if snap.veri_kaynak == "demo" else "success"
 durum_metin = (
-    "**Demo modu** — makro senaryo sabit, piyasa fiyatları canlı."
+    "Demo modu — makro senaryo sabit, piyasa fiyatları canlı."
     if snap.veri_kaynak == "demo"
-    else "**Canlı veri aktif** — her yenilemede API'den taze çekilir (Yahoo, EVDS, TCMB.gov, Yapı Kredi)."
+    else "Canlı veri aktif — her yenilemede API'den taze çekilir (Yahoo, EVDS, TCMB.gov, Yapı Kredi)."
 )
-getattr(st, durum_renk)(durum_metin)
+if snap.veri_kaynak == "demo":
+    st.info(f"**{durum_metin}**")
+else:
+    render_live_banner(durum_metin, live=True)
 
 with st.expander("Veri kalitesi & kaynak şeffaflığı"):
     vk = veri_kalite_olustur(snap)
@@ -517,7 +633,7 @@ with st.expander("Veri kalitesi & kaynak şeffaflığı"):
     st.caption(vk.ozet)
     for u in vk.uyarilar:
         st.warning(u)
-    st.dataframe(pd.DataFrame([{
+    render_df_table(pd.DataFrame([{
         "Gösterge": g.etiket,
         "Değer": g.deger_gosterim,
         "Kalite": g.kalite_etiket,
@@ -525,7 +641,7 @@ with st.expander("Veri kalitesi & kaynak şeffaflığı"):
         "Tazelik": f"{g.tazelik_saat:.0f} saat" if g.tazelik_saat is not None else "—",
         "Durum": g.tazelik_durum,
         "Eksikte": g.eksik_politikasi[:80],
-    } for g in vk.gostergeler]), use_container_width=True, hide_index=True)
+    } for g in vk.gostergeler]), max_height=400)
     st.caption(f"Son güncelleme: {snap.veri_zamani}")
 
 with st.expander("CDS 5Y — Bloomberg + Investing (otomatik)"):
@@ -541,7 +657,7 @@ with st.expander("CDS 5Y — Bloomberg + Investing (otomatik)"):
     for u in [x for x in (snap.cekim_uyarilari or []) if "CDS" in x or "Bloomberg" in x or "Investing" in x]:
         st.warning(u)
     _s = st.session_state.get("cds_son_kaynak") or cds_kaynak_ozet(_tick)
-    st.dataframe(
+    render_df_table(
         pd.DataFrame([
             {
                 "Kaynak": k.ad,
@@ -551,8 +667,6 @@ with st.expander("CDS 5Y — Bloomberg + Investing (otomatik)"):
             }
             for k in _s.kaynaklar
         ]),
-        use_container_width=True,
-        hide_index=True,
     )
     for u in _s.uyarilar:
         st.warning(u)
@@ -568,50 +682,61 @@ if sayfa == "Portföy Tahsisi":
     st.caption(
         f"Gösterge modu: {mod_etiket} · Profil: **{VADE_SECENEKLERI.get(profil.vade, profil.vade)}**"
     )
-    c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-    c1.metric("Makro rejim", tahsis.rejim.rejim.replace("_", " "))
-    c2.metric(
-        "EUR/TRY",
-        f"{snap.veri.eur_try:.2f}" if snap.veri.eur_try else "—",
-        _gunluk_delta(snap.eur_try_1g_degisim),
-    )
-    if vade_kisa_mi(profil.vade):
-        c3.metric(
-            f"TL faiz ({profil_mevduat_etiket})",
-            f"%{mevduat_ozet.profil_vade_net:.1f} net" if mevduat_ozet.profil_vade_net else "—",
-            f"reel {mevduat_ozet.profil_vade_reel:+.1f}%",
-        )
-        c4.metric("CDS 5Y (ref.)", f"{snap.veri.cds_5y_bp:.0f} bp" if snap.veri.cds_5y_bp else "—")
-    else:
-        c3.metric("CDS 5Y", f"{snap.veri.cds_5y_bp:.0f} bp" if snap.veri.cds_5y_bp else "—")
-        c4.metric(
-            f"TL faiz ({profil_mevduat_etiket})",
-            f"%{mevduat_ozet.profil_vade_net:.1f} net" if mevduat_ozet.profil_vade_net else "—",
-        )
-    c5.metric(
-        "VIX (ABD)",
-        f"{snap.vix:.1f}" if snap.vix else "—",
-        _gunluk_delta(snap.vix_1g_degisim),
-        delta_color="inverse",
-        help="ABD S&P 500 opsiyonlarından — küresel korku endeksi.",
-    )
-    c6.metric(
-        "Altın",
-        f"${snap.altin_usd_oz:,.0f}" if snap.altin_usd_oz else "—",
-        _gunluk_delta(snap.altin_1g_degisim),
-    )
-    c7.metric(
-        "BIST",
-        f"{snap.bist100:,.0f}" if snap.bist100 else "—",
-        _gunluk_delta(snap.bist100_1g_degisim),
-    )
-    c8.metric(
-        "BIST Vol (TR)",
-        f"{snap.bist_vol_30g:.1f}" if snap.bist_vol_30g is not None else "—",
-        _gunluk_delta_pp(snap.bist_vol_1g_degisim),
-        delta_color="inverse",
-        help="BIST 100 son 30 gün realize volatilite (yıllık %). Resmi TR VIX değil — yerel stres proxy.",
-    )
+    render_metric_strip([
+        {"label": "Makro rejim", "value": tahsis.rejim.etiket.replace("_", " ")},
+        {
+            "label": "EUR/TRY",
+            "value": f"{snap.veri.eur_try:.2f}" if snap.veri.eur_try else "—",
+            "delta": snap.eur_try_1g_degisim,
+        },
+        *(
+            [
+                {
+                    "label": f"TL faiz ({profil_mevduat_etiket})",
+                    "value": f"%{mevduat_ozet.profil_vade_net:.1f} net" if mevduat_ozet.profil_vade_net else "—",
+                    "delta": f"reel {mevduat_ozet.profil_vade_reel:+.1f}%",
+                },
+                {
+                    "label": "CDS 5Y (ref.)",
+                    "value": f"{snap.veri.cds_5y_bp:.0f} bp" if snap.veri.cds_5y_bp else "—",
+                },
+            ]
+            if vade_kisa_mi(profil.vade)
+            else [
+                {
+                    "label": "CDS 5Y",
+                    "value": f"{snap.veri.cds_5y_bp:.0f} bp" if snap.veri.cds_5y_bp else "—",
+                },
+                {
+                    "label": f"TL faiz ({profil_mevduat_etiket})",
+                    "value": f"%{mevduat_ozet.profil_vade_net:.1f} net" if mevduat_ozet.profil_vade_net else "—",
+                },
+            ]
+        ),
+        {
+            "label": "VIX (ABD)",
+            "value": f"{snap.vix:.1f}" if snap.vix else "—",
+            "delta": snap.vix_1g_degisim,
+            "delta_inverse": True,
+        },
+        {
+            "label": "Altın",
+            "value": f"${snap.altin_usd_oz:,.0f}" if snap.altin_usd_oz else "—",
+            "delta": snap.altin_1g_degisim,
+        },
+        {
+            "label": "BIST",
+            "value": f"{snap.bist100:,.0f}" if snap.bist100 else "—",
+            "delta": snap.bist100_1g_degisim,
+        },
+        {
+            "label": "BIST Vol (TR)",
+            "value": f"{snap.bist_vol_30g:.1f}" if snap.bist_vol_30g is not None else "—",
+            "delta": snap.bist_vol_1g_degisim,
+            "delta_fmt": "pp",
+            "delta_inverse": True,
+        },
+    ])
     if not vade_kisa_mi(profil.vade):
         btc_delta = _gunluk_delta(snap.btc_1g_degisim)
         btc_line = f"BTC: ${snap.btc_usd:,.0f}" if snap.btc_usd else "BTC: —"
@@ -619,8 +744,12 @@ if sayfa == "Portföy Tahsisi":
             btc_line += f" ({btc_delta} 1G)"
         st.caption(btc_line)
 
-    st.info(f"**Makro rejim:** {tahsis.rejim.etiket} — {tahsis.rejim.aciklama}")
-    if tahsis.rejim.rejim == "TL_FIRSAT":
+    st.info(rejim_gosterim_metni(tahsis.rejim, tahsis.tl_tavan_oran))
+    if (
+        tahsis.rejim.rejim == "TL_FIRSAT"
+        and tahsis.tl_tavan_oran >= 0.05
+        and "askıda" not in tahsis.rejim.etiket
+    ):
         tl_p = tahsis.agirliklar.get("tl_deposit", 0) * 100
         bist_p = tahsis.agirliklar.get("bist", 0) * 100
         kripto_p = tahsis.agirliklar.get("crypto", 0) * 100
@@ -648,9 +777,21 @@ if sayfa == "Portföy Tahsisi":
         f"Portföy payı **%{tl_durum.agirlik_pct:.1f}** · "
         f"4 kapı tavanı **%{tl_durum.tavan_pct:.0f}**"
     ):
+        if tl_durum.baglayici_etiket:
+            st.markdown(
+                f"**Bağlayıcı kısıt:** {tl_durum.baglayici_etiket} "
+                f"({tl_durum.baglayici_kisit})"
+            )
         for n in tl_durum.nedenler:
             st.markdown(f"- {n}")
         st.caption(f"Alternatif: {tl_durum.alternatif}")
+        if tl_durum.explain:
+            with st.expander("TL kararı nasıl oluştu?", expanded=False):
+                import pandas as pd
+                df = pd.DataFrame(tl_durum.explain)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+        if tahsis.tl_ppk_notu:
+            st.info(tahsis.tl_ppk_notu)
         st.caption(
             "Veriler her yenilemede güncellenir — rejim, CDS, reel faiz veya siyasi risk "
             "değişince TL önerisi otomatik artar veya sıfırlanır."
@@ -669,32 +810,34 @@ if sayfa == "Portföy Tahsisi":
                 st.metric(f"{v.ok} {v.ad.split()[0]}", f"%{v.agirlik_pct:.0f}", v.sinyal_etiket)
         st.caption("Detaylı gerekçeler için sol menüden **AI Danışman** bölümüne gidin.")
 
-    col_sol, col_sag = st.columns([1.2, 1])
-    with col_sol:
-        st.subheader("Önerilen portföy dağılımı")
-        df = pd.DataFrame({
-            "Varlık": [config.VARLIK_ETIKETLERI[k] for k in VARLIKLAR],
-            "Ağırlık %": [tahsis.agirliklar[k] * 100 for k in VARLIKLAR],
-            "Tutar EUR": [toplam * tahsis.agirliklar[k] for k in VARLIKLAR],
-            "Skor": [tahsis.skorlar[k] for k in VARLIKLAR],
-        })
-        df_goster = df[df["Ağırlık %"] >= 0.5].sort_values("Ağırlık %", ascending=False)
-        st.bar_chart(df_goster.set_index("Varlık")["Ağırlık %"], horizontal=True)
-        for _, row in df_goster.iterrows():
-            st.progress(
-                min(row["Ağırlık %"] / 100, 1.0),
-                text=f"{row['Varlık']}: %{row['Ağırlık %']:.1f} ({row['Tutar EUR']:,.0f} EUR)",
-            )
+    st.divider()
+    if not _ob.birlesik_tam:
+        with st.spinner("TEFAS fonları ve BIST önerileri yükleniyor (~30–90 sn)…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
+            birlesik = _ob.birlesik
+    birlesik_oneri_paneli(
+        birlesik,
+        para_birimi=kullanici_portfoy.para_birimi,
+        vade_etiket=VADE_SECENEKLERI.get(profil.vade, profil.vade),
+    )
+    oneri_aktar_butonu(
+        _ob.varlik_store,
+        birlesik,
+        kullanici_portfoy.para_birimi,
+        mevcut_mevduat=kullanici_portfoy.mevcut_tl_mevduat(),
+    )
 
-    with col_sag:
-        st.subheader("Makro göstergeler")
-        g1, g2 = st.columns(2)
-        g1.metric("USD/TRY", snap.veri.usd_try or "—")
-        g1.metric("Fed faizi", f"{snap.veri.fed_faizi}%" if snap.veri.fed_faizi else "—")
-        g1.metric("Enflasyon TR", f"{snap.enflasyon_tr_yillik}%" if snap.enflasyon_tr_yillik else "—")
-        g2.metric("TL tavan", f"%{tahsis.tl_tavan_oran*100:.1f}")
-        g2.metric("Siyasi risk", snap.veri.siyasi_risk_makale_sayisi or "—")
-        g2.metric("TCMB rezerv", "↑" if snap.veri.rezerv_artiyor else "↓" if snap.veri.rezerv_artiyor is False else "?")
+    st.subheader("Makro göstergeler")
+    g1, g2, g3, g4, g5, g6 = st.columns(6)
+    g1.metric("USD/TRY", f"{snap.veri.usd_try:.2f}" if snap.veri.usd_try else "—")
+    g2.metric("Fed faizi", f"{snap.veri.fed_faizi:.2f}%" if snap.veri.fed_faizi is not None else "—")
+    g3.metric("Enflasyon TR", f"{snap.enflasyon_tr_yillik:.2f}%" if snap.enflasyon_tr_yillik is not None else "—")
+    g4.metric("TL tavan", f"%{tahsis.tl_tavan_oran*100:.1f}")
+    g5.metric("Siyasi risk", snap.veri.siyasi_risk_makale_sayisi or "—")
+    g6.metric(
+        "TCMB rezerv",
+        "↑" if snap.veri.rezerv_artiyor else "↓" if snap.veri.rezerv_artiyor is False else "?",
+    )
 
     t1, t2, t3 = st.tabs(["Algoritma", "Tam rapor", "Geçmiş kayıtlar"])
     with t1:
@@ -708,16 +851,34 @@ if sayfa == "Portföy Tahsisi":
     with t3:
         gecmis = cache_gecmisi(20)
         if gecmis:
-            st.dataframe(pd.DataFrame([
+            render_df_table(pd.DataFrame([
                 {"Zaman": g["ts"], "EUR/TRY": g["payload"].get("veri", {}).get("eur_try"),
                  "CDS": g["payload"].get("veri", {}).get("cds_5y_bp")}
                 for g in gecmis
-            ]), use_container_width=True)
+            ]))
         else:
             st.caption("Canlı modda otomatik kaydedilir.")
 
 # ══════════════════════════════════════════════════════════════
+elif sayfa == "Varlıklarım":
+    aktif_vp = _ob.varlik_store.aktif()
+    if aktif_vp and aktif_vp.pozisyonlar and _ob.varlik_deger is None:
+        with st.spinner("Portföy fiyatları yükleniyor…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
+    varliklarim_paneli(
+        snap,
+        deger_onbellek=_ob.varlik_deger,
+        onbellek_portfoy_id=_ob.varlik_deger_portfoy_id,
+        veri_tick=_tick,
+        yukleme_zamani=_ob.yukleme_zamani,
+    )
+
+# ══════════════════════════════════════════════════════════════
 elif sayfa == "AI Danışman":
+    if not _ob.danisman_tam:
+        with st.spinner("Hisse taraması ve danışman analizi yükleniyor…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
+            danisman = _ob.danisman
     danisman_paneli(danisman)
 
 # ══════════════════════════════════════════════════════════════
@@ -756,7 +917,7 @@ elif sayfa == "TL Mevduat Faizleri":
         "Profil vadeniz": "✓" if o.vade == (mev.profil_vade or profil_mevduat_etiket) else "",
         "Kaynak": o.kaynak,
     } for o in mev.oranlar])
-    st.dataframe(df_m, use_container_width=True, hide_index=True)
+    render_df_table(df_m)
 
     st.subheader("Mevduat vs Hisse — ne zaman hangisi?")
     col_a, col_b = st.columns(2)
@@ -782,26 +943,34 @@ elif sayfa == "TL Mevduat Faizleri":
     )
 
 # ══════════════════════════════════════════════════════════════
+elif sayfa == "TEFAS Fonları":
+    if _ob.tefas_ham is None or getattr(_ob.tefas_ham, "hata", ""):
+        with st.spinner("TEFAS verisi yükleniyor (~1–2 dk)…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
+    tefas_paneli(
+        snap, profil, tahsis.rejim.rejim,
+        mevduat_ozet=mevduat_ozet,
+        ham_onbellek=_ob.tefas_ham,
+    )
+
+# ══════════════════════════════════════════════════════════════
 elif sayfa == "Hisse & Endeks Taraması":
     st.header("Canlı Hisse & Endeks Analizi")
     st.caption(
         "Genişletilmiş evren · Hisse + Revolut UCITS ETF · RSI+SMA · Makro rejim + haber filtresi"
     )
+    if st.session_state.hisse_haber_tara:
+        st.caption("Derin haber taraması **açık** (sidebar).")
 
-    st.session_state.hisse_haber_tara = st.checkbox(
-        "Derin haber taraması (Google News, ~1 dk ek süre)",
-        value=st.session_state.hisse_haber_tara,
-        key="hisse_haber_chk",
-    )
     tara_yenile = st.button("Taramayı yenile", key="hisse_tara_yenile")
 
-    onceki = st.session_state.tarama_son
-    if onceki is not None and not tara_yenile:
-        _hisse_tarama_icerik(onceki, snap, tahsis)
-        st.caption("Son tarama yüklü · güncellemek için **Taramayı yenile**.")
-    else:
-        if onceki is None:
-            st.caption("⏳ İlk tarama ~10–70 sn sürebilir (haber kapalıyken ~10 sn).")
+    if _ob.tarama is None and not tara_yenile:
+        with st.spinner("Hisse ve endeks taraması yükleniyor (~1–2 dk)…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
+            tarama_ozet = _ob.tarama
+
+    tarama = tarama_ozet
+    if tara_yenile:
         with st.status("Hisse taraması güncelleniyor…", expanded=True) as durum:
             tarama = tarama_cek(
                 canli_mod,
@@ -812,17 +981,24 @@ elif sayfa == "Hisse & Endeks Taraması":
                 **_tarama_param(profil),
             )
             st.session_state.tarama_son = tarama
+            st.session_state.app_onbellek.tarama = tarama
             durum.update(label="Tarama tamamlandı", state="complete")
         _hisse_tarama_icerik(tarama, snap, tahsis)
+    else:
+        _hisse_tarama_icerik(tarama, snap, tahsis)
+        st.caption("Güncellemek için **Taramayı yenile** · veri kaynak etiketleri tabloda.")
 
 # ══════════════════════════════════════════════════════════════
 elif sayfa == "Backtest":
+    if _ob.backtest is None:
+        with st.spinner("Backtest geçmiş verisi yükleniyor…"):
+            _ob = _sayfa_onbellegi_hazirla(_ob)
     st.header("Backtest — Dinamik vs Statik")
     st.caption(
         "CDS/enflasyon yaklaşık tablodan — kesin getiri iddiası değil. "
         "Dinamik rejim katmanının statik referansa karşı performansını test eder."
     )
-    bt = backtest_veri(bt_ay, profil.vade, profil.risk)
+    bt = _ob.backtest
     if bt:
         kars = backtest_karsilastirma_uret(
             bt, tahsis.rejim.rejim, bugun_agirliklar=tahsis.agirliklar, profil=profil
@@ -880,7 +1056,7 @@ elif sayfa == "Backtest":
                     "Bugünkü sabit": karsi.max_drawdown_pct if karsi else None,
                 },
             ]
-            st.dataframe(pd.DataFrame(cmp_rows), use_container_width=True, hide_index=True)
+            render_df_table(pd.DataFrame(cmp_rows))
 
             if kars.rejim_dagilimi:
                 st.subheader("Rejim dağılımı")
@@ -888,7 +1064,7 @@ elif sayfa == "Backtest":
                     {"Rejim": r.replace("_", " "), "Süre %": p}
                     for r, p in kars.rejim_dagilimi.items()
                 ])
-                st.bar_chart(rej_df.set_index("Rejim"))
+                plotly_vbar(rej_df["Rejim"].tolist(), rej_df["Süre %"].tolist(), title="Rejim dağılımı (%)")
                 if kars.belirsiz_oran_pct >= 30:
                     st.warning(
                         f"BELIRSIZ oranı %{kars.belirsiz_oran_pct:.0f} — "
@@ -909,7 +1085,7 @@ elif sayfa == "Backtest":
             "BIST %": round(s.agirliklar.get("bist", 0) * 100, 1),
         } for s in bt])
         st.subheader("Aylık tahsis geçmişi")
-        st.dataframe(bt_df, use_container_width=True, hide_index=True)
-        st.line_chart(bt_df.set_index("Ay")[["Altın %", "TL %", "BIST %"]])
+        render_df_table(bt_df, max_height=400)
+        plotly_area_line(bt_df, "Ay", ["Altın %", "TL %", "BIST %"], title="Aylık tahsis geçmişi", height=340)
     else:
         st.warning("Backtest verisi alınamadı.")

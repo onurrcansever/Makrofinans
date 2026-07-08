@@ -58,7 +58,7 @@ _tanimla("enflasyon", "Enflasyon TR (%)", lambda s: s.enflasyon_tr_yillik, 720, 
 _tanimla("tl_mevduat", "TL mevduat (brüt)", lambda s: s.veri.tl_mevduat_brut_faiz, 168, "Yapı Kredi yoksa TCMB türetilmiş.")
 _tanimla("fed_faizi", "Fed fon faizi", lambda s: s.veri.fed_faizi, 168, "FRED yoksa ^IRX veya sabit yedek.")
 _tanimla("tcmb_faizi", "TCMB politika faizi", lambda s: s.veri.tcmb_politika_faizi, 168, "TCMB.gov (PPK repo); yoksa manual_inputs.")
-_tanimla("siyasi_risk", "Siyasi risk (haber)", lambda s: s.veri.siyasi_risk_makale_sayisi, 6, "GDELT 6 saat önbellek.")
+_tanimla("siyasi_risk", "Siyasi risk (Kapı 1)", lambda s: s.veri.siyasi_risk_makale_sayisi, 6, "Duygu taraması — özet ile 4 kapı aynı sayım.")
 _tanimla("rezerv", "Rezerv trend", lambda s: s.veri.rezerv_artiyor, 720, "EVDS; bilinmiyorsa Kapı 4 ×0,85.")
 
 
@@ -69,7 +69,9 @@ def _siniflandir(kaynak: str, deger: Any, anahtar: str = "") -> str:
 
     # Göstergeye özel — kaynak metninden bağımsız doğru sınıf
     if anahtar == "enflasyon":
-        if "evds" in k or "tüik" in k:
+        if "gecikmeli" in k or "⚠" in kaynak:
+            return "GECIKMELI"
+        if "evds" in k or "tüik" in k or "tüfe" in k:
             return "GECIKMELI" if "önbellek" in k else "CANLI"
         if any(x in k for x in ("world bank", "fred", "yıllık")):
             return "GECIKMELI"

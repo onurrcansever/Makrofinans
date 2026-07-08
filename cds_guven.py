@@ -18,6 +18,9 @@ CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
 CDS_CACHE_KEY = "cds_5y"
 MANUAL_PATH = os.path.join(os.path.dirname(__file__), "manual_inputs.json")
 
+# Aynı yenileme döngüsünde (tick) CDS'nin iki kez çekilmesini önler
+_TICK_CDS: Dict[int, "CdsSonuc"] = {}
+
 
 @dataclass
 class CdsSonuc:
@@ -42,6 +45,18 @@ def _manuel_cds_yedek() -> Optional[float]:
     except Exception:
         pass
     return None
+
+
+def cds_sonuc_kaydet(sonuc: CdsSonuc, tick: int) -> None:
+    _TICK_CDS[int(tick)] = sonuc
+
+
+def cds_sonuc_al(tick: int) -> Optional[CdsSonuc]:
+    return _TICK_CDS.get(int(tick))
+
+
+def cds_tick_onbellegi_temizle() -> None:
+    _TICK_CDS.clear()
 
 
 def _rel_fark(a: float, b: float) -> float:

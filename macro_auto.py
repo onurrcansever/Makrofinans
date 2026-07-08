@@ -178,32 +178,49 @@ def _enflasyon_worldbank() -> Optional[float]:
     return None
 
 
+def enflasyon_cache_temizle() -> None:
+    try:
+        conn = sqlite3.connect(CACHE_DB)
+        conn.execute("DELETE FROM macro_cache WHERE key=?", ("enflasyon_tr",))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def enflasyon_otomatik(evds_key: str = "", taze: bool = False) -> Tuple[float, str]:
-    """Türkiye yıllık enflasyon (%). Öncelik: EVDS/TÜİK aylık → FRED yıllık → World Bank."""
+    """Türkiye yıllık enflasyon (%). Öncelik: enflasyon_resmi.json → EVDS → FRED."""
+    from enflasyon_kaynak import enflasyon_manuel_son, enflasyon_resmi_al
+
+    manuel = enflasyon_manuel_son()
+    if manuel is not None:
+        taze = True
+
     if not taze:
         cached = _cache_oku("enflasyon_tr", max_yas_s=86400)
-        if cached:
+        if cached and not manuel:
             src = cached[1]
-            if any(x in src.lower() for x in ("world bank", "fred")):
-                return cached[0], f"{src} (önbellek — yıllık/gecikmeli; aylık TÜİK için EVDS TP.FG.J0)"
+            if any(x in src.lower() for x in ("world bank", "fred", "acil yedek")):
+                return cached[0], f"{src} (önbellek — yıllık/gecikmeli; aylık TÜİK için EVDS TP.FG.J0/J01)"
+            if "gecikmeli" in src.lower() or "⚠" in src:
+                return cached[0], f"{src} (önbellek)"
             return cached[0], f"{src} (önbellek)"
 
-    if evds_key:
-        try:
-            import data_sources as ds
-            tufe = ds.evds_tufe_yoy(evds_key)
-            if tufe:
-                val, detay = tufe
-                _cache_yaz("enflasyon_tr", val, "TCMB EVDS")
-                return val, f"TCMB EVDS — {detay} (TÜİK, resmi)"
-        except Exception:
-            pass
+    deger, kaynak, uyarilar = enflasyon_resmi_al(evds_key or config.EVDS_API_KEY)
+    if deger is not None:
+        if uyarilar:
+            kaynak = f"{kaynak} — {' '.join(uyarilar[:1])}"
+        _cache_yaz("enflasyon_tr", deger, kaynak.split("—")[0].strip())
+        return deger, kaynak
 
     for deneme in range(2):
         fred = _fred_csv_son("FPCPITOTLZGTUR")
         if fred is not None:
             _cache_yaz("enflasyon_tr", fred, "FRED yıllık TÜFE")
-            return fred, "FRED FPCPITOTLZGTUR — yıllık TÜFE (gecikmeli; aylık TÜİK için EVDS önerilir)"
+            return (
+                fred,
+                "FRED FPCPITOTLZGTUR — yıllık TÜFE (gecikmeli; aylık TÜİK için EVDS önerilir)",
+            )
         if deneme == 0:
             time.sleep(1.5)
 

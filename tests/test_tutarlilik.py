@@ -56,7 +56,7 @@ def _pozitif_mevduat(reel: float = 2.5) -> MevduatKarsilastirma:
 
 
 class TutarlilikTest(unittest.TestCase):
-    @patch("allocation_engine.rejim_kararli_uygula")
+    @patch("allocation_engine.rejim_tespit_v2")
     @patch("allocation_engine.mevduat_analizi")
     def test_rejim_disinda_tl_sinirlanir(self, mock_mev, mock_rejim):
         mock_mev.return_value = _pozitif_mevduat(2.5)
@@ -72,7 +72,7 @@ class TutarlilikTest(unittest.TestCase):
             config.TL_REJIM_DISI_MAX_ORAN + 0.001,
         )
 
-    @patch("allocation_engine.rejim_kararli_uygula")
+    @patch("allocation_engine.rejim_tespit_v2")
     @patch("allocation_engine.mevduat_analizi")
     def test_rejim_disinda_guclu_alim_yok(self, mock_mev, mock_rejim):
         mock_mev.return_value = _pozitif_mevduat(2.5)
@@ -133,7 +133,7 @@ class TutarlilikTest(unittest.TestCase):
         _, max_a, _, _ = profil_sinirlari(YatirimProfili(risk="orta", vade="orta"))
         self.assertLessEqual(max_a["silver"], 0.08)
 
-    @patch("allocation_engine.rejim_kararli_uygula")
+    @patch("allocation_engine.rejim_tespit_v2")
     @patch("allocation_engine.mevduat_analizi")
     def test_dusuk_risk_kisa3_tl_dusuk_kisa(self, mock_mev, mock_rejim):
         """Düşük risk: kısa vadeli reel pozitif olsa bile TL, uzun vade negatifle aynı bandda."""

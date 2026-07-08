@@ -97,7 +97,8 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
     reel_faiz = tcmb - enflasyon
     savas_yuksek = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_YUKSEK_ESIGI
     savas_aktif = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_ESIGI
-    jeopolitik_kesinti = savas_aktif  # Kapı 2 ×0.9 jeopolitik çarpanı aktifken risk-on yasak
+    jeopolitik_kesinti = savas_aktif  # Kapı 1b ×0.9 jeopolitik çarpanı aktifken risk-on yasak
+    tl_makro_risk = bool(v.tl_makro_risk_aktif)
     cds_uyari = list(getattr(snap, "cekim_uyarilari", []) or [])
     cds_supheli = any("CDS" in u for u in cds_uyari)
     tl_firsat = (
@@ -105,7 +106,7 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
         and cds < 280
         and reel_faiz > 0
         and (siyasi or 0) < es["temkin"]
-        and not savas_yuksek
+        and not tl_makro_risk
     )
     if tl_firsat:
         adimlar.append(f"Reel faiz pozitif (~{reel_faiz:.1f}pp), CDS makul -> TL fırsat")
@@ -118,10 +119,15 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
             guven=round(min(guven, 0.9), 2),
             adimlar=adimlar,
         )
-    if not tl_firsat and savas_yuksek and cds is not None and cds < 280 and reel_faiz > 0:
+    if not tl_firsat and tl_makro_risk and cds is not None and cds < 280 and reel_faiz > 0:
+        parcalar = []
+        if v.tl_faiz_indirim_haber and v.tl_faiz_indirim_haber >= config.TL_MAKRO_FAIZ_ESIGI:
+            parcalar.append(f"faiz indirimi beklentisi ({v.tl_faiz_indirim_haber} haber)")
+        if v.tl_erken_secim_anormal:
+            parcalar.append(f"erken seçim anormal sıklık ({v.tl_erken_secim_haber} haber)")
+        neden = "; ".join(parcalar) if parcalar else "TL makro haber riski"
         adimlar.append(
-            f"Reel faiz pozitif ama jeopolitik haber yoğun "
-            f"({v.savas_risk_makale_sayisi}) -> TL fırsat rejimi askıya alındı"
+            f"Reel faiz pozitif ama {neden} -> TL fırsat rejimi askıya alındı"
         )
 
     # --- Enflasyon koruma ---

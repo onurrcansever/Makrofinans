@@ -19,4 +19,9 @@ serverAddress = "127.0.0.1"
 serverPort = 8502
 
 [theme]
-base = "light"
+base = "dark"
+backgroundColor = "#131722"
+secondaryBackgroundColor = "#1e222d"
+textColor = "#d1d4dc"
+primaryColor = "#2962ff"
+font = "sans serif"

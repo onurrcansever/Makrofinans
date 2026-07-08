@@ -105,15 +105,63 @@ def cds_gecmis_ekle(kaynaklar: Dict[str, float], efektif: Optional[float], not_m
         pass
 
 
-def cds_guncelleme_calistir(*, bildir: bool = False) -> CdsGuncellemeSonucu:
+def _kaynak_listesi_cds_sonucundan(cds) -> List[CdsKaynakOlcum]:
+    """Tek CDS hattından sidebar tablosu — ayrı API turu yok."""
     from cds_bloomberg import bloomberg_terminal_erisimli
-    from cds_guven import cds_guvenli_al
+
+    meta_etiket = {
+        "bloomberg": "Bloomberg Terminal BLPAPI",
+        "investing_canli": "Investing.com canlı",
+        "investing_kapanis": "Investing.com kapanış",
+        "wgb": "WorldGovernmentBonds",
+        "manual_yedek": "manual_inputs.json (otomatik yedek)",
+    }
+    cikis: List[CdsKaynakOlcum] = []
+    for ad in ("bloomberg", "investing_canli", "investing_kapanis", "wgb", "manual_yedek"):
+        if ad in cds.kaynaklar:
+            cikis.append(
+                CdsKaynakOlcum(
+                    ad=ad,
+                    deger=cds.kaynaklar[ad],
+                    kaynak=meta_etiket.get(ad, ad),
+                )
+            )
+        elif ad == "bloomberg":
+            cikis.append(
+                CdsKaynakOlcum(
+                    ad=ad,
+                    deger=None,
+                    hata=(
+                        "Terminal/BLPAPI yok — BLOOMBERG_* .env ayarları"
+                        if not bloomberg_terminal_erisimli()
+                        else "Veri yok"
+                    ),
+                )
+            )
+        elif ad in ("investing_canli", "investing_kapanis") and ad not in cds.kaynaklar:
+            cikis.append(CdsKaynakOlcum(ad=ad, deger=None, hata="Veri yok"))
+    return cikis
+
+
+def cds_guncelleme_calistir(
+    *,
+    bildir: bool = False,
+    taze: bool = False,
+    tick: int = 0,
+) -> CdsGuncellemeSonucu:
+    from cds_bloomberg import bloomberg_terminal_erisimli
+    from cds_guven import cds_guvenli_al, cds_sonuc_al, cds_sonuc_kaydet
+
+    onceden = cds_sonuc_al(tick) if tick >= 0 else None
+    if onceden is not None:
+        cds = onceden
+    else:
+        cds = cds_guvenli_al(taze=taze)
+        cds_sonuc_kaydet(cds, tick)
 
     sonuc = CdsGuncellemeSonucu()
-    sonuc.kaynaklar = cds_kaynaklari_topla()
+    sonuc.kaynaklar = _kaynak_listesi_cds_sonucundan(cds)
     sonuc.bloomberg_erisim = bloomberg_terminal_erisimli()
-
-    cds = cds_guvenli_al(taze=True)
     sonuc.efektif = cds.deger
     sonuc.efektif_kaynak = cds.kaynak
     sonuc.uyarilar = list(cds.uyari)

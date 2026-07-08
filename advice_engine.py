@@ -143,7 +143,7 @@ def _bist_aciklama(snap, tahsis, profil, tarama: Optional[TaramaSonucu]) -> Varl
         elif endeks.rsi > 65:
             dikkat.append("RSI yüksek — kısa vadede kar realizasyonu baskısı olabilir.")
 
-    if tahsis.rejim.rejim == "TL_FIRSAT":
+    if tahsis.rejim.rejim == "TL_FIRSAT" and tahsis.tl_tavan_oran >= 0.05:
         nedenler.append("**TL fırsat** rejimi: yerel varlıklar (BIST) makro tabloyla uyumlu.")
     elif tahsis.rejim.rejim in ("KRIZ", "EM_STRES"):
         dikkat.append("Stres rejiminde BIST önerisi bilinçli olarak **kısıtlandı** — kur riski baskın.")
@@ -196,8 +196,13 @@ def _tl_aciklama(
         enf = snap.enflasyon_tr_yillik or 35
         reel = tcmb - enf
         nedenler.append(f"TCMB ~**%{tcmb:.0f}**, enflasyon ~**%{enf:.0f}** → reel faiz ~**{reel:+.1f} pp**.")
-        if tahsis.rejim.rejim == "TL_FIRSAT" and reel > 0:
+        if tahsis.rejim.rejim == "TL_FIRSAT" and reel > 0 and tahsis.tl_tavan_oran >= 0.05:
             nedenler.append("TL fırsat rejimi + pozitif reel faiz — mevduat cazip.")
+        elif "askıda" in tahsis.rejim.etiket:
+            nedenler.append(
+                f"**{tahsis.rejim.etiket}** — reel faiz lehte olabilir; "
+                f"4 kapı tavanı **%{tahsis.tl_tavan_oran*100:.0f}**."
+            )
 
     if reel_mev is not None:
         vade_etik = mevduat.profil_vade if mevduat and mevduat.profil_vade else "profil vadesi"
@@ -355,10 +360,22 @@ def danisman_raporu_olustur(
     kacin = [v.ad for v in varliklar if v.sinyal == "KACIN"]
 
     en_iyi = varliklar[0].ad if varliklar else "—"
-    genel = (
-        f"**{tahsis.rejim.etiket}** rejimindeyiz. Profiliniz: *{profil.ozet()}*. "
-        f"Bu tabloda öncelik **{en_iyi}** — portföyün en büyük payı burada. "
-    )
+    rejim_etiket = tahsis.rejim.etiket
+    if tahsis.rejim.rejim == "KRIZ" or tahsis.tl_tavan_oran < 0.01:
+        genel = (
+            f"**{rejim_etiket}** — TL tahsisi kapalı veya sıfır (Kapı 1 / 4 kapı). "
+            f"Profiliniz: *{profil.ozet()}*. "
+        )
+    elif "askıda" in rejim_etiket:
+        genel = (
+            f"**{rejim_etiket}** — reel faiz lehte olabilir; makro haber/kapılar TL payını kısıtlıyor. "
+            f"Profiliniz: *{profil.ozet()}*. "
+        )
+    else:
+        genel = (
+            f"**{rejim_etiket}** rejimindeyiz. Profiliniz: *{profil.ozet()}*. "
+            f"Bu tabloda öncelik **{en_iyi}** — portföyün en büyük payı burada. "
+        )
     if oncelik:
         genel += f"Güçlü öneriler: **{', '.join(oncelik)}**. "
     if kacin:
@@ -377,6 +394,7 @@ def danisman_raporu_olustur(
     from audit_engine import denetim_calistir
     denetim = denetim_calistir(
         snap, tahsis, varliklar, baglam, mevduat=mevduat, oncelik=oncelik,
+        tarama=tarama,
     )
 
     # Denetim bulgularını ilgili kartların dikkat listesine ekle

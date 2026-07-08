@@ -9,16 +9,10 @@ SYNC_DIR="$APP_SUPPORT/project"
 PLIST="$HOME/Library/LaunchAgents/tr.yatirim.asistani.streamlit.plist"
 WRAPPER="$APP_SUPPORT/streamlit_wrapper.sh"
 mkdir -p "$APP_SUPPORT"
+printf '%s\n' "$REAL_DIR" > "$APP_SUPPORT/source_path"
 
-echo "Proje kopyalanıyor → $SYNC_DIR"
-rsync -a --delete \
-  --exclude '.git/' \
-  --exclude '__pycache__/' \
-  --exclude '*.pyc' \
-  --exclude '.venv/' \
-  --exclude 'venv/' \
-  --exclude 'node_modules/' \
-  "$REAL_DIR/" "$SYNC_DIR/"
+echo "Proje senkronu → $SYNC_DIR"
+bash "$SCRIPT_DIR/proje_sync.sh" "$REAL_DIR"
 
 PROJECT_DIR="$SYNC_DIR"
 
@@ -65,6 +59,10 @@ cat > "$PLIST" <<EOF
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>WatchPaths</key>
+  <array>
+    <string>${REAL_DIR}</string>
+  </array>
 </dict>
 </plist>
 EOF

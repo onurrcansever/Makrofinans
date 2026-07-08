@@ -94,6 +94,11 @@ class HisseAnaliz:
     faktor_notu: str = ""
     sma200: Optional[float] = None
     zirve_52h_pct: Optional[float] = None
+    zirve_52h_eur_pct: Optional[float] = None
+    zirve_52h_eur_etiket: str = ""
+    bist_52h_join_gun: Optional[int] = None
+    bist_52h_join_uyari: bool = False
+    bist_52h_kur_yok: bool = False
     trend_notu: str = ""
     alim_uygun: str = "IZLE"
     alim_uygun_etiket: str = "⚪ İzle / bekle"
@@ -352,6 +357,7 @@ def _hisse_analiz(
     revolut_ticker: str = "",
     varlik_turu: str = "hisse",
     profil: Optional[YatirimProfili] = None,
+    eurtry_close: Optional[pd.Series] = None,
 ) -> HisseAnaliz:
     close = _close_al(df, sembol)
     if close.empty or len(close) < 30:
@@ -387,6 +393,8 @@ def _hisse_analiz(
         varlik_turu=varlik_turu,
     )
     trend_filtresi_uygula(_h, close, profil=profil)
+    from bist_52h_eur import bist_52h_eur_uygula
+    bist_52h_eur_uygula(_h, close, eurtry_close)
     sinyal, skor, gerekce = _h.sinyal, _h.skor, _h.gerekce
 
     rh = rejim_hisse_ayarla(sinyal, skor, gerekce, piyasa, sektor, makro_rejim, snap)
@@ -428,6 +436,11 @@ def _hisse_analiz(
         varlik_turu=varlik_turu,
         sma200=_h.sma200,
         zirve_52h_pct=_h.zirve_52h_pct,
+        zirve_52h_eur_pct=_h.zirve_52h_eur_pct,
+        zirve_52h_eur_etiket=_h.zirve_52h_eur_etiket,
+        bist_52h_join_gun=_h.bist_52h_join_gun,
+        bist_52h_join_uyari=_h.bist_52h_join_uyari,
+        bist_52h_kur_yok=_h.bist_52h_kur_yok,
         trend_notu=_h.trend_notu,
     )
 
@@ -529,6 +542,9 @@ def tam_tarama(
             makro_rejim=makro_rejim,
         )
 
+    eurtry_df = _indir(["EURTRY=X"], period="1y")
+    eurtry_close = _close_al(eurtry_df, "EURTRY=X")
+
     endeksler = [_endeks_analiz(df, ad, sym, makro_rejim, snap) for ad, sym in ENDEKSLER.items()]
     tum: List[HisseAnaliz] = []
     for sembol, ad, piyasa, sektor, isin, revolut_ticker in evren:
@@ -536,12 +552,25 @@ def tam_tarama(
         tum.append(_hisse_analiz(
             df, sembol, ad, piyasa, sektor, makro_rejim, snap,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik, profil=profil,
+            eurtry_close=eurtry_close,
         ))
 
     profil_ozet, profil_notlari = profil_tarama_bilgisi(profil, makro_rejim)
     esik = profil_firsat_esik(profil)
 
     uyarilar: List[str] = []
+    if eurtry_close.empty:
+        uyarilar.append("[UYARI] EUR bazlı 52H hesaplanamadı — kur verisi çekilemedi")
+    elif any(getattr(h, "bist_52h_join_uyari", False) for h in tum if h.sembol.endswith(".IS")):
+        dusuk = min(
+            (getattr(h, "bist_52h_join_gun", 0) or 0 for h in tum if h.sembol.endswith(".IS")),
+            default=0,
+        )
+        if dusuk and dusuk < 200:
+            uyarilar.append(
+                f"[BILGI] BIST 52H EUR hizalama: bazı sembollerde join sonrası "
+                f"≤{dusuk} gün (eşik 200) — kur/hisse takvim uyumsuzluğu olabilir."
+            )
     if snap and snap.veri and snap.veri.savas_risk_guvenilir is False:
         uyarilar.append(
             "Jeopolitik haber taraması güvenilir değil — hisse haber skorları eksik kalabilir."

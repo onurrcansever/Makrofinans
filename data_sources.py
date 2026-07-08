@@ -164,25 +164,14 @@ def _evds_ay_parcala(tarih: str) -> tuple[int, int]:
 
 
 def evds_tufe_yoy(api_key: str) -> Optional[tuple[float, str]]:
-    """TÜFE yıllık değişim (%) — TP.FG.J01 endeksinden hesaplanır (EVDS3 uyumlu)."""
-    items = _evds_get("TP.FG.J01", api_key, gun_sayisi=800)
-    if not items:
+    """TÜFE yıllık değişim (%) — en güncel EVDS endeks serisi (J01/J0)."""
+    from enflasyon_kaynak import enflasyon_evds_son
+
+    sonuc = enflasyon_evds_son(api_key)
+    if not sonuc:
         return None
-    field = _evds_field_key("TP.FG.J01")
-    by_date: dict[str, float] = {}
-    for it in items:
-        v = it.get(field)
-        if v not in (None, "", "None"):
-            by_date[it["Tarih"]] = float(str(v).replace(",", "."))
-    if len(by_date) < 13:
-        return None
-    son_tarih = max(by_date.keys(), key=lambda t: _evds_ay_parcala(t))
-    y, m = _evds_ay_parcala(son_tarih)
-    onceki = f"{y - 1}-{m}"
-    if onceki not in by_date:
-        return None
-    yoy = (by_date[son_tarih] / by_date[onceki] - 1) * 100
-    return yoy, f"TÜFE yıllık {son_tarih} (TP.FG.J01 endeks YoY)"
+    yoy, etiket, _ = sonuc
+    return yoy, etiket
 
 
 def tcmb_politika_faizi_resmi() -> Optional[tuple[float, str]]:

@@ -23,6 +23,7 @@ from veri_kalitesi import VeriKaliteRaporu, veri_kalite_olustur
 from backtest import backtest_calistir, backtest_karsilastirma_uret
 from scenario_analysis import senaryo_analizi_uret
 from alim_uygunluk import alim_aksiyon_hucre
+from bist_52h_eur import format_52h_metin
 
 _FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
 _FONT_REGULAR = os.path.join(_FONT_DIR, "ArialUnicode.ttf")
@@ -187,8 +188,7 @@ def _hisse_detay_madde(h) -> str:
         ek += f" Haber: {_temiz(h.haber_notu, 45)}."
     peer = getattr(h, "peer_yuzdelik", None)
     endeks = getattr(h, "endeks_gore", None)
-    z52 = getattr(h, "zirve_52h_pct", None)
-    z52_txt = f"{z52:.0f}" if z52 is not None else "—"
+    z52_txt = format_52h_metin(h).replace("52H ", "")
     if peer is not None or endeks is not None:
         if peer is not None:
             ek += f" Peer %{peer:.0f}"
@@ -198,7 +198,7 @@ def _hisse_detay_madde(h) -> str:
         f"{_uygun_tablo_hucre(h)} · {h.ad} ({h.sembol}) · "
         f"{SINYAL_ETIKET.get(h.sinyal, h.sinyal)} · RSI {rsi_txt} · skor {h.skor:.0f} · "
         f"1A {_pct(h.degisim_1ay)} · 3A {_pct(getattr(h, 'degisim_3ay', None))} · "
-        f"52H %{z52_txt} · SMA200 {_sayi(getattr(h, 'sma200', None), 0)}{ek}",
+        f"{z52_txt} · SMA200 {_sayi(getattr(h, 'sma200', None), 0)}{ek}",
         220,
     )
 
@@ -226,7 +226,7 @@ def _hisse_ozet_satir(
         _pct(h.degisim_1ay, 0),
         _pct(getattr(h, "degisim_3ay", None), 0),
         _sayi(h.rsi, 0) if h.rsi is not None else "—",
-        _sayi(getattr(h, "zirve_52h_pct", None), 0) if getattr(h, "zirve_52h_pct", None) else "—",
+        _temiz(format_52h_metin(h).replace("52H ", ""), 18),
         _sayi(peer, 0) if peer is not None else "—",
         f"{endeks:+.0f}" if endeks is not None else "—",
         _sayi(getattr(h, "sma200", None), 0) if getattr(h, "sma200", None) else "—",
@@ -310,9 +310,11 @@ def _veri_kalite_bolumu(doc: "RaporPDF", vk: VeriKaliteRaporu) -> None:
     )
 
 
-def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int, tarama=None) -> None:
+def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int, tarama=None, birlesik_oneri=None) -> None:
     try:
-        senaryolar = senaryo_analizi_uret(snap, tahsis, vade_gun, tarama=tarama)
+        senaryolar = senaryo_analizi_uret(
+            snap, tahsis, vade_gun, tarama=tarama, birlesik_oneri=birlesik_oneri,
+        )
     except Exception:
         return
     if not senaryolar:
@@ -796,8 +798,15 @@ def rapor_pdf_direkt_olustur(
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
     tl_mevduat_tutar_tl: Optional[float] = None,
+    birlesik_oneri=None,
+    varlik_store=None,
+    kullanici_portfoy=None,
+    para_birimi: str = "EUR",
 ) -> bytes:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
+    if kullanici_portfoy is None:
+        from kullanici_portfoy import varsayilan_portfoy
+        kullanici_portfoy = varsayilan_portfoy()
     v = snap.veri
     vade = VADE_SECENEKLERI.get(profil.vade, profil.vade)
     doc = RaporPDF()
@@ -821,7 +830,7 @@ def rapor_pdf_direkt_olustur(
         else "Bilinmiyor (×0,85)"
     )
     siyasi_metin = (
-        f"{v.siyasi_risk_makale_sayisi} haber (ağırlıksız)"
+        f"{v.siyasi_risk_makale_sayisi} haber (Kapı 1)"
         if v.siyasi_risk_makale_sayisi is not None else "—"
     )
     savas_metin = (
@@ -902,6 +911,16 @@ def rapor_pdf_direkt_olustur(
     )
     doc.paragraf(_temiz(tahsis.tavsiye_metni, 400))
 
+    from rapor_ek_bolumler import birlesik_oneri_pdf_bolumu, varliklarim_pdf_bolumu
+
+    birlesik_oneri_pdf_bolumu(
+        doc,
+        birlesik_oneri,
+        para_birimi=para_birimi or "EUR",
+        toplam_eur=toplam_eur,
+        eur_try=v.eur_try or 35.0,
+    )
+
     if danisman.makro_baglam and danisman.makro_baglam.parcalar:
         doc.bolum("Canlı Makro Değerlendirme")
         for p in danisman.makro_baglam.parcalar[:5]:
@@ -961,10 +980,12 @@ def rapor_pdf_direkt_olustur(
     if tarama and (tarama.endeksler or tarama.hisseler):
         _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
 
+    varliklarim_pdf_bolumu(doc, varlik_store, snap, kullanici_portfoy)
+
     from investor_profile import profil_mevduat_vadesi
 
     _, profil_vade_gun = profil_mevduat_vadesi(tahsis.profil or YatirimProfili())
-    _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama)
+    _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama, birlesik_oneri=birlesik_oneri)
 
     doc.bolum("Varlık Bazlı Strateji Notları")
     for var in danisman.varliklar:

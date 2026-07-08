@@ -25,11 +25,16 @@ ensure_agent() {
     osascript -e "display alert \"TL Yatırım Asistanı\" message \"İlk kurulum gerekli. Terminalde: bash macos/kurulum.sh\" as critical" 2>/dev/null || true
     exit 1
   fi
+  if [[ -x "$PROJECT_DIR/macos/proje_sync.sh" ]]; then
+    bash "$PROJECT_DIR/macos/proje_sync.sh" "$PROJECT_DIR"
+  fi
   UID_NUM="$(id -u)"
   if ! launchctl print "gui/${UID_NUM}/tr.yatirim.asistani.streamlit" >/dev/null 2>&1; then
     launchctl bootstrap "gui/${UID_NUM}" "$PLIST" 2>/dev/null || true
   fi
-  if ! server_running; then
+  if server_running; then
+    launchctl kickstart -k "gui/${UID_NUM}/tr.yatirim.asistani.streamlit" 2>/dev/null || true
+  else
     launchctl kickstart "gui/${UID_NUM}/tr.yatirim.asistani.streamlit" 2>/dev/null || true
   fi
 }

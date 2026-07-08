@@ -23,6 +23,7 @@ from free_fallbacks import (
     savas_risk_al,
     siyasi_risk_al,
     tcmb_faizi_al,
+    tl_makro_risk_al,
 )
 from yapikredi_rates import yapikredi_tl_faizleri
 
@@ -52,7 +53,7 @@ class MacroSnapshot:
     altin_3m_degisim: Optional[float] = None
     bist_vol_30g: Optional[float] = None
     bist_vol_1g_degisim: Optional[float] = None
-    veri_kaynak: str = "canli"
+    veri_kaynak: str = ""
     veri_zamani: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     cekim_uyarilari: List[str] = field(default_factory=list)
     kaynak_haritasi: Dict[str, str] = field(default_factory=dict)
@@ -394,9 +395,10 @@ def demo_snapshot() -> MacroSnapshot:
     return snap
 
 
-def canli_snapshot(taze: bool = True) -> MacroSnapshot:
+def canli_snapshot(taze: bool = True, _tick: int = 0) -> MacroSnapshot:
     """Tam otomatik — tüm makro veriler canlı kaynaklardan (taze=True: önbellek atlanır)."""
     from concurrent.futures import ThreadPoolExecutor
+    from cds_guven import cds_guvenli_al, cds_sonuc_al, cds_sonuc_kaydet
 
     kaynak: Dict[str, str] = {}
 
@@ -409,6 +411,7 @@ def canli_snapshot(taze: bool = True) -> MacroSnapshot:
         fut_ykb = ex.submit(yapikredi_tl_faizleri, cache_kullan=not taze)
         fut_rez = ex.submit(rezerv_trend_al, config.EVDS_API_KEY)
         fut_sav = ex.submit(savas_risk_al, taze=taze)
+        fut_tl_makro = ex.submit(tl_makro_risk_al, taze)
 
         piyasa, kaynak_p = fut_piyasa.result()
         enflasyon, kaynak["enflasyon"] = fut_enf.result()
@@ -418,16 +421,21 @@ def canli_snapshot(taze: bool = True) -> MacroSnapshot:
         ykb = fut_ykb.result()
         rezerv_artiyor, kaynak["rezerv"] = fut_rez.result()
         savas, kaynak["savas_risk"], savas_guven = fut_sav.result()
+        tl_makro, kaynak["tl_makro_risk"] = fut_tl_makro.result()
 
     kaynak.update(kaynak_p)
     uyarilar: List[str] = []
-    from cds_guven import cds_guvenli_al
-    cds_sonuc = cds_guvenli_al(
-        vix=piyasa.get("vix"),
-        siyasi=siyasi,
-        savas=savas or 0,
-        taze=taze,
-    )
+    onceden = cds_sonuc_al(_tick)
+    if onceden is not None:
+        cds_sonuc = onceden
+    else:
+        cds_sonuc = cds_guvenli_al(
+            vix=piyasa.get("vix"),
+            siyasi=siyasi,
+            savas=savas or 0,
+            taze=taze,
+        )
+        cds_sonuc_kaydet(cds_sonuc, _tick)
     cds = cds_sonuc.deger
     kaynak["cds"] = cds_sonuc.kaynak
     if cds_sonuc.uyari:
@@ -452,6 +460,10 @@ def canli_snapshot(taze: bool = True) -> MacroSnapshot:
         siyasi_risk_makale_sayisi=siyasi,
         savas_risk_makale_sayisi=savas,
         savas_risk_guvenilir=savas_guven,
+        tl_makro_risk_aktif=tl_makro.get("tl_makro_risk_aktif"),
+        tl_faiz_indirim_haber=tl_makro.get("tl_faiz_indirim_haber"),
+        tl_erken_secim_haber=tl_makro.get("tl_erken_secim_haber"),
+        tl_erken_secim_anormal=tl_makro.get("tl_erken_secim_anormal"),
     )
 
     eur_usd = piyasa["eur_usd"]

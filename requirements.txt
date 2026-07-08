@@ -5,3 +5,5 @@ streamlit-autorefresh>=1.0.1
 yfinance>=0.2.40
 pandas>=2.0.0
 fpdf2>=2.7.0
+plotly>=5.18.0
+pytefas>=0.4.1

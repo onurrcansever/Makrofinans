@@ -12,6 +12,7 @@ import config
 if TYPE_CHECKING:
     from stock_scanner import HisseAnaliz
 
+from bist_52h_eur import degerleme_52h_pozisyon, format_52h_metin
 import pandas as pd
 
 
@@ -104,8 +105,9 @@ def _peer_puan(h: "HisseAnaliz", max_puan: float = 20.0) -> float:
 
 def _temel_dusuren_faktorler(h: "HisseAnaliz", parcalar: dict) -> str:
     dusuk = []
-    if parcalar.get("degerleme", 0) < 10 and h.zirve_52h_pct is not None and h.zirve_52h_pct >= 70:
-        dusuk.append(f"52H %{h.zirve_52h_pct:.0f} (değerleme riski)")
+    z52 = degerleme_52h_pozisyon(h)
+    if parcalar.get("degerleme", 0) < 10 and z52 is not None and z52 >= 70:
+        dusuk.append(f"{format_52h_metin(h)} (değerleme riski)")
     if parcalar.get("vade", 15) == 0:
         from investor_profile import VADE_GUN, VADE_SECENEKLERI
 
@@ -147,7 +149,7 @@ def temel_skor_hesapla(
         vade_p, vade_ok = _vade_uyum_puan(profil_vade, h.sektor, "ETF", 15.0)
         parcalar["vade"] = vade_p
     else:
-        parcalar["degerleme"] = _degerleme_puan(h.zirve_52h_pct, 25.0)
+        parcalar["degerleme"] = _degerleme_puan(degerleme_52h_pozisyon(h), 25.0)
         parcalar["makro"] = _hisse_makro_puan(makro_rejim, h.sektor)
         parcalar["momentum"] = _momentum_puan(h, close if close is not None else pd.Series(dtype=float))
         parcalar["peer"] = _peer_puan(h, 20.0)

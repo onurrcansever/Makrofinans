@@ -1,39 +1,40 @@
 # -*- coding: utf-8 -*-
-"""Streamlit danışman kartları — TradingView tarzı oklar ve renkler."""
+"""Streamlit danışman kartları — koyu terminal teması."""
 import streamlit as st
 
 from advice_engine import DanismanRaporu, VarlikTavsiyesi
+from ui_theme import ACCENT, BORDER, DOWN, PANEL, TEXT, TEXT_MUTED, UP, WARN
 
 RENK = {
-    "yesil": "#0d7a4a",
-    "sari": "#b8860b",
-    "kirmizi": "#c0392b",
-    "gri": "#666",
+    "yesil": UP,
+    "sari": WARN,
+    "kirmizi": DOWN,
+    "gri": TEXT_MUTED,
 }
 
 SINYAL_BADGE = {
-    "GUCLU_AL": ("🟢", "#0d7a4a"),
-    "AL": ("🔵", "#1a6fb5"),
-    "TUT": ("🟡", "#b8860b"),
+    "GUCLU_AL": ("🟢", UP),
+    "AL": ("🔵", ACCENT),
+    "TUT": ("🟡", WARN),
     "AZALT": ("🟠", "#d35400"),
-    "KACIN": ("🔴", "#c0392b"),
+    "KACIN": ("🔴", DOWN),
 }
 
 
 def _kart_html(v: VarlikTavsiyesi) -> str:
-    badge, bc = SINYAL_BADGE.get(v.sinyal, ("⚪", "#666"))
-    ok_renk = RENK.get(v.ok_renk, "#666")
+    badge, bc = SINYAL_BADGE.get(v.sinyal, ("⚪", TEXT_MUTED))
+    ok_renk = RENK.get(v.ok_renk, TEXT_MUTED)
     return f"""
-    <div style="border:1px solid #ddd;border-radius:10px;padding:14px;margin-bottom:10px;
-                border-left:5px solid {bc};background:#fafafa;">
+    <div style="border:1px solid {BORDER};border-radius:8px;padding:14px;margin-bottom:10px;
+                border-left:4px solid {bc};background:{PANEL};">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:1.25em;font-weight:700;">{badge} {v.ad}</span>
-            <span style="font-size:2em;color:{ok_renk};font-weight:bold;">{v.ok}</span>
+            <span style="font-size:1.15em;font-weight:700;color:{TEXT};">{badge} {v.ad}</span>
+            <span style="font-size:1.8em;color:{ok_renk};font-weight:bold;font-family:JetBrains Mono,monospace;">{v.ok}</span>
         </div>
-        <div style="margin:8px 0;color:#333;">
+        <div style="margin:8px 0;color:{TEXT};">
             <b>{v.sinyal_etiket}</b> · %{v.agirlik_pct:.1f} ({v.tutar_eur:,.0f} EUR) · Güven {v.guven}/100
         </div>
-        <div style="font-size:0.95em;margin-bottom:8px;">{v.baslik}</div>
+        <div style="font-size:0.95em;margin-bottom:8px;color:{TEXT_MUTED};">{v.baslik}</div>
     </div>
     """
 
@@ -74,7 +75,7 @@ def danisman_paneli(rapor: DanismanRaporu) -> None:
                     f"{p.konum}\n\n"
                     f"*Trend:* {p.trend}\n\n"
                     f"*Beklenti:* {p.beklenti}\n\n"
-                    f"<span style='color:#888;font-size:0.85em'>Kaynak: {p.kaynak}</span>",
+                    f"<span style='color:{TEXT_MUTED};font-size:0.85em'>Kaynak: {p.kaynak}</span>",
                     unsafe_allow_html=True,
                 )
         st.divider()
@@ -107,6 +108,6 @@ def danisman_paneli(rapor: DanismanRaporu) -> None:
         st.warning(f"Şu an uzak durulması önerilen varlıklar: **{', '.join(rapor.kacinilan)}**")
 
     st.caption(
-        "↑ yükseliş trendi · ↓ düşüş · → yatay · Ok renkleri TradingView mantığına benzer; "
+        "↑ yükseliş trendi · ↓ düşüş · → yatay · Renkler terminal mantığına benzer; "
         "yatırım tavsiyesi değildir."
     )

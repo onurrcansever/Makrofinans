@@ -26,6 +26,10 @@ class PiyasaVerisi:
     siyasi_risk_makale_sayisi: Optional[int] = None
     savas_risk_makale_sayisi: Optional[int] = None
     savas_risk_guvenilir: Optional[bool] = None
+    tl_makro_risk_aktif: Optional[bool] = None
+    tl_faiz_indirim_haber: Optional[int] = None
+    tl_erken_secim_haber: Optional[int] = None
+    tl_erken_secim_anormal: Optional[bool] = None
 
 
 @dataclass
@@ -163,6 +167,30 @@ def karar_ver(veri: PiyasaVerisi, vade_gun: Optional[int] = None) -> KararSonucu
             adimlar.append(
                 f"Kapı 1b (jeopolitik): {veri.savas_risk_makale_sayisi} haber — düşük sayılıyor."
             )
+
+    # --- Kapı 1d: TL makro haber (faiz indirimi beklentisi / erken seçim sıçraması) ---
+    if veri.tl_makro_risk_aktif:
+        onceki = tavan
+        tavan = tavan * config.TL_MAKRO_TAVAN_CARPANI
+        parcalar = []
+        if veri.tl_faiz_indirim_haber is not None and (
+            veri.tl_faiz_indirim_haber >= config.TL_MAKRO_FAIZ_ESIGI
+        ):
+            parcalar.append(f"faiz indirimi beklentisi {veri.tl_faiz_indirim_haber} haber")
+        if veri.tl_erken_secim_anormal:
+            parcalar.append(
+                f"erken seçim anormal sıklık ({veri.tl_erken_secim_haber or 0} haber)"
+            )
+        neden = "; ".join(parcalar) if parcalar else "TL makro haber riski"
+        adimlar.append(
+            f"Kapı 1d (TL makro): {neden} -> tavan ×{config.TL_MAKRO_TAVAN_CARPANI} "
+            f"(%{onceki*100:.0f} -> %{tavan*100:.1f})"
+        )
+    elif veri.tl_faiz_indirim_haber is not None or veri.tl_erken_secim_haber is not None:
+        adimlar.append(
+            f"Kapı 1d (TL makro): faiz beklentisi {veri.tl_faiz_indirim_haber or 0}, "
+            f"erken seçim {veri.tl_erken_secim_haber or 0} — normal aralık."
+        )
 
     # --- Mutlak tavan ------------------------------------------------
     tavan = min(tavan, config.MUTLAK_TAVAN)

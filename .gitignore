@@ -1,5 +1,10 @@
 .env
 .regime_state.json
+.signal_state.json
+.tl_engine_state.json
+.girdi_onay_state.json
+.varliklarim.json
+cds_history.jsonl
 market_cache.db
 manual_inputs.json
 __pycache__/

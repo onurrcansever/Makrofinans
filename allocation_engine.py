@@ -9,13 +9,19 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import config
-from decision_engine import karar_ver
 from investor_profile import YatirimProfili, profil_degerlendirme, profil_mevduat_vadesi, profil_sinirlari, profil_skor_ayari
 from macro_data import MacroSnapshot
 from regime import RejimSonucu, rejim_tespit
+from regime_hysteresis import rejim_tespit_v2
 from regime_stability import rejim_kararli_uygula
+from regime_uyum import rejim_gosterim_metni, rejim_kapilarla_uyumla
 from girdi_dogrulama import snap_rejim_icin
 from rates_tr import mevduat_analizi
+from tl_decision_explain import explain_tl_decision, explain_to_dict
+from tl_engine import TlKararPaketi, tl_karar_hesapla
+from news_sentiment_scan import sentiment_tara
+from siyasi_etkin import siyasi_sayim_raporla
+from ppk_awareness import ppk_teyit_atla
 
 VARLIKLAR = ["eur_cash", "usd_cash", "tl_deposit", "gold", "silver", "bist", "crypto"]
 
@@ -37,6 +43,13 @@ class TahsisSonucu:
     tl_rejim_sinirlandi: bool = False
     tl_risk_sinirlandi: bool = False
     altin_momentum_sinirlandi: bool = False
+    tl_explain: List[dict] = field(default_factory=list)
+    tl_baglayici_kisit: str = ""
+    tl_baglayici_etiket: str = ""
+    tl_oneri_cumlesi: str = ""
+    tl_kritik_veto: bool = False
+    tl_ppk_bekle: bool = False
+    tl_ppk_notu: str = ""
 
 
 def _skor_sinirla(s: float) -> float:
@@ -210,15 +223,31 @@ def tahsis_hesapla(
     config.KALAN_GUN = kalan_gun
 
     if ham_rejim:
-        from regime import rejim_tespit
         rejim = rejim_tespit(snap)
+        ham_sonuc = rejim
         adimlar_pre = ["[Backtest] Ham rejim — histerezis/geçiş bölgesi devre dışı"]
+        sentiment = sentiment_tara(canli=False)
+        siyasi_sayim_raporla(snap, sentiment)
+        backtest_mod = True
     else:
-        rejim = rejim_kararli_uygula(
-            snap_rejim_icin(snap),
-            getattr(snap, "girdi_dogrulama", None),
-        )
+        sentiment = sentiment_tara(canli=snap.veri_kaynak == "canli")
+        siyasi_sayim_raporla(snap, sentiment)
+        girdi = getattr(snap, "girdi_dogrulama", None)
+        ham_sonuc = rejim_tespit(snap_rejim_icin(snap))
+        if girdi and girdi.rejim_donduruldu:
+            rejim = rejim_kararli_uygula(snap_rejim_icin(snap), girdi)
+        else:
+            rejim = rejim_tespit_v2(
+                snap_rejim_icin(snap),
+                etkin_siyasi=sentiment.etkin_siyasi,
+                ham_siyasi=sentiment.siyasi.haber_sayisi,
+                atla_teyit=ppk_teyit_atla(),
+            )
         adimlar_pre = [rejim.degisim_gerekce] if rejim.degisim_gerekce else []
+        adimlar_pre.extend(
+            a for a in ham_sonuc.adimlar if "askıya" in a and a not in adimlar_pre
+        )
+        backtest_mod = False
 
     if rejim.rejim == "BELIRSIZ" and rejim.komşu_rejimler:
         r1, r2 = rejim.komşu_rejimler
@@ -246,10 +275,25 @@ def tahsis_hesapla(
     tl_risk_sinirlandi = False
     altin_momentum_sinirlandi = False
 
-    # Mevcut 4 kapılı TL tavanını uygula (profil mevduat vadesi = Kapı 3 gün sayısı)
-    tl_sonuc = karar_ver(snap.veri, vade_gun=mevduat_vade_gun)
+    # Mevcut 4 kapılı TL tavanını uygula (v2: duygu + histerezis + explain)
+    onceki_tcmb = (snap.kaynak_haritasi or {}).get("tcmb_faiz_onceki")
+    onceki_faiz = float(onceki_tcmb) if onceki_tcmb else None
+
+    tl_paket: TlKararPaketi = tl_karar_hesapla(
+        snap.veri,
+        vade_gun=mevduat_vade_gun,
+        sentiment=sentiment,
+        canli_sentiment=False,
+        onceki_tcmb_faiz=onceki_faiz,
+    )
+    tl_sonuc = tl_paket.sonuc
     adimlar.extend([f"[TL kapı] {a}" for a in tl_sonuc.adimlar])
     uyarilar.extend(tl_sonuc.uyarilar)
+    if tl_paket.kritik_veto:
+        uyarilar.append("[KRİTİK] Olay vetosu aktif")
+
+    if not backtest_mod:
+        rejim = rejim_kapilarla_uyumla(rejim, ham_sonuc, snap, tl_paket)
 
     tl_tavan = tl_sonuc.tavan_oran if tl_sonuc.kapi1_gecti else 0.0
     if agirliklar["tl_deposit"] > tl_tavan:
@@ -397,6 +441,27 @@ def tahsis_hesapla(
     t = sum(agirliklar.values())
     agirliklar = {k: v / t for k, v in agirliklar.items()}
 
+    if (
+        profil.risk == "yuksek"
+        and profil.vade == "kisa"
+        and skorlar.get("bist", 0) > skorlar.get("silver", 0) + 8
+        and agirliklar["silver"] > agirliklar["bist"] + 0.015
+    ):
+        hedef_bist = min(max_a.get("bist", 0.12), agirliklar["bist"] + 0.03)
+        kay = min(
+            agirliklar["silver"] - 0.05,
+            hedef_bist - agirliklar["bist"],
+        )
+        if kay > 0.004:
+            agirliklar["silver"] -= kay
+            agirliklar["bist"] += kay
+            adimlar.append(
+                f"[Profil] Yüksek risk + 0–12 ay: gümüşten BIST'e %{kay*100:.1f} kaydırıldı "
+                f"(BIST skoru {skorlar['bist']:.0f} > gümüş {skorlar['silver']:.0f})."
+            )
+            t = sum(agirliklar.values())
+            agirliklar = {k: v / t for k, v in agirliklar.items()}
+
     config.KALAN_GUN = eski_kalan
 
     tutarlar = {k: config.TOPLAM_EUR * agirliklar[k] for k in VARLIKLAR}
@@ -416,6 +481,15 @@ def tahsis_hesapla(
         f"Tranşlar halinde ({config.TRANS_SAYISI} parça) girin."
     )
 
+    tl_explain = explain_tl_decision(
+        snap.veri,
+        vade_gun=mevduat_vade_gun,
+        sentiment=tl_paket.sentiment,
+        reel_pp=tl_mevduat_reel,
+        profil_tavan=risk_tavan,
+        allocation_pay=agirliklar["tl_deposit"],
+    )
+
     return TahsisSonucu(
         agirliklar=agirliklar,
         skorlar=skorlar,
@@ -432,4 +506,11 @@ def tahsis_hesapla(
         tl_rejim_sinirlandi=tl_rejim_sinirlandi,
         tl_risk_sinirlandi=tl_risk_sinirlandi,
         altin_momentum_sinirlandi=altin_momentum_sinirlandi,
+        tl_explain=explain_to_dict(tl_explain),
+        tl_baglayici_kisit=tl_explain.baglayici_kisit,
+        tl_baglayici_etiket=tl_explain.baglayici_etiket,
+        tl_oneri_cumlesi=tl_explain.oneri_cumlesi,
+        tl_kritik_veto=tl_paket.kritik_veto,
+        tl_ppk_bekle=tl_paket.ppk_bekle,
+        tl_ppk_notu=tl_paket.ppk_notu,
     )

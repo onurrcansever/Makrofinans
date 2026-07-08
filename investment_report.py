@@ -23,6 +23,7 @@ from tl_durum import TlDurumOzeti
 from veri_kalitesi import veri_kalite_olustur
 from backtest import backtest_calistir, backtest_karsilastirma_uret
 from alim_uygunluk import alim_aksiyon_hucre
+from bist_52h_eur import format_52h_metin
 from report_pdf import rapor_pdf_direkt_olustur
 
 
@@ -108,13 +109,13 @@ def _hisse_tablo_html(hisseler: list, *, detayli: bool = False, ilk_sutun: str =
     ]
     if detayli:
         heads.append("Not")
-    num_cols = {5, 6, 7, 8, 9, 10, 11, 12}
+    num_cols = {5, 6, 7, 8, 10, 11, 12}
     thead = "".join(f"<th>{_esc(h)}</th>" for h in heads)
     rows = ""
     for i, h in enumerate(hisseler):
         peer = getattr(h, "peer_yuzdelik", None)
         endeks = getattr(h, "endeks_gore", None)
-        z52 = getattr(h, "zirve_52h_pct", None)
+        z52_txt = _esc(format_52h_metin(h).replace("52H ", ""))
         col0 = f"#{i + 1}" if ilk_sutun == "sira" else _esc(_uygun_tablo_hucre(h))
         cells = [
             col0,
@@ -126,7 +127,7 @@ def _hisse_tablo_html(hisseler: list, *, detayli: bool = False, ilk_sutun: str =
             _pct_html(h.degisim_1ay, 0),
             _pct_html(getattr(h, "degisim_3ay", None), 0),
             f"{h.rsi:.0f}" if h.rsi is not None else "—",
-            f"{z52:.0f}" if z52 is not None else "—",
+            z52_txt,
             f"{peer:.0f}" if peer is not None else "—",
             f"{endeks:+.0f}" if endeks is not None else "—",
             _fmt_num(getattr(h, "sma200", None), 0) if getattr(h, "sma200", None) else "—",
@@ -143,8 +144,7 @@ def _hisse_tablo_html(hisseler: list, *, detayli: bool = False, ilk_sutun: str =
 
 def _hisse_detay_li(h) -> str:
     rsi = f"{h.rsi:.0f}" if h.rsi is not None else "—"
-    z52 = getattr(h, "zirve_52h_pct", None)
-    z52_txt = f"{z52:.0f}" if z52 is not None else "—"
+    z52_txt = format_52h_metin(h).replace("52H ", "")
     ek = ""
     if getattr(h, "alim_uygun_not", ""):
         ek += f" [{_esc(h.alim_uygun_not)}]"
@@ -165,7 +165,7 @@ def _hisse_detay_li(h) -> str:
         f"<li>{_esc(_uygun_tablo_hucre(h))} · {_esc(h.ad)} ({_esc(h.sembol)}) · "
         f"{_esc(SINYAL_ETIKET.get(h.sinyal, h.sinyal))} · RSI {rsi} · skor {h.skor:.0f} · "
         f"1A {_pct_html(h.degisim_1ay)} · 3A {_pct_html(getattr(h, 'degisim_3ay', None))} · "
-        f"52H %{z52_txt} · SMA200 {sma}{ek}</li>"
+        f"{_esc(z52_txt)} · SMA200 {sma}{ek}</li>"
     )
 
 
@@ -274,6 +274,10 @@ def rapor_html_olustur(
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
     tl_mevduat_tutar_tl: Optional[float] = None,
+    birlesik_oneri=None,
+    varlik_store=None,
+    kullanici_portfoy=None,
+    para_birimi: str = "EUR",
 ) -> str:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     v = snap.veri
@@ -361,6 +365,7 @@ def rapor_html_olustur(
         mevduat_html = f"""
         <h2>TL Mevduat & Faiz Karşılaştırması</h2>
         <p>{_esc(mevduat.ozet)}</p>
+        <p class="muted">Enflasyon girdisi: {_esc((snap.kaynak_haritasi or {}).get("enflasyon", "—"))}</p>
         {getiri_kutu}
         {vade_sonu_html}
         <p class="muted">Veri: {_esc(mevduat.veri_kaynagi)} · Profil vadesi: {_esc(mevduat.profil_vade)}</p>
@@ -501,6 +506,19 @@ def rapor_html_olustur(
         tahsis.rejim.rejim, profil, bugun_agirliklar=tahsis.agirliklar
     )
 
+    from kullanici_portfoy import varsayilan_portfoy
+    from rapor_ek_bolumler import birlesik_oneri_html_blok, varliklarim_html_blok
+
+    kp = kullanici_portfoy or varsayilan_portfoy()
+    birlesik_html = birlesik_oneri_html_blok(
+        birlesik_oneri,
+        para_birimi=para_birimi,
+        toplam_eur=toplam_eur,
+        eur_try=v.eur_try or 35.0,
+        esc=_esc,
+    )
+    varlik_html = varliklarim_html_blok(varlik_store, snap, kp, esc=_esc)
+
     kaynak_rows = ""
     vk = veri_kalite_olustur(snap)
     for g in vk.gostergeler:
@@ -603,12 +621,13 @@ td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
         <td>VIX (ABD)</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
     <tr><td>BIST Vol (TR)</td><td class="num">{_fmt_num(snap.bist_vol_30g, 1)}%</td>
         <td>Enflasyon TR</td><td class="num">%{_fmt_num(snap.enflasyon_tr_yillik, 1)}</td></tr>
+    <tr><td>Enflasyon kaynağı</td><td colspan="3" class="muted">{_esc((snap.kaynak_haritasi or {}).get("enflasyon", "—"))}</td></tr>
     <tr><td>TCMB faizi</td><td class="num">%{_fmt_num(v.tcmb_politika_faizi, 1)}</td>
         <td>Fed faizi</td><td class="num">%{_fmt_num(v.fed_faizi, 2)}</td></tr>
     <tr><td>Altın USD/oz</td><td class="num">${_fmt_num(snap.altin_usd_oz, 0)}</td>
         <td>BIST 100</td><td class="num">{_fmt_num(snap.bist100, 0)}</td></tr>
     <tr><td>BTC USD</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td>
-        <td>Siyasi risk (48s)</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber (ağırlıksız)</td></tr>
+        <td>Siyasi risk (Kapı 1, {config.SIYASI_RISK_TARAMA_SAAT}s)</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber</td></tr>
     <tr><td>Jeopolitik (48s)</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td>
         <td>Rezerv (Kapı 4)</td><td class="num">{rezerv}</td></tr>
     <tr><td>TL tavan</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td>
@@ -626,6 +645,10 @@ td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
     <tbody>{tahsis_rows}</tbody>
 </table>
 <p class="muted">{_esc(tahsis.tavsiye_metni)}</p>
+
+{birlesik_html}
+
+{varlik_html}
 
 <h2>Canlı Makro Değerlendirme</h2>
 {makro_satirlar or '<p class="muted">Makro bağlam verisi yok.</p>'}
@@ -671,14 +694,26 @@ def rapor_paketi_olustur(
     toplam_eur: float = None,
     tarama: Optional[TaramaSonucu] = None,
     tl_mevduat_tutar_tl: Optional[float] = None,
+    birlesik_oneri=None,
+    varlik_store=None,
+    kullanici_portfoy=None,
+    para_birimi: str = "EUR",
 ) -> dict:
     html_out = rapor_html_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
         tl_mevduat_tutar_tl=tl_mevduat_tutar_tl,
+        birlesik_oneri=birlesik_oneri,
+        varlik_store=varlik_store,
+        kullanici_portfoy=kullanici_portfoy,
+        para_birimi=para_birimi,
     )
     pdf_out = rapor_pdf_direkt_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
         tl_mevduat_tutar_tl=tl_mevduat_tutar_tl,
+        birlesik_oneri=birlesik_oneri,
+        varlik_store=varlik_store,
+        kullanici_portfoy=kullanici_portfoy,
+        para_birimi=para_birimi,
     )
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     return {

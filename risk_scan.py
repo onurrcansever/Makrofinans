@@ -66,6 +66,31 @@ def rss_basliklari(rss: str) -> List[str]:
     return [t for t, _ in _rss_ogeleri(rss)]
 
 
+def google_news_basliklari(
+    sorgu: str,
+    saat: int = 48,
+) -> List[str]:
+    """Son `saat` içindeki haber başlıkları (Google News TR)."""
+    rss = google_news_rss(sorgu, saat=saat)
+    cutoff = _simdi_utc() - timedelta(hours=saat)
+    out: List[str] = []
+    for baslik, pub in _rss_ogeleri(rss):
+        if pub is None or pub >= cutoff:
+            out.append(baslik)
+    return out
+
+
+def google_news_basliklari_topla(
+    sorgular: List[str],
+    saat: int = 48,
+) -> List[str]:
+    """Birden fazla sorgudan birleşik başlık listesi."""
+    tum: List[str] = []
+    for s in sorgular:
+        tum.extend(google_news_basliklari(s, saat=saat))
+    return tum
+
+
 def _when_gun(saat: int) -> int:
     return max(1, min(7, (saat + 23) // 24))
 

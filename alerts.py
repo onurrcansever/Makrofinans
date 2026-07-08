@@ -2,7 +2,7 @@
 """
 Rejim Değişim Alarmları
 ========================
-Son bilinen rejimi kaydeder; değişince Telegram bildirimi gönderir.
+Son bilinen rejimi kaydeder; değişince bildirim gönderir (Telegram/WhatsApp — BILDIRIM_KANALI).
 """
 import json
 import os
@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 import config
 from allocation_engine import TahsisSonucu
-from notifier import telegrama_gonder
+from notifier import bildirim_gonder
 
 STATE_PATH = os.getenv("REGIME_STATE_PATH", ".regime_state.json")
 
@@ -77,22 +77,25 @@ def kontrol_ve_bildir(
     tahsis: TahsisSonucu,
     tam_rapor: str = "",
     telegram: bool = False,
+    bildir: Optional[bool] = None,
     her_zaman_guncelle: bool = True,
 ) -> bool:
     """
-    Rejim değiştiyse Telegram alarmı gönderir.
+    Rejim değiştiyse bildirim gönderir (BILDIRIM_KANALI: telegram/whatsapp/both).
     Dönüş: alarm gönderildi mi?
     """
+    gonder = bildir if bildir is not None else telegram
     onceki = _oku()
     degisti = rejim_degisti_mi(tahsis)
     alarm_gonderildi = False
+    ilk_kayit = onceki is None
 
-    if degisti and telegram:
+    if degisti and gonder and not (ilk_kayit and os.getenv("GITHUB_ACTIONS")):
         metin = alarm_metni(tahsis, onceki)
-        if telegrama_gonder(metin, config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID):
+        if bildirim_gonder(metin):
             alarm_gonderildi = True
             if tam_rapor:
-                telegrama_gonder(tam_rapor, config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID)
+                bildirim_gonder(tam_rapor)
 
     if her_zaman_guncelle or onceki is None:
         _yaz(tahsis.rejim.rejim, tahsis)
