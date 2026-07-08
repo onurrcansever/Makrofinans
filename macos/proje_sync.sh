@@ -40,6 +40,7 @@ rsync -a --delete \
   --exclude '.girdi_onay_state.json' \
   --exclude '.signal_state.json' \
   --exclude '.varliklarim.json' \
+  --exclude '.env' \
   --exclude 'manual_inputs.json' \
   --exclude 'market_cache.db' \
   --exclude 'cds_history.jsonl' \
