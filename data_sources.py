@@ -622,8 +622,8 @@ def manuel_veri_oku(path: str) -> dict:
                 "tl_1y_brut": 0.41,
                 "tl_3ay_brut": 0.38,
                 "tl_6ay_brut": 0.39,
-                "eur_brut": 0.025,
-                "usd_brut": 0.04,
+                "eur_brut": 0.0025,
+                "usd_brut": 0.015,
             },
             "_not": (
                 "cds_5y_bp: worldgovernmentbonds.com veya bankanızın "

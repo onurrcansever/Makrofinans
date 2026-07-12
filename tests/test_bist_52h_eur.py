@@ -30,6 +30,7 @@ def _hisse(**kw) -> HisseAnaliz:
         degisim_1g=0.0,
         degisim_1ay=0.0,
         degisim_3ay=0.0,
+        degisim_1y=0.0,
         rsi=50.0,
         sma20=100.0,
         sma50=100.0,

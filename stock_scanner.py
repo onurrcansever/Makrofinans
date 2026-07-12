@@ -67,6 +67,7 @@ class HisseAnaliz:
     degisim_1g: Optional[float]
     degisim_1ay: Optional[float]
     degisim_3ay: Optional[float]
+    degisim_1y: Optional[float]
     rsi: Optional[float]
     sma20: Optional[float]
     sma50: Optional[float]
@@ -282,26 +283,37 @@ def _sinyal_uret(
     return sinyal, max(0, min(100, skor)), "; ".join(gerekceler)
 
 
-def _indir(semboller: List[str], period: str = "1y") -> pd.DataFrame:
+def _indir(semboller: List[str], period: str = "1y", *, timeout: float = 25.0) -> pd.DataFrame:
     import yfinance as yf
 
     if not semboller:
         return pd.DataFrame()
+
+    def _batch_indir(chunk: List[str]) -> pd.DataFrame:
+        part = yf.download(
+            chunk,
+            period=period,
+            group_by="ticker",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+        return part if part is not None and not part.empty else pd.DataFrame()
+
     parcalar = []
     batch = 35
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+
     for i in range(0, len(semboller), batch):
         chunk = semboller[i : i + batch]
         try:
-            part = yf.download(
-                chunk,
-                period=period,
-                group_by="ticker",
-                auto_adjust=True,
-                progress=False,
-                threads=True,
-            )
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(_batch_indir, chunk)
+                part = fut.result(timeout=timeout) if timeout > 0 else fut.result()
             if not part.empty:
                 parcalar.append(part)
+        except FutTimeout:
+            print(f"[UYARI] yfinance batch {i}: zaman aşımı ({timeout}s)")
         except Exception as e:
             print(f"[UYARI] yfinance batch {i}: {e}")
     if not parcalar:
@@ -362,7 +374,7 @@ def _hisse_analiz(
     close = _close_al(df, sembol)
     if close.empty or len(close) < 30:
         return HisseAnaliz(
-            sembol, ad, piyasa, None, None, None, None, None, None, None,
+            sembol, ad, piyasa, None, None, None, None, None, None, None, None,
             "VERI_YOK", 0, "Veri yok", sektor=sektor,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
         )
@@ -370,13 +382,14 @@ def _hisse_analiz(
     fiyat = _son_fiyat(close)
     if fiyat is None:
         return HisseAnaliz(
-            sembol, ad, piyasa, None, None, None, None, None, None, None,
+            sembol, ad, piyasa, None, None, None, None, None, None, None, None,
             "VERI_YOK", 0, "Veri yok", sektor=sektor,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
         )
     rsi = _rsi(close)
     sma20, sma50 = _sma(close, 20), _sma(close, 50)
     d1ay, d3ay = _degisim(close, 21), _degisim(close, 63)
+    d1y = _degisim(close, 252)
     sinyal, skor, gerekce = _sinyal_uret(
         fiyat, rsi, sma20, sma50, degisim_3ay=d3ay, degisim_1ay=d1ay,
     )
@@ -387,7 +400,7 @@ def _hisse_analiz(
     _h = HisseAnaliz(
         sembol=sembol, ad=ad, piyasa=piyasa, fiyat=fiyat,
         degisim_1g=d1g, degisim_1ay=d1ay,
-        degisim_3ay=d3ay, rsi=rsi, sma20=sma20, sma50=sma50,
+        degisim_3ay=d3ay, degisim_1y=d1y, rsi=rsi, sma20=sma20, sma50=sma50,
         sinyal=sinyal, skor=skor, gerekce=gerekce, sektor=sektor,
         teknik_skor=teknik_skor, isin=isin, revolut_ticker=revolut_ticker,
         varlik_turu=varlik_turu,
@@ -421,6 +434,7 @@ def _hisse_analiz(
         degisim_1g=d1g,
         degisim_1ay=d1ay,
         degisim_3ay=d3ay,
+        degisim_1y=d1y,
         rsi=rsi,
         sma20=sma20,
         sma50=sma50,
@@ -632,15 +646,15 @@ def _demo_tarama(
         EndeksOzet("S&P 500", "^GSPC", 5450, 0.3, 2.8, 9.5, 52, "BEKLE", 58),
     ]
     hisseler = [
-        HisseAnaliz("NVDA", "NVIDIA", "NASDAQ", 135.0, 1.2, 8.5, 15.0, 38, 128, 120, "ALIM_FIRSATI", 78, "RSI 38 — dipten dönüş", "teknoloji", teknik_skor=78),
-        HisseAnaliz("ASELS.IS", "Aselsan", "BIST", 185.0, -0.5, 4.2, 6.0, 36, 180, 175, "ALIM_FIRSATI", 72, "RSI 36 — dipten dönüş", "savunma", teknik_skor=72),
-        HisseAnaliz("AAPL", "Apple", "NASDAQ", 210.0, 0.4, 2.1, 5.0, 58, 205, 200, "TREND_ALIM", 65, "RSI 58 + SMA50 üstü", "teknoloji", teknik_skor=65),
-        HisseAnaliz("GARAN.IS", "Garanti BBVA", "BIST", 142.0, 0.2, 1.5, 2.0, 45, 140, 138, "BEKLE", 55, "Net sinyal yok", "finans", teknik_skor=55),
-        HisseAnaliz("TSLA", "Tesla", "NASDAQ", 320.0, -1.5, -5.0, -8.0, 72, 315, 300, "ASIRI_ALIM", 25, "RSI 72 — aşırı alım", "buyume", teknik_skor=25),
-        HisseAnaliz("VWCE.DE", "Vanguard All-World", "ETF", 118.5, 0.3, 2.1, 4.0, 44, 116, 114,
+        HisseAnaliz("NVDA", "NVIDIA", "NASDAQ", 135.0, 1.2, 8.5, 15.0, 20.0, 38, 128, 120, "ALIM_FIRSATI", 78, "RSI 38 — dipten dönüş", "teknoloji", teknik_skor=78),
+        HisseAnaliz("ASELS.IS", "Aselsan", "BIST", 185.0, -0.5, 4.2, 6.0, 18.0, 36, 180, 175, "ALIM_FIRSATI", 72, "RSI 36 — dipten dönüş", "savunma", teknik_skor=72),
+        HisseAnaliz("AAPL", "Apple", "NASDAQ", 210.0, 0.4, 2.1, 5.0, 12.0, 58, 205, 200, "TREND_ALIM", 65, "RSI 58 + SMA50 üstü", "teknoloji", teknik_skor=65),
+        HisseAnaliz("GARAN.IS", "Garanti BBVA", "BIST", 142.0, 0.2, 1.5, 2.0, 8.0, 45, 140, 138, "BEKLE", 55, "Net sinyal yok", "finans", teknik_skor=55),
+        HisseAnaliz("TSLA", "Tesla", "NASDAQ", 320.0, -1.5, -5.0, -8.0, -15.0, 72, 315, 300, "ASIRI_ALIM", 25, "RSI 72 — aşırı alım", "buyume", teknik_skor=25),
+        HisseAnaliz("VWCE.DE", "Vanguard All-World", "ETF", 118.5, 0.3, 2.1, 4.0, 10.0, 44, 116, 114,
                     "ALIM_FIRSATI", 76, "RSI 44 — dipten dönüş", "dunya",
                     isin="IE00BK5BQT80", revolut_ticker="VWCE", varlik_turu="etf", teknik_skor=66),
-        HisseAnaliz("CSPX.L", "iShares S&P 500", "ETF", 520.0, 0.2, 1.8, 3.5, 52, 515, 510,
+        HisseAnaliz("CSPX.L", "iShares S&P 500", "ETF", 520.0, 0.2, 1.8, 3.5, 9.0, 52, 515, 510,
                     "TREND_ALIM", 74, "RSI 52 + SMA50 üstü", "abd",
                     isin="IE00B5BMR087", revolut_ticker="CSPX", varlik_turu="etf", teknik_skor=68),
     ]

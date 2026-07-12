@@ -97,24 +97,31 @@ def tefas_paneli(
             index=0,
         )
 
-    yenile = st.button("TEFAS verisini yenile", key="tefas_yenile")
+    yenile = st.button("TEFAS verisini yenile", key="tefas_yenile", type="primary")
     if yenile:
         from tefas_data import _BD_CACHE, _CACHE
         from app_veri import tefas_ham_cek
-        from app_onbellek import onbellek_gecersiz_kil
+        from disk_onbellek import disk_sil
 
         _CACHE["ts"] = 0.0
         _BD_CACHE["ts"] = 0.0
         _BD_CACHE["df"] = None
-        tefas_ham_cek.clear()
-        onbellek_gecersiz_kil()
+        disk_sil(f"tefas:{gun}")
 
-    if ham_onbellek is not None and not ham_onbellek.hata and not yenile:
+    from app_veri import tefas_ham_cek, tefas_yukleniyor
+
+    if yenile:
+        with st.spinner("TEFAS verisi çekiliyor (~1–2 dk)…"):
+            ham = tefas_ham_cek(gun, zorla=True)
+    elif ham_onbellek is not None and not tefas_yukleniyor(ham_onbellek):
         ham = ham_onbellek
-        st.caption("TEFAS verisi açılışta yüklendi — anında görüntüleniyor.")
+        st.caption("TEFAS verisi önbellekten — anında görüntüleniyor.")
     else:
-        with st.spinner("TEFAS verisi çekiliyor (Yapı Kredi Portföy fonları)…"):
-            ham = yk_fonlari_performans(gun=gun, sadece_yk=True)
+        ham = tefas_ham_cek(gun)
+
+    if tefas_yukleniyor(ham):
+        st.info(ham.hata or "TEFAS arka planda yükleniyor — tablolar kısa süre içinde dolacak.")
+        return
 
     if ham.hata:
         st.error(ham.hata)

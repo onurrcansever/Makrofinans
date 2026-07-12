@@ -202,6 +202,58 @@ hr {
 
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
+
+/* Form — borderless, tight */
+[data-testid="stForm"] {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+/* Sidebar brand heading */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
+  font-size: 18px !important;
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+
+/* Sidebar section subheaders */
+[data-testid="stSidebar"] [data-testid="stHeading"] {
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  font-weight: 600 !important;
+}
+
+/* Spinner overlay */
+[data-testid="stSpinner"] {
+  color: var(--accent) !important;
+}
+
+/* Better number input */
+[data-testid="stNumberInput"] input {
+  background: var(--panel) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 6px !important;
+  font-family: var(--font-mono) !important;
+}
+
+/* Form submit button glow on hover */
+[data-testid="stFormSubmitButton"] > button {
+  background-color: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  border: none !important;
+  transition: box-shadow 0.2s ease !important;
+}
+[data-testid="stFormSubmitButton"] > button:hover {
+  box-shadow: 0 0 0 3px rgba(41,98,255,0.3) !important;
+}
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 </div>

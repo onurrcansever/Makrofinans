@@ -1,5 +1,5 @@
 #!/bin/bash
-# WhatsApp alarm LaunchAgent — 09:00 ve 16:30 TR
+# WhatsApp alarm LaunchAgent — 10:00, 13:00, 15:00, 18:00 TR (günlük özet)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -35,15 +35,27 @@ cat > "$PLIST" <<EOF
   <array>
     <dict>
       <key>Hour</key>
-      <integer>9</integer>
+      <integer>10</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>
     <dict>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>13</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>15</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>0</integer>
     </dict>
   </array>
 </dict>
@@ -53,5 +65,5 @@ EOF
 UID_NUM="$(id -u)"
 launchctl bootout "gui/${UID_NUM}" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/${UID_NUM}" "$PLIST"
-echo "[alarm_kurulum] 09:00 ve 16:30 TR WhatsApp alarmları aktif."
+echo "[alarm_kurulum] 10:00, 13:00, 15:00, 18:00 TR WhatsApp alarmları aktif (günlük özet)."
 echo "Log: $APP_SUPPORT/alarm_sync.log"

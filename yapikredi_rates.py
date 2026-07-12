@@ -37,6 +37,10 @@ _HEADERS = {
 DEFAULT_TUTAR_TL = 100_000
 VADE_GUN = {"tl_3ay": 92, "tl_6ay": 181, "tl_1y": 365}
 
+# Döviz mevduat asgari tutarları (YKB şart koşar; altında API hata verir)
+DOVIZ_MIN_TUTAR = {"USD": 25_000, "EUR": 50_000}
+_DOVIZ_CACHE: Dict[str, object] = {"ts": 0.0, "data": None}
+
 
 @dataclass
 class YapikrediMevduat:
@@ -65,11 +69,11 @@ def net_brut_oran(brut_yuzde: float, gun: int, doviz: str = "TL") -> float:
     return brut * (1 - stopaj_orani(gun, doviz))
 
 
-def _sorgu(tutar: float, gun: int, e_mevduat: bool) -> Optional[float]:
+def _sorgu(tutar: float, gun: int, e_mevduat: bool, currency: str = "YTL") -> Optional[float]:
     payload = {
         "amount": tutar,
         "tenor": gun,
-        "currency": "YTL",
+        "currency": currency,
         "eDeposite": e_mevduat,
     }
     try:
@@ -87,7 +91,7 @@ def _sorgu(tutar: float, gun: int, e_mevduat: bool) -> Optional[float]:
         faiz = data.get("InterestRate")
         return float(faiz) if faiz is not None else None
     except Exception as e:
-        print(f"[UYARI] Yapı Kredi faiz sorgusu ({gun} gün): {e}")
+        print(f"[UYARI] Yapı Kredi faiz sorgusu ({currency} {gun} gün): {e}")
         return None
 
 
@@ -138,4 +142,59 @@ def yapikredi_tl_faizleri(
     )
     _CACHE["ts"] = simdi
     _CACHE["data"] = sonuc
+    return sonuc
+
+
+@dataclass
+class YapikrediDovizMevduat:
+    usd_1y_brut: Optional[float]  # yıllık brüt % (örn. 0.01)
+    eur_1y_brut: Optional[float]
+    kaynak: str
+    cekim_zamani: str
+
+
+def _doviz_tek(doviz: str, gun: int = 365) -> Optional[float]:
+    """Tek döviz için brüt yıllık % — klasik ve e-mevduattan yükseği."""
+    tutar = DOVIZ_MIN_TUTAR.get(doviz, 50_000)
+    adaylar = [
+        _sorgu(tutar, gun, e_mevduat=True, currency=doviz),
+        _sorgu(tutar, gun, e_mevduat=False, currency=doviz),
+    ]
+    gecerli = [a for a in adaylar if a is not None]
+    return max(gecerli) if gecerli else None
+
+
+def yapikredi_doviz_faizleri(cache_kullan: bool = True) -> Optional[YapikrediDovizMevduat]:
+    """Yapı Kredi'den USD/EUR mevduat brüt faizlerini çeker (% cinsinden).
+
+    Bellek (1 saat) + disk önbelleği (mevduat TTL) — hesaplama aracının
+    public AJAX ucu, TL ile aynı kaynak. Asgari tutarlar: 25k USD / 50k EUR.
+    """
+    simdi = time.time()
+    if cache_kullan and _DOVIZ_CACHE["data"] and simdi - float(_DOVIZ_CACHE["ts"]) < _CACHE_TTL:
+        return _DOVIZ_CACHE["data"]  # type: ignore[return-value]
+
+    def _uret():
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            usd_fut = ex.submit(_doviz_tek, "USD")
+            eur_fut = ex.submit(_doviz_tek, "EUR")
+            usd, eur = usd_fut.result(), eur_fut.result()
+        if usd is None and eur is None:
+            return None
+        return YapikrediDovizMevduat(
+            usd_1y_brut=usd,
+            eur_1y_brut=eur,
+            kaynak="Yapı Kredi canlı (hesaplama aracı, 365 gün)",
+            cekim_zamani=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        )
+
+    try:
+        from disk_onbellek import TTL, disk_getir_swr
+        sonuc = disk_getir_swr("ykb:doviz_mevduat", TTL["mevduat"], _uret)
+    except Exception:
+        sonuc = _uret()
+    if sonuc is not None:
+        _DOVIZ_CACHE["ts"] = simdi
+        _DOVIZ_CACHE["data"] = sonuc
     return sonuc

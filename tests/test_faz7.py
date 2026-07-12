@@ -20,6 +20,7 @@ def _etf(sembol, ad, sektor, zirve=50, teknik=70, revolut=""):
         degisim_1g=0.1,
         degisim_1ay=2.0,
         degisim_3ay=5.0,
+        degisim_1y=8.0,
         rsi=55,
         sma20=98,
         sma50=95,

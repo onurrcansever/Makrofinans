@@ -50,7 +50,8 @@ def birlesik_oneri_paneli(
     st.caption(
         f"**Vade ufku:** {vade_etiket or oneri.ozet} · "
         f"Para birimi: **{para_birimi}** · "
-        "Üst tablo makro hedef; alt tablo **TEFAS / ETF / BIST** araçlarının kategori içi payları."
+        "Üst tablo makro hedef; alt tablo **TEFAS / ETF / BIST** araçlarının kategori içi payları. "
+        "BIST önerisi tarama skoruna göredir — Varlıklarım'daki mevcut hisselerden bağımsızdır."
     )
 
     if oneri.mevcut_notlar:

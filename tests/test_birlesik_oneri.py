@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from allocation_engine import tahsis_hesapla
-from birlesik_oneri import birlesik_oneri_olustur, _skorla_bol
+from birlesik_oneri import birlesik_oneri_olustur, _bist_payini_dagit, _skorla_bol
 from investor_profile import YatirimProfili
 from kullanici_portfoy import KullaniciPortfoy, MevcutPozisyon
 from macro_data import demo_snapshot
@@ -117,6 +117,47 @@ class BirlesikOneriTest(unittest.TestCase):
         self.assertAlmostEqual(sum(s.kategori_ici_pct for s in satirlar), 100.0, delta=0.2)
         self.assertAlmostEqual(sum(s.portfoy_pct for s in satirlar), 3.3, delta=0.05)
         self.assertGreater(satirlar[0].tutar, satirlar[1].tutar)
+
+    def test_bist_payini_dagit(self):
+        src = {
+            "tl_deposit": 0.22,
+            "eur_cash": 0.28,
+            "usd_cash": 0.18,
+            "gold": 0.18,
+            "silver": 0.08,
+            "bist": 0.06,
+            "crypto": 0.0,
+        }
+        out = _bist_payini_dagit(src)
+        self.assertAlmostEqual(out.get("bist", 1), 0.0, places=4)
+        self.assertAlmostEqual(sum(out.values()), sum(src.values()), places=4)
+
+    @patch("birlesik_oneri.yk_fonlari_performans")
+    def test_bist_adayi_yoksa_makro_dusurulur(self, mock_yk):
+        from unittest.mock import MagicMock
+        from stock_scanner import HisseAnaliz, TaramaSonucu
+
+        mock_yk.return_value = TefasTaramaSonuc(hata="skip")
+        snap = demo_snapshot()
+        profil = YatirimProfili(risk="orta", vade="kisa_6")
+        tahsis = tahsis_hesapla(snap, profil)
+        kp = KullaniciPortfoy(para_birimi="TL", toplam=1_000_000.0)
+        bist_w = tahsis.agirliklar.get("bist", 0)
+        self.assertGreaterEqual(bist_w, 0.03)
+
+        h = HisseAnaliz(
+            "DOAS.IS", "DOAS", "BIST", 180.0, 0, -4, 3, -5, 42, 185, 180,
+            "BEKLE", 89, "test", "tuketim", teknik_skor=75, temel_skor=98,
+            bilesik_skor=89, alim_uygun="SINIRLI",
+        )
+        tarama = TaramaSonucu(hisseler=[h], makro_rejim=tahsis.rejim.rejim)
+        oneri = birlesik_oneri_olustur(
+            snap, tahsis, profil, kp, tarama=tarama, tefas_istek=False,
+        )
+        kategoriler = [r.kategori for r in oneri.hedef_tablo]
+        self.assertNotIn("BIST 100 (hisse)", kategoriler)
+        self.assertTrue(any("yeniden dağıtıldı" in n for n in oneri.mevcut_notlar))
+        self.assertAlmostEqual(sum(oneri.grafik_hedef.values()), 100.0, delta=0.5)
 
 
 if __name__ == "__main__":

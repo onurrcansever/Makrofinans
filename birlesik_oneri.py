@@ -171,6 +171,36 @@ def _bist_sepet_aday(tarama, profil: YatirimProfili, bist_w: float, varlik_store
     return adaylar
 
 
+def _bist_hedef_arac_metni(
+    bist_d: List[AracDagilimSatir],
+    *,
+    tarama_yapildi: bool,
+) -> str:
+    if bist_d:
+        isimler = ", ".join(s.arac.replace(".IS", "") for s in bist_d)
+        return f"{isimler} — AL (teyit edildi)"
+    if not tarama_yapildi:
+        return "Tarama bekleniyor…"
+    return "Bugün AL (UYGUN) BIST adayı yok"
+
+
+def _bist_payini_dagit(agirliklar: Dict[str, float]) -> Dict[str, float]:
+    """AL BIST adayı yoksa bist payını diğer sınıflara orantılı dağıt."""
+    out = dict(agirliklar)
+    freed = out.get("bist", 0.0)
+    if freed < 0.005:
+        out["bist"] = 0.0
+        return out
+    out["bist"] = 0.0
+    keys = [k for k in VARLIKLAR if k != "bist" and out.get(k, 0) >= 0.005]
+    total = sum(out.get(k, 0) for k in keys)
+    if total <= 0:
+        return out
+    for k in keys:
+        out[k] = out.get(k, 0) + freed * (out.get(k, 0) / total)
+    return out
+
+
 def _hedef_tablo_olustur(
     tahsis: TahsisSonucu,
     profil: YatirimProfili,
@@ -179,6 +209,7 @@ def _hedef_tablo_olustur(
     eur_try: float,
     arac_dagilim: List[AracDagilimSatir],
     tarama_yapildi: bool = False,
+    agirliklar: Optional[Dict[str, float]] = None,
 ) -> List[HedefSatir]:
     by_kat: Dict[str, List[AracDagilimSatir]] = {}
     for s in arac_dagilim:
@@ -186,9 +217,11 @@ def _hedef_tablo_olustur(
 
     _, vade_gun = profil_mevduat_vadesi(profil)
 
+    w_map = agirliklar if agirliklar is not None else tahsis.agirliklar
+
     rows: List[HedefSatir] = []
     for key in VARLIKLAR:
-        w = tahsis.agirliklar.get(key, 0)
+        w = w_map.get(key, 0)
         if w < 0.005:
             continue
         kat = config.VARLIK_ETIKETLERI.get(key, key)
@@ -210,12 +243,7 @@ def _hedef_tablo_olustur(
             arac = "USD vadeli mevduat veya nakit (banka)"
         elif key == "bist":
             bist_d = by_kat.get("BIST 100 (hisse)", [])
-            if bist_d:
-                arac = _ozet_arac_metni(bist_d) + " — detay tablosu"
-            elif tarama_yapildi:
-                arac = "Tarama yapıldı — uygun aday yok"
-            else:
-                arac = "Tarama bekleniyor…"
+            arac = _bist_hedef_arac_metni(bist_d, tarama_yapildi=tarama_yapildi)
         elif key == "gold":
             arac = "Altın (ons / gram)"
         elif key == "silver":
@@ -293,13 +321,9 @@ def birlesik_oneri_olustur(
     pb = kp.para_birimi
 
     sonuc = BirlesikOneri()
-    sonuc.grafik_hedef = {
-        config.VARLIK_ETIKETLERI.get(k, k): tahsis.agirliklar.get(k, 0) * 100
-        for k in VARLIKLAR
-        if tahsis.agirliklar.get(k, 0) >= 0.005
-    }
     sonuc.grafik_mevcut = _mevcut_grafik(kp, eur_try)
     arac_dagilim: List[AracDagilimSatir] = []
+    agirlik_efektif = dict(tahsis.agirliklar)
 
     tl_w = tahsis.agirliklar.get("tl_deposit", 0)
     bist_w = tahsis.agirliklar.get("bist", 0)
@@ -423,12 +447,15 @@ def birlesik_oneri_olustur(
             "BIST/kripto ile aynı vade mantığı."
         )
 
-    # BIST — tarama AL sinyali + histerezis + portföy koruması
+    # BIST — Karar=AL (UYGUN) hisseler, skor sırası (Varlıklarım'dan bağımsız)
+    bist_aday_var = False
+    tarama_hazir = bool(tarama and getattr(tarama, "hisseler", None))
     if tarama and bist_w >= 0.03:
         adaylar_h, bist_notlar = bist_sepet_sec(tarama, profil, bist_w, varlik_store)
         for n in bist_notlar:
             sonuc.mevcut_notlar.append(n)
         if adaylar_h:
+            bist_aday_var = True
             bist_tutar_eur = toplam_eur * bist_w
             bist_pct = bist_w * 100
             skor_aday = [
@@ -453,6 +480,19 @@ def birlesik_oneri_olustur(
                     )
                 )
 
+    if tarama_hazir and bist_w >= 0.005 and not bist_aday_var:
+        agirlik_efektif = _bist_payini_dagit(agirlik_efektif)
+        sonuc.mevcut_notlar.append(
+            f"Uygun BIST hissesi olmadığı için makro BIST payı (**%{bist_w * 100:.1f}**) "
+            "mevduat, altın ve dövize yeniden dağıtıldı."
+        )
+
+    sonuc.grafik_hedef = {
+        config.VARLIK_ETIKETLERI.get(k, k): agirlik_efektif.get(k, 0) * 100
+        for k in VARLIKLAR
+        if agirlik_efektif.get(k, 0) >= 0.005
+    }
+
     # TL mevduat hedef (4 kapı) — makro satır, araç dağılımı yok
     if tl_w >= 0.05 and tahsis.tl_tavan_oran > 0.01:
         tut_eur = toplam_eur * min(tl_w, tahsis.tl_tavan_oran)
@@ -474,7 +514,8 @@ def birlesik_oneri_olustur(
     sonuc.arac_dagilim = arac_dagilim
     sonuc.hedef_tablo = _hedef_tablo_olustur(
         tahsis, profil, toplam_eur, pb, eur_try, arac_dagilim,
-        tarama_yapildi=tarama is not None,
+        tarama_yapildi=tarama_hazir,
+        agirliklar=agirlik_efektif,
     )
     sonuc.bugun.sort(key=lambda x: x.oncelik)
     sonuc.vade.sort(key=lambda x: x.oncelik)

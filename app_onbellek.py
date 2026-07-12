@@ -24,7 +24,9 @@ from app_veri import (
     cds_kaynak_ozet,
     mevduat_cek,
     tarama_cek,
+    tarama_yukleniyor,
     tefas_ham_cek,
+    tefas_yukleniyor,
     veri_cek,
 )
 
@@ -59,7 +61,10 @@ class AppOnbellek:
     varlik_deger: Optional[PortfoyDeger] = None
     varlik_deger_portfoy_id: str = ""
     birlesik_tam: bool = False
+    birlesik_tarama_hazir: bool = False
     danisman_tam: bool = False
+    backtest_ay: int = 0
+    tarama_haber: bool = False
     yuklenen_sayfalar: Set[str] = field(default_factory=set)
 
 
@@ -69,13 +74,16 @@ def onbellek_anahtari(
     profil_anahtar: str,
     kp: KullaniciPortfoy,
     canli_mod: bool,
-    haber_tara: bool,
-    bt_ay: int,
+    haber_tara: bool = False,
+    bt_ay: int = 0,
     mevduat_imza: str = "",
 ) -> str:
+    # haber_tara ve bt_ay bilerek anahtar dışında — bunlar yalnızca kendi
+    # bölümlerini (tarama/backtest) yeniler, tüm önbelleği düşürmez.
+    del haber_tara, bt_ay
     return (
         f"{tick}|{profil_anahtar}|{kp.para_birimi}|{int(kp.toplam)}|"
-        f"{canli_mod}|{haber_tara}|{bt_ay}|{mevduat_imza}"
+        f"{canli_mod}|{mevduat_imza}"
     )
 
 
@@ -93,6 +101,22 @@ def onbellek_gecersiz_kil() -> None:
     st.session_state.tarama_son = None
 
 
+def varlik_onbellek_dusur() -> None:
+    """Portföy CRUD sonrası — yalnızca varlık değerlemesini düşürür.
+
+    Tarama, TEFAS, backtest, makro veriler korunur; kullanıcı pozisyon
+    ekleyince tüm uygulamanın yeniden yüklenmesi gerekmez.
+    """
+    st.session_state.pop("_varlik_deger_cache", None)
+    ob = st.session_state.get("app_onbellek")
+    if ob is not None:
+        ob.varlik_deger = None
+        ob.varlik_deger_portfoy_id = ""
+        ob.yuklenen_sayfalar -= SAYFA_VARLIK
+        # Birleşik öneri varlık store'u kullanıyor — bir sonraki görüntülemede tazelensin
+        ob.yuklenen_sayfalar -= SAYFA_BIRLESIK
+
+
 def _tarama_yukle(
     ob: AppOnbellek,
     *,
@@ -101,7 +125,7 @@ def _tarama_yukle(
     profil: YatirimProfili,
     haber_tara: bool,
 ) -> None:
-    if ob.tarama is not None:
+    if ob.tarama is not None and not tarama_yukleniyor(ob.tarama):
         return
     ob.tarama = tarama_cek(
         canli_mod,
@@ -112,11 +136,12 @@ def _tarama_yukle(
         profil_risk=profil.risk,
         profil_vade=profil.vade,
     )
+    ob.tarama_haber = haber_tara
     st.session_state.tarama_son = ob.tarama
 
 
 def _tefas_yukle(ob: AppOnbellek, *, tick: int) -> None:
-    if ob.tefas_ham is not None and not getattr(ob.tefas_ham, "hata", ""):
+    if ob.tefas_ham is not None and not tefas_yukleniyor(ob.tefas_ham):
         return
     ob.tefas_ham = tefas_ham_cek(120, tick)
 
@@ -128,18 +153,20 @@ def _birlesik_guncelle(
     kp: KullaniciPortfoy,
     tam: bool,
 ) -> None:
+    tarama_hazir = ob.tarama is not None and not tarama_yukleniyor(ob.tarama)
     ob.birlesik = birlesik_oneri_olustur(
         ob.snap,
         ob.tahsis,
         profil,
         kp,
         mevduat_reel=getattr(ob.mevduat_ozet, "profil_vade_reel", None),
-        tarama=ob.tarama if tam else None,
+        tarama=ob.tarama if tam and tarama_hazir else None,
         tefas_ham=ob.tefas_ham if tam else None,
         tefas_istek=tam,
         varlik_store=ob.varlik_store,
     )
     ob.birlesik_tam = tam
+    ob.birlesik_tarama_hazir = tam and tarama_hazir
 
 
 def _danisman_guncelle(ob: AppOnbellek, *, profil: YatirimProfili, tam: bool) -> None:
@@ -163,7 +190,7 @@ def _varlik_deger_yukle(ob: AppOnbellek, *, tick: int) -> None:
         return
     if ob.varlik_deger is not None and ob.varlik_deger_portfoy_id == aktif.id:
         return
-    ob.varlik_deger = portfoy_degerle(aktif, ob.snap, cache_salt=str(tick))
+    ob.varlik_deger = portfoy_degerle(aktif, ob.snap, cache_salt=str(tick), aninda=True)
     ob.varlik_deger_portfoy_id = aktif.id
 
 
@@ -179,8 +206,29 @@ def onbellek_sayfa_hazirla(
     bt_ay: int,
 ) -> AppOnbellek:
     """İlgili sekme için ağır veriyi yükler (önceden yüklenmediyse)."""
+    # Ayar değişimi yalnızca ilgili bölümü düşürür — tüm önbelleği değil.
+    if ob.tarama is not None and haber_tara != ob.tarama_haber:
+        ob.tarama = None
+        ob.yuklenen_sayfalar -= SAYFA_TARAMA
+    if ob.backtest is not None and bt_ay != ob.backtest_ay:
+        ob.backtest = None
+        ob.yuklenen_sayfalar -= SAYFA_BACKTEST
+
     if sayfa in ob.yuklenen_sayfalar:
-        return ob
+        tarama_hazir = ob.tarama is not None and not tarama_yukleniyor(ob.tarama)
+        # Arka plan tamamlandıysa diskten tekrar oku / birleşik öneriyi tazele
+        yeniden_dene = (
+            (sayfa in SAYFA_TARAMA and tarama_yukleniyor(ob.tarama))
+            or (sayfa in SAYFA_TEFAS and tefas_yukleniyor(ob.tefas_ham))
+            or (
+                sayfa in SAYFA_BIRLESIK
+                and ob.birlesik_tam
+                and tarama_hazir
+                and not ob.birlesik_tarama_hazir
+            )
+        )
+        if not yeniden_dene:
+            return ob
 
     need_tarama = sayfa in SAYFA_TARAMA
     need_tefas = sayfa in SAYFA_TEFAS
@@ -196,7 +244,7 @@ def onbellek_sayfa_hazirla(
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut_tarama = None
         fut_tefas = None
-        if need_tarama and ob.tarama is None:
+        if need_tarama and (ob.tarama is None or tarama_yukleniyor(ob.tarama)):
             fut_tarama = ex.submit(
                 _tarama_yukle,
                 ob,
@@ -214,6 +262,7 @@ def onbellek_sayfa_hazirla(
 
     if need_backtest and ob.backtest is None:
         ob.backtest = backtest_veri(bt_ay, profil.vade, profil.risk)
+        ob.backtest_ay = bt_ay
 
     if need_varlik:
         _varlik_deger_yukle(ob, tick=tick)

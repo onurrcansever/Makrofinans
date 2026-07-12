@@ -25,7 +25,10 @@ except ImportError:
 # Portföy parametreleri
 # ------------------------------------------------------------------
 TOPLAM_EUR = float(os.getenv("TOPLAM_EUR", "30000"))
-EUR_MEVDUAT_YILLIK_FAIZ = float(os.getenv("EUR_FAIZ", "0.025"))          # %2,5 brüt
+# TR bankalarında EUR mevduat gerçekte %0,01–0,25 brüt (2026, Akbank/ING/YKB).
+# Canlı kaynak yok — kendi bankanızın teklifini .env EUR_FAIZ ile girin (örn. 0.0025 = %0,25).
+EUR_MEVDUAT_YILLIK_FAIZ = float(os.getenv("EUR_FAIZ", "0.0025"))         # %0,25 brüt varsayılan
+USD_MEVDUAT_YILLIK_FAIZ = float(os.getenv("USD_FAIZ", "0.015"))          # %1,5 brüt varsayılan
 TL_MEVDUAT_BRUT_FAIZ_VARSAYILAN = float(os.getenv("TL_FAIZ_VARSAYILAN", "0.40"))  # API'den çekilemezse kullanılır
 TL_STOPAJ_ORANI = float(os.getenv("TL_STOPAJ", "0.15"))                  # eski alias — TL_STOPAJ_ORAN kullanın
 KALAN_GUN = int(os.getenv("KALAN_GUN", "153"))                           # bugünden yıl sonuna kalan gün sayısı
@@ -169,6 +172,8 @@ WHATSAPP_CLOUD_TOKEN = os.getenv("WHATSAPP_CLOUD_TOKEN", "")
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "")
 WHATSAPP_TO = os.getenv("WHATSAPP_TO", "")              # alıcı numara
 NOTIFY_SINIRLI = os.getenv("NOTIFY_SINIRLI", "false").lower() in ("1", "true", "yes")
+# WhatsApp özet alarmı: değişiklik olmasa da gönder (günde 4 kez — 10/13/15/18 TR)
+OZET_ALARM_HER_ZAMAN = os.getenv("OZET_ALARM_HER_ZAMAN", "1").lower() in ("1", "true", "yes")
 INVESTOR_RISK = os.getenv("INVESTOR_RISK", "orta")
 INVESTOR_VADE = os.getenv("INVESTOR_VADE", "kisa_6")
 
@@ -325,6 +330,15 @@ BILESKE_TEMEL_AGIRLIK = float(os.getenv("BILESKE_TEMEL_AGIRLIK", "0.60"))
 BILESKE_AL_ESIK = float(os.getenv("BILESKE_AL_ESIK", "80"))
 BILESKE_DIkkat_ESIK = float(os.getenv("BILESKE_DIkkat_ESIK", "65"))
 BILESKE_BEKLE_ESIK = float(os.getenv("BILESKE_BEKLE_ESIK", "50"))
+
+# Tek hisse AL — trend/momentum hikâye filtresi (portföy + Karar=AL)
+AL_TEK_HISSE_ZIRVE_52H_MAX = float(os.getenv("AL_TEK_HISSE_ZIRVE_52H_MAX", "74"))
+AL_TEK_HISSE_SMA200_ZORUNLU = os.getenv("AL_TEK_HISSE_SMA200_ZORUNLU", "1") != "0"
+AL_TEK_HISSE_AY1_MIN = float(os.getenv("AL_TEK_HISSE_AY1_MIN", "-5"))
+AL_TEK_HISSE_AY3_MIN = float(os.getenv("AL_TEK_HISSE_AY3_MIN", "0"))
+AL_TEK_HISSE_ENDEKS_MIN = float(os.getenv("AL_TEK_HISSE_ENDEKS_MIN", "-3"))
+AL_TEK_HISSE_Y1_MIN = float(os.getenv("AL_TEK_HISSE_Y1_MIN", "12"))
+AL_TEK_HISSE_Y1_IZLE = float(os.getenv("AL_TEK_HISSE_Y1_IZLE", "10"))
 
 # ETF sektör → makro kategori (rejim puan tablosu anahtarı)
 ETF_SEKTOR_KATEGORI: Dict[str, str] = {

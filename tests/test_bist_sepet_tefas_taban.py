@@ -123,7 +123,7 @@ class BistSepetTest(unittest.TestCase):
         h.bilesik_skor = skor
         return h
 
-    def test_portfoy_al_korunur(self):
+    def test_skor_en_yuksek_secilir(self):
         from bist_sepet import bist_sepet_sec
 
         tarama = MagicMock()
@@ -146,31 +146,29 @@ class BistSepetTest(unittest.TestCase):
             ],
         )
         profil = YatirimProfili(vade="kisa_6", risk="orta")
-        with patch("bist_sepet._yaz"), patch("bist_sepet._bist_state", return_value={}):
-            sepet, notlar = bist_sepet_sec(tarama, profil, 0.04, store)
-        syms = {h.sembol for h in sepet}
-        self.assertIn("DOAS.IS", syms)
-        self.assertIn("SAHOL.IS", syms)
-        self.assertNotIn("EKGYO.IS", syms)
-        self.assertTrue(any("korunur" in n for n in notlar))
+        sepet, notlar = bist_sepet_sec(tarama, profil, 0.04, store)
+        self.assertEqual(len(sepet), 1)
+        self.assertEqual(sepet[0].sembol, "EKGYO.IS")
+        self.assertFalse(any("korunur" in n for n in notlar))
 
-    def test_teyit_olmadan_yeni_giris_yok(self):
+    def test_al_hemen_sepete_girer(self):
         from bist_sepet import bist_sepet_sec
 
         tarama = MagicMock()
         tarama.hisseler = [self._hisse("EKGYO.IS")]
         profil = YatirimProfili(vade="kisa_6", risk="orta")
-        with patch("bist_sepet._yaz"), patch("bist_sepet._bist_state", return_value={}):
-            sepet, _ = bist_sepet_sec(tarama, profil, 0.04, None)
-        self.assertEqual(sepet, [])
+        sepet, _ = bist_sepet_sec(tarama, profil, 0.04, None)
+        self.assertEqual(len(sepet), 1)
+        self.assertEqual(sepet[0].sembol, "EKGYO.IS")
 
-        with patch("bist_sepet._yaz"), patch(
-            "bist_sepet._bist_state",
-            return_value={"al_streak": {"EKGYO.IS": 1}, "sepet": []},
-        ):
-            sepet2, _ = bist_sepet_sec(tarama, profil, 0.04, None)
-        self.assertEqual(len(sepet2), 1)
-        self.assertEqual(sepet2[0].sembol, "EKGYO.IS")
+    def test_al_degilse_sepete_girmez(self):
+        from bist_sepet import bist_sepet_sec
+
+        tarama = MagicMock()
+        tarama.hisseler = [self._hisse("EKGYO.IS", uygun="IZLE")]
+        profil = YatirimProfili(vade="kisa_6", risk="orta")
+        sepet, _ = bist_sepet_sec(tarama, profil, 0.04, None)
+        self.assertEqual(sepet, [])
 
 
 if __name__ == "__main__":

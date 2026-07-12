@@ -99,8 +99,8 @@ def _ybb_getiri(sub: pd.DataFrame) -> Optional[float]:
     return (son / bas - 1.0) * 100.0
 
 
-def _ham_veri_cek(gun: int = 90) -> Tuple[Optional[pd.DataFrame], str]:
-    """TEFAS YAT fonları — son N gün (önbellekli)."""
+def _ham_veri_cek(gun: int = 90, *, timeout: float = 45.0) -> Tuple[Optional[pd.DataFrame], str]:
+    """TEFAS YAT fonları — son N gün (önbellekli, zaman aşımı korumalı)."""
     global _CACHE
     now = time.time()
     if (
@@ -110,25 +110,40 @@ def _ham_veri_cek(gun: int = 90) -> Tuple[Optional[pd.DataFrame], str]:
     ):
         return _CACHE["df"], f"TEFAS önbellek ({int(_CACHE['gun'])} gün)"
 
-    try:
-        from pytefas import Crawler
-    except ImportError:
-        return None, "pytefas kurulu değil — pip install pytefas"
+    def _indir():
+        try:
+            from pytefas import Crawler
+        except ImportError:
+            return None, "pytefas kurulu değil — pip install pytefas"
 
-    end = date.today()
-    start = end - timedelta(days=gun)
-    try:
-        df = Crawler().fetch(start, end, kind="YAT", columns="info")
-    except Exception as e:
-        return None, f"TEFAS hatası: {e}"
+        end = date.today()
+        start = end - timedelta(days=gun)
+        try:
+            df = Crawler().fetch(start, end, kind="YAT", columns="info")
+        except Exception as e:
+            return None, f"TEFAS hatası: {e}"
 
-    if df is None or df.empty:
-        return None, "TEFAS verisi boş"
+        if df is None or df.empty:
+            return None, "TEFAS verisi boş"
 
-    df = df.copy()
-    df["date_dt"] = pd.to_datetime(df["date"])
-    _CACHE = {"ts": now, "df": df, "gun": gun}
-    return df, f"TEFAS canlı ({gun} gün, {len(df):,} satır)"
+        df = df.copy()
+        df["date_dt"] = pd.to_datetime(df["date"])
+        _CACHE["ts"] = time.time()
+        _CACHE["df"] = df
+        _CACHE["gun"] = gun
+        return df, f"TEFAS canlı ({gun} gün, {len(df):,} satır)"
+
+    if timeout and timeout > 0:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(_indir)
+            try:
+                return fut.result(timeout=timeout)
+            except FutTimeout:
+                return None, f"TEFAS zaman aşımı ({int(timeout)} sn) — önbellekten veya sonra tekrar denenecek"
+
+    return _indir()
 
 
 def _breakdown_ham_cek(gun: int = 14):

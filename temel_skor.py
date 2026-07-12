@@ -84,15 +84,23 @@ def _hisse_makro_puan(rejim: str, sektor: str) -> float:
 
 def _momentum_puan(h: "HisseAnaliz", close: pd.Series, max_puan: float = 25.0) -> float:
     puan = 0.0
-    if len(close) >= 252:
+    y1 = getattr(h, "degisim_1y", None)
+    if y1 is None and len(close) >= 252:
         eski = float(close.iloc[-252])
         yeni = float(close.iloc[-1])
-        if eski > 0 and (yeni - eski) / eski > 0:
+        if eski > 0:
+            y1 = (yeni - eski) / eski * 100
+    if y1 is not None:
+        if y1 >= config.AL_TEK_HISSE_Y1_MIN:
             puan += 15.0
+        elif y1 >= config.AL_TEK_HISSE_Y1_IZLE:
+            puan += 8.0
+        elif y1 > 0:
+            puan += 3.0
     elif h.degisim_3ay is not None and h.degisim_3ay > 0:
-        puan += 10.0
+        puan += 6.0
     if h.degisim_3ay is not None and h.degisim_3ay > 0:
-        puan += 10.0
+        puan += min(10.0, max(0.0, h.degisim_3ay / 2))
     return min(max_puan, puan)
 
 

@@ -111,7 +111,7 @@ EOF
 launchctl bootout "gui/${UID_NUM}" "$CDS_PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/${UID_NUM}" "$CDS_PLIST" 2>/dev/null || true
 
-# WhatsApp alarmları — 09:00 ve 16:30 TR (Mac açıkken)
+# WhatsApp alarmları — 10:00, 13:00, 15:00, 18:00 TR (Mac açıkken)
 ALARM_PLIST="$HOME/Library/LaunchAgents/tr.yatirim.asistani.alarm.plist"
 ALARM_SCRIPT="$APP_SUPPORT/alarm_sync.sh"
 cp "$SCRIPT_DIR/alarm_sync.sh" "$ALARM_SCRIPT"
@@ -139,15 +139,27 @@ cat > "$ALARM_PLIST" <<EOF
   <array>
     <dict>
       <key>Hour</key>
-      <integer>9</integer>
+      <integer>10</integer>
       <key>Minute</key>
       <integer>0</integer>
     </dict>
     <dict>
       <key>Hour</key>
-      <integer>16</integer>
+      <integer>13</integer>
       <key>Minute</key>
-      <integer>30</integer>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>15</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>18</integer>
+      <key>Minute</key>
+      <integer>0</integer>
     </dict>
   </array>
 </dict>
@@ -156,7 +168,7 @@ EOF
 
 launchctl bootout "gui/${UID_NUM}" "$ALARM_PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/${UID_NUM}" "$ALARM_PLIST" 2>/dev/null || true
-echo "WhatsApp alarm LaunchAgent: 09:00 ve 16:30 TR (log: $APP_SUPPORT/alarm_sync.log)"
+echo "WhatsApp alarm LaunchAgent: 10:00, 13:00, 15:00, 18:00 TR (log: $APP_SUPPORT/alarm_sync.log)"
 
 for _ in $(seq 1 45); do
   if curl -sf "http://127.0.0.1:8502/_stcore/health" >/dev/null 2>&1; then

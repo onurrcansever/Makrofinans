@@ -279,28 +279,48 @@ def mevduat_analizi(
             veri_kaynagi = "Acil yedek — Yapı Kredi/EVDS erişilemedi"
             uyarilar.append("TL mevduat faizi otomatik alınamadı — geçici yedek kullanıldı.")
 
-    eur_brut = float(config.EUR_MEVDUAT_YILLIK_FAIZ)
-    eur_net = net_brut_oran(eur_brut * 100, 365, "EUR")
+    # EUR/USD mevduat — önce Yapı Kredi canlı, olmazsa .env (EUR_FAIZ / USD_FAIZ)
+    doviz_canli = None
+    try:
+        from yapikredi_rates import yapikredi_doviz_faizleri
+        doviz_canli = yapikredi_doviz_faizleri()
+    except Exception:
+        doviz_canli = None
+
+    if doviz_canli is not None and doviz_canli.eur_1y_brut is not None:
+        eur_brut = doviz_canli.eur_1y_brut / 100
+        eur_kaynak = f"{doviz_canli.kaynak} — stopaj %25"
+    else:
+        eur_brut = float(config.EUR_MEVDUAT_YILLIK_FAIZ)
+        eur_kaynak = "Yedek varsayım — YKB erişilemedi; .env EUR_FAIZ (stopaj %25)"
+    # eur_brut ondalık (0.0001 = %0,01) — net'i doğrudan stopajla hesapla,
+    # net_brut_oran'ın %/ondalık tahmini küçük oranlarda yanılır.
+    eur_net = eur_brut * (1 - stopaj_orani(365, "EUR"))
     oranlar.append(
         MevduatOrani(
             "EUR mevduat",
             eur_brut if eur_brut <= 1 else eur_brut / 100,
             eur_net,
             eur_net * 100 - 2.0,
-            "Yapı Kredi / piyasa ort. (EUR döviz stopaj %25)",
+            eur_kaynak,
             365,
         )
     )
 
-    usd_brut = 0.04
-    usd_net = net_brut_oran(usd_brut * 100, 365, "USD")
+    if doviz_canli is not None and doviz_canli.usd_1y_brut is not None:
+        usd_brut = doviz_canli.usd_1y_brut / 100
+        usd_kaynak = f"{doviz_canli.kaynak} — stopaj %25"
+    else:
+        usd_brut = float(getattr(config, "USD_MEVDUAT_YILLIK_FAIZ", 0.015))
+        usd_kaynak = "Yedek varsayım — YKB erişilemedi; .env USD_FAIZ (stopaj %25)"
+    usd_net = usd_brut * (1 - stopaj_orani(365, "USD"))
     oranlar.append(
         MevduatOrani(
             "USD mevduat",
             usd_brut if usd_brut <= 1 else usd_brut / 100,
             usd_net,
             usd_net * 100 - 2.5,
-            "Yapı Kredi / piyasa ort. (USD döviz stopaj %25)",
+            usd_kaynak,
             365,
         )
     )

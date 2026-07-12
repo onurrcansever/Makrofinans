@@ -37,8 +37,12 @@ rsync -a --delete \
   --exclude '.venv/' \
   --exclude 'venv/' \
   --exclude 'node_modules/' \
+  --exclude '.onbellek/' \
   --exclude '.girdi_onay_state.json' \
   --exclude '.signal_state.json' \
+  --exclude '.regime_state.json' \
+  --exclude '.ozet_alarm_state.json' \
+  --exclude '.tl_engine_state.json' \
   --exclude '.varliklarim.json' \
   --exclude '.env' \
   --exclude 'manual_inputs.json' \

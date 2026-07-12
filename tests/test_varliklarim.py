@@ -10,6 +10,7 @@ import pandas as pd
 from varlik_fiyat import (
     PERIYOTLAR,
     _deger_tutar_bazli,
+    _doviz_alim_kuru,
     _getiriler_portfoy,
     _gun_tutma,
     _legacy_tutar_modu,
@@ -134,6 +135,57 @@ class VarliklarimTest(unittest.TestCase):
         self.assertTrue(pozisyon_legacy_normalize(p, birim_alim=5.0))
         self.assertAlmostEqual(p.miktar, 1000.0)
         self.assertAlmostEqual(p.alim_fiyati, 5.0)
+
+    def test_nakit_eur_alim_kuru_alim_tarihinden(self):
+        p = VarlikPozisyon(
+            id="e1",
+            tur="nakit_eur",
+            miktar=1000.0,
+            maliyet=0.0,
+            alim_fiyati=0.0,
+            para_birimi="EUR",
+            alim_tarihi="2025-03-01",
+        )
+        snap = _snap(eur_try=54.0)
+        dates = pd.date_range("2025-01-01", periods=120, freq="D")
+        fx = pd.Series([48.5] * len(dates), index=dates)
+        df = pd.DataFrame({"EURTRY=X": fx}, index=dates)
+        portfoy = VarlikPortfoy(id="p", ad="T", pozisyonlar=[p])
+        with unittest.mock.patch("varlik_fiyat._yf_indir", return_value=df):
+            deger = portfoy_degerle(portfoy, snap, normalize=False)
+        pd_ = deger.pozisyonlar[0]
+        self.assertAlmostEqual(pd_.alim_birim, 48.5)
+        self.assertAlmostEqual(pd_.guncel_birim, 54.0)
+        self.assertAlmostEqual(pd_.maliyet_deger, 48_500.0)
+        self.assertAlmostEqual(pd_.guncel_deger, 54_000.0)
+        self.assertAlmostEqual(pd_.kar_zarar, 5_500.0)
+
+    def test_nakit_eur_guncel_kur_alis_olarak_kullanilmaz(self):
+        p = VarlikPozisyon(
+            id="e2",
+            tur="nakit_eur",
+            miktar=1000.0,
+            maliyet=50_000.0,
+            alim_fiyati=0.0,
+            para_birimi="EUR",
+            alim_tarihi="2025-03-01",
+        )
+        snap = _snap(eur_try=54.0)
+        portfoy = VarlikPortfoy(id="p", ad="T", pozisyonlar=[p])
+        with unittest.mock.patch("varlik_fiyat._yf_indir", return_value=pd.DataFrame()):
+            deger = portfoy_degerle(portfoy, snap, normalize=False)
+        pd_ = deger.pozisyonlar[0]
+        self.assertAlmostEqual(pd_.alim_birim, 50.0)
+        self.assertAlmostEqual(pd_.guncel_birim, 54.0)
+        self.assertNotEqual(pd_.alim_birim, pd_.guncel_birim)
+
+    def test_doviz_alim_kuru_oncelik(self):
+        p = VarlikPozisyon(
+            id="e3", tur="nakit_eur", miktar=100.0, maliyet=5200.0,
+            alim_fiyati=51.0, para_birimi="EUR", alim_tarihi="2025-03-01",
+        )
+        fx = pd.Series([48.5], index=pd.to_datetime(["2025-03-01"]))
+        self.assertAlmostEqual(_doviz_alim_kuru(p, fx, 100.0, 5200.0), 51.0)
 
     def test_hedef_aktarim_cift_sayim_onleme(self):
         h = HedefSatir("TL vadeli mevduat", "banka", 22.0, 220_000.0, "TL")

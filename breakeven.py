@@ -16,11 +16,20 @@ def breakeven_eur_try(
     eur_mevduat_brut: Optional[float] = None,
 ) -> float:
     """TL mevduat ile EUR mevduatın EUR cinsinden eşit getirdiği kur (vade sonu)."""
-    from yapikredi_rates import net_brut_oran
+    from yapikredi_rates import stopaj_orani
+
+    if eur_mevduat_brut is None:
+        try:
+            from yapikredi_rates import yapikredi_doviz_faizleri
+            canli = yapikredi_doviz_faizleri()
+            if canli is not None and canli.eur_1y_brut is not None:
+                eur_mevduat_brut = canli.eur_1y_brut / 100  # % → ondalık
+        except Exception:
+            pass
 
     eur_brut = eur_mevduat_brut if eur_mevduat_brut is not None else config.EUR_MEVDUAT_YILLIK_FAIZ
-    eur_brut_pct = eur_brut * 100 if eur_brut <= 1 else eur_brut
-    eur_net = net_brut_oran(eur_brut_pct, vade_gun, "EUR")
+    eur_dec = eur_brut / 100 if eur_brut > 1 else eur_brut
+    eur_net = eur_dec * (1 - stopaj_orani(vade_gun, "EUR"))
     pay = 1 + net_tl_yillik * (vade_gun / 365)
     payda = 1 + eur_net * (vade_gun / 365)
     return eur_spot * pay / payda

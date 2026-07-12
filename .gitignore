@@ -7,6 +7,8 @@
 cds_history.jsonl
 market_cache.db
 manual_inputs.json
+.onbellek/
+.ozet_alarm_state.json
 __pycache__/
 *.pyc
 .DS_Store

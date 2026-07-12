@@ -40,16 +40,16 @@ def _kart_html(v: VarlikTavsiyesi) -> str:
 
 
 def danisman_paneli(rapor: DanismanRaporu) -> None:
-    st.subheader("AI Danışman — neden bu öneri?")
-    st.caption("Kural tabanlı dinamik açıklama · canlı veri + denetim · gerçek LLM değil")
+    st.subheader("AI Danışman")
+    st.caption("Kural tabanlı analiz · canlı veri · yatırım tavsiyesi değildir")
 
+    # ── Denetim: tek satır özet, detay expander'da ──
     if rapor.denetim and rapor.denetim.bulgular:
         if rapor.denetim.kritik_sayisi:
             st.error(f"⛔ Denetim: {rapor.denetim.ozet}")
         else:
             st.warning(f"⚠️ Denetim: {rapor.denetim.ozet}")
-
-        with st.expander("Denetim raporu — çelişkiler ve veri uyarıları", expanded=rapor.denetim.kritik_sayisi > 0):
+        with st.expander("Denetim detayı", expanded=rapor.denetim.kritik_sayisi > 0):
             for b in rapor.denetim.bulgular:
                 ikon = {"KRITIK": "🔴", "UYARI": "🟡", "BILGI": "🔵"}.get(b.seviye, "⚪")
                 st.markdown(
@@ -58,28 +58,8 @@ def danisman_paneli(rapor: DanismanRaporu) -> None:
                     f"- **B:** {b.taraf_b}\n"
                     f"- **Öneri:** {b.oneri}"
                 )
-    elif rapor.denetim and rapor.denetim.temiz:
-        st.success(f"✅ Denetim: {rapor.denetim.ozet}")
 
-    st.markdown(rapor.genel_ozet)
-    st.info(rapor.rejim_yorumu)
-
-    if rapor.makro_baglam and rapor.makro_baglam.parcalar:
-        st.markdown("#### Canlı makro değerlendirme")
-        st.caption(f"Son güncelleme: **{rapor.makro_baglam.guncelleme}**")
-        cols = st.columns(2)
-        for i, p in enumerate(rapor.makro_baglam.parcalar):
-            with cols[i % 2]:
-                st.markdown(
-                    f"**{p.ok} {p.baslik}** · {p.canli}\n\n"
-                    f"{p.konum}\n\n"
-                    f"*Trend:* {p.trend}\n\n"
-                    f"*Beklenti:* {p.beklenti}\n\n"
-                    f"<span style='color:{TEXT_MUTED};font-size:0.85em'>Kaynak: {p.kaynak}</span>",
-                    unsafe_allow_html=True,
-                )
-        st.divider()
-
+    # ── Öncelik metrikleri en üstte — ilk bakışta karar ──
     if rapor.oncelik_sirasi:
         cols = st.columns(len(rapor.oncelik_sirasi))
         for i, ad in enumerate(rapor.oncelik_sirasi):
@@ -87,27 +67,46 @@ def danisman_paneli(rapor: DanismanRaporu) -> None:
             with cols[i]:
                 st.metric(f"{v.ok} {ad}", f"%{v.agirlik_pct:.0f}", v.sinyal_etiket)
 
-    st.divider()
+    st.info(rapor.rejim_yorumu)
 
+    # ── Uzun genel özet katlanabilir ──
+    if rapor.genel_ozet:
+        with st.expander("Genel değerlendirme — detaylı oku", expanded=False):
+            st.markdown(rapor.genel_ozet)
+
+    # ── Varlık kartları: kart + en önemli 2 neden; kalan detay expander'da ──
+    st.divider()
     for v in rapor.varliklar:
         st.markdown(_kart_html(v), unsafe_allow_html=True)
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("**Neden?**")
-            for n in v.nedenler:
-                st.markdown(f"- {n}")
-            if v.teknik:
-                st.caption(f"Teknik: {v.teknik}")
-        with col_b:
-            if v.dikkat:
-                st.markdown("**Dikkat**")
-                for d in v.dikkat:
+        onemli = (v.nedenler or [])[:2]
+        for n in onemli:
+            st.markdown(f"- {n}")
+        kalan_neden = (v.nedenler or [])[2:]
+        if kalan_neden or v.dikkat or v.teknik:
+            with st.expander(f"{v.ad} — tüm gerekçeler ve riskler", expanded=False):
+                for n in kalan_neden:
+                    st.markdown(f"- {n}")
+                if v.teknik:
+                    st.caption(f"Teknik: {v.teknik}")
+                for d in v.dikkat or []:
                     st.markdown(f"- ⚠️ {d}")
 
     if rapor.kacinilan:
-        st.warning(f"Şu an uzak durulması önerilen varlıklar: **{', '.join(rapor.kacinilan)}**")
+        st.warning(f"Uzak durulması önerilen: **{', '.join(rapor.kacinilan)}**")
 
-    st.caption(
-        "↑ yükseliş trendi · ↓ düşüş · → yatay · Renkler terminal mantığına benzer; "
-        "yatırım tavsiyesi değildir."
-    )
+    # ── Makro ayrıntı en altta, kapalı ──
+    if rapor.makro_baglam and rapor.makro_baglam.parcalar:
+        with st.expander("Canlı makro değerlendirme (detay)", expanded=False):
+            st.caption(f"Son güncelleme: **{rapor.makro_baglam.guncelleme}**")
+            cols = st.columns(2)
+            for i, p in enumerate(rapor.makro_baglam.parcalar):
+                with cols[i % 2]:
+                    st.markdown(
+                        f"**{p.ok} {p.baslik}** · {p.canli}\n\n"
+                        f"{p.konum}\n\n"
+                        f"*Trend:* {p.trend} · *Beklenti:* {p.beklenti}\n\n"
+                        f"<span style='color:{TEXT_MUTED};font-size:0.85em'>Kaynak: {p.kaynak}</span>",
+                        unsafe_allow_html=True,
+                    )
+
+    st.caption("↑ yükseliş · ↓ düşüş · → yatay")

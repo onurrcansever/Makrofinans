@@ -8,6 +8,7 @@ Kullanım:
     python main.py --telegram           -> rapor + rejim değiştiyse alarm
     python main.py --sinyal-alarm       -> AL/SAT değiştiyse Telegram/WhatsApp
     python main.py --sinyal-alarm --notify  -> bildirim kanallarına gönder
+    python main.py --ozet-alarm --notify    -> kısa özet (rejim+varlık+AL) tek mesaj
     python main.py --alert-only         -> sadece rejim değiştiyse Telegram
     python main.py --evds-test          -> EVDS API key doğrulama
     python main.py --cds-durum          -> CDS kaynaklarını listele
@@ -54,6 +55,21 @@ def main():
         "--notify",
         action="store_true",
         help="Bildirim gönder (.env BILDIRIM_KANALI: telegram/whatsapp/both)",
+    )
+    parser.add_argument(
+        "--ozet-alarm",
+        action="store_true",
+        help="Kısa WhatsApp özeti (varlık+AL hisse/ETF); OZET_ALARM_HER_ZAMAN=1 ile günde 4 kez",
+    )
+    parser.add_argument(
+        "--her-zaman",
+        action="store_true",
+        help="Özet alarm: değişiklik olmasa da gönder",
+    )
+    parser.add_argument(
+        "--sadece-degisim",
+        action="store_true",
+        help="Özet alarm: yalnızca rejim/sinyal/vade değişince gönder",
     )
     parser.add_argument(
         "--evds-test",
@@ -111,6 +127,36 @@ def main():
         raise SystemExit(0 if sonuc["ok"] else 1)
 
     snap = demo_snapshot() if args.demo else canli_snapshot()
+
+    if args.ozet_alarm:
+        from ozet_bildirim import kontrol_ozet_ve_bildir
+
+        her_zaman = config.OZET_ALARM_HER_ZAMAN
+        if args.her_zaman:
+            her_zaman = True
+        if args.sadece_degisim:
+            her_zaman = False
+
+        ok, olaylar, rejim_degisti = kontrol_ozet_ve_bildir(
+            snap, bildir=args.notify or args.telegram, her_zaman=her_zaman
+        )
+        if rejim_degisti:
+            notifier.konsola_yazdir("Rejim değişti.")
+        else:
+            notifier.konsola_yazdir("Rejim aynı.")
+        for tip, sym, h in olaylar:
+            notifier.konsola_yazdir(f"  {tip}: {sym} ({h.ad}) skor={h.skor:.0f}")
+        if ok:
+            notifier.konsola_yazdir(
+                "Günlük özet bildirimi gönderildi." if her_zaman and not olaylar and not rejim_degisti
+                else "Özet bildirim gönderildi."
+            )
+        elif olaylar or rejim_degisti or her_zaman:
+            if args.notify or args.telegram:
+                notifier.konsola_yazdir("Bildirim gönderilemedi — .env ayarlarını kontrol edin.")
+        else:
+            notifier.konsola_yazdir("Değişiklik yok — bildirim gönderilmedi.")
+        return
 
     if args.sinyal_alarm:
         from signal_alerts import kontrol_sinyal_ve_bildir
