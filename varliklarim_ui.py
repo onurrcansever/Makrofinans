@@ -411,9 +411,6 @@ def varliklarim_paneli(
         st.caption(f"Kaynak: **{aktif.kaynak}** · Oluşturma: {aktif.olusturma or '—'}")
     st.caption("Portföy adını yukarıdaki kutuya yazıp **Adı kaydet**'e basın; üstteki listede görünür.")
 
-    # ── Pozisyon ekleme formu ÖNCE — fiyat beklenmeden vade/mevduat girilebilir ──
-    _pozisyon_formu(store, aktif)
-
     kodlar = [p.sembol for p in aktif.pozisyonlar if p.tur == "tefas" and p.sembol]
 
     if (
@@ -489,11 +486,82 @@ def varliklarim_paneli(
         fig.update_layout(**plotly_base_layout(title=f"Dağılım ({pb})", height=280))
         st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Pozisyonlar")
+    # ── Pozisyonlar + Ekle/Düzenle/Sil ───────────────────────────────────────
+    h1c, h2c = st.columns([5, 1])
+    with h1c:
+        st.subheader("Pozisyonlar")
+    with h2c:
+        if st.button("➕ Ekle", use_container_width=True, type="primary", key="poz_ekle_btn"):
+            st.session_state["varlik_form_mod"] = "ekle"
+            st.session_state["varlik_form_sec_id"] = None
+
     if deger.pozisyonlar:
         render_df_table(_pozisyon_tablo(deger, pb), max_height=360)
+        # Satır içi Düzenle / Sil butonları
+        for pd_ in deger.pozisyonlar:
+            p = pd_.pozisyon
+            c1, c2, c3 = st.columns([5, 1, 1])
+            deger_str = f"{pd_.guncel_deger:,.0f} {pd_.para}"
+            c1.caption(f"**{p.etiket()}** — {pd_.miktar_goster} · {deger_str}")
+            with c2:
+                if st.button("✏️", key=f"duzenle_{p.id}", use_container_width=True,
+                             help="Düzenle"):
+                    st.session_state["varlik_form_mod"] = "duzenle"
+                    st.session_state["varlik_form_sec_id"] = p.id
+            with c3:
+                if st.button("🗑️", key=f"sil_{p.id}", use_container_width=True,
+                             help="Sil"):
+                    pozisyon_sil(store, aktif.id, p.id)
+                    st.session_state.varlik_store = store
+                    _onbellek_yenile()
+                    # Eğer silinen düzenlenen pozisyonsa formu kapat
+                    if st.session_state.get("varlik_form_sec_id") == p.id:
+                        st.session_state["varlik_form_mod"] = None
+                    st.rerun()
     else:
-        st.info("Henüz pozisyon yok — aşağıdan ekleyin veya Portföy Tahsisi'nden öneriyi aktarın.")
+        st.info("Henüz pozisyon yok — **➕ Ekle** butonuna basın veya Portföy Tahsisi'nden öneriyi aktarın.")
+
+    # ── Form (Ekle veya Düzenle) ───────────────────────────────────────────────
+    form_mod = st.session_state.get("varlik_form_mod")
+    form_sec_id = st.session_state.get("varlik_form_sec_id")
+    if form_mod == "ekle":
+        st.markdown("---")
+        st.markdown("#### ➕ Yeni Pozisyon Ekle")
+        col_kapat, _ = st.columns([1, 4])
+        with col_kapat:
+            if st.button("✕ İptal", key="poz_form_kapat"):
+                st.session_state["varlik_form_mod"] = None
+                st.rerun()
+        yeni = _poz_form_icerigi("varlik_poz_ekle_form", "Pozisyon ekle")
+        if yeni is not None:
+            pozisyon_ekle(store, aktif.id, yeni)
+            st.session_state.varlik_store = store
+            st.session_state["varlik_form_mod"] = None
+            _onbellek_yenile()
+            st.rerun()
+
+    elif form_mod == "duzenle" and form_sec_id:
+        mevcut_poz = next((p for p in aktif.pozisyonlar if p.id == form_sec_id), None)
+        if mevcut_poz:
+            st.markdown("---")
+            st.markdown(f"#### ✏️ Düzenle: {mevcut_poz.etiket()}")
+            col_kapat, _ = st.columns([1, 4])
+            with col_kapat:
+                if st.button("✕ İptal", key="poz_duzenle_kapat"):
+                    st.session_state["varlik_form_mod"] = None
+                    st.rerun()
+            guncellendi = _poz_form_icerigi(
+                f"varlik_poz_duzenle_{form_sec_id}",
+                "Değişiklikleri kaydet",
+                tur_baslangic=mevcut_poz.tur,
+                poz=mevcut_poz,
+            )
+            if guncellendi is not None:
+                pozisyon_guncelle(store, aktif.id, guncellendi)
+                st.session_state.varlik_store = store
+                st.session_state["varlik_form_mod"] = None
+                _onbellek_yenile()
+                st.rerun()
 
     # Günlük snapshot grafiği
     if store.gunluk_snapshot and go is not None:
@@ -506,24 +574,6 @@ def varliklarim_paneli(
             fig2 = go.Figure(go.Scatter(x=df_s["tarih"], y=df_s["deger"], mode="lines+markers"))
             fig2.update_layout(**plotly_base_layout(title=f"Portföy seyri ({pb})", height=260))
             st.plotly_chart(fig2, use_container_width=True)
-
-    if aktif.pozisyonlar:
-        st.markdown("---")
-        col_sel, col_sil = st.columns([3, 1])
-        with col_sel:
-            sil_id = st.selectbox(
-                "Silinecek pozisyon seç",
-                [p.id for p in aktif.pozisyonlar],
-                format_func=lambda i: next(p.etiket() for p in aktif.pozisyonlar if p.id == i),
-                key="varlik_sil_sec",
-            )
-        with col_sil:
-            st.write("")  # dikey hizalama
-            if st.button("🗑 Sil", use_container_width=True, type="secondary"):
-                pozisyon_sil(store, aktif.id, sil_id)
-                st.session_state.varlik_store = store
-                _onbellek_yenile()
-                st.rerun()
 
 
 def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, snap) -> float:

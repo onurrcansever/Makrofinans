@@ -675,7 +675,9 @@ def portfoy_degerle(
     toplam = {"TL": 0.0, "EUR": 0.0, "USD": 0.0}
     maliyet_toplam = {"TL": 0.0, "EUR": 0.0, "USD": 0.0}
     for pd_ in poz_degerler:
-        pb = pd_.pozisyon.para_birimi or "TL"
+        # pd_.para döviz pozisyonlarında "TL"'ye override edilmiş olabilir;
+        # pd_.pozisyon.para_birimi DEĞİL pd_.para kullan — çift dönüşümü önle.
+        pb = pd_.para
         toplam["TL"] += _pb_cevir(pd_.guncel_deger, pb, "TL", eur_try, usd_try)
         toplam["EUR"] += _pb_cevir(pd_.guncel_deger, pb, "EUR", eur_try, usd_try)
         toplam["USD"] += _pb_cevir(pd_.guncel_deger, pb, "USD", eur_try, usd_try)
