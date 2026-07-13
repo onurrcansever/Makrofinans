@@ -419,13 +419,24 @@ def _backtest_bolumu(
 
     doc.bolum("Backtest — Dinamik Rejim vs Statik Karşılaştırma")
 
+    # Dinamik'i yenen karşılaştırmayı bul (statik mi, bugünkü ağırlıklar mı?)
+    _bt_en_iyi = kars.en_iyi_strateji
+    _bt_din_sh = met.sharpe_yillik or 0
+    if (karsi and karsi.sharpe_yillik is not None
+            and karsi.sharpe_yillik - _bt_din_sh >= 0.25):
+        _bt_kaz_lbl = "Bugünkü ağırlıkları sabit tutmak"
+        _bt_kaz_sh = f"{karsi.sharpe_yillik:.2f}"
+    else:
+        _bt_kaz_lbl = "Statik referans"
+        _bt_kaz_sh = f"{ref.sharpe_yillik:.2f}" if ref.sharpe_yillik else "—"
+
     # Güçlü çift-koşul uyarısı: dinamik kötü VE rejim hiç görülmemiş
     if kars.dinamik_dezavantaj and rejim_hic_gorulmedi:
         doc.kutu(
             "Önemli Uyarı — Bu Raporun Önerisini Nasıl Okumalısınız",
             f"Backtest iki kritik sorunu aynı anda gösteriyor: "
-            f"(1) Son {ay} ayda dinamik rejim modeli statik tahsisten DAHA KÖTÜ performans sergiledi "
-            f"(Sharpe: Dinamik {met.sharpe_yillik:.2f} vs Statik {ref.sharpe_yillik:.2f}). "
+            f"(1) Son {ay} ayda {_bt_kaz_lbl} dinamik rejim modelinden DAHA IYI performans sergiledi "
+            f"(Sharpe: Dinamik {_bt_din_sh:.2f} — {_bt_en_iyi}: {_bt_kaz_sh}). "
             f"(2) Mevcut rejim ({rejim.replace('_', ' ')}) bu dönemde hiç "
             f"görülmedi (%{met.mevcut_rejim_oran_pct:.0f}) — dolayısıyla bugünkü "
             "öneri seti test edilmemiş koşullara dayanıyor. "
@@ -890,26 +901,38 @@ def rapor_pdf_direkt_olustur(
         if _bt_k:
             _bt_m = _bt_k.dinamik
             _bt_r = _bt_k.referans_statik
+            _bt_ka = _bt_k.karsi_olgusal
             _bt_rejim_hic = (
                 tahsis.rejim.rejim
                 and _bt_m.mevcut_rejim_oran_pct is not None
                 and _bt_m.mevcut_rejim_oran_pct < 1
             )
+            # Dinamik'i yenen karşılaştırmayı bul
+            _bt_en_iyi = _bt_k.en_iyi_strateji
+            _bt_din_sh = _bt_m.sharpe_yillik or 0
+            if (_bt_ka and _bt_ka.sharpe_yillik is not None
+                    and _bt_ka.sharpe_yillik - _bt_din_sh >= 0.25):
+                _bt_kaz_lbl = "bugünkü ağırlıkları sabit tutmak"
+                _bt_kaz_sh = f"{_bt_ka.sharpe_yillik:.2f}"
+            else:
+                _bt_kaz_lbl = "statik referans portföy"
+                _bt_kaz_sh = f"{_bt_r.sharpe_yillik:.2f}" if _bt_r.sharpe_yillik else "—"
             if _bt_k.dinamik_dezavantaj and _bt_rejim_hic:
                 _bt_ozet_uyari = (
-                    f"Model sınırı: Son 12 ayda dinamik rejim modeli statik tahsisten "
-                    f"daha kötü performans sergiledi (Sharpe: {_bt_m.sharpe_yillik:.2f} vs "
-                    f"{_bt_r.sharpe_yillik:.2f}). Mevcut rejim "
-                    f"({tahsis.rejim.rejim.replace('_', ' ')}) simülasyon döneminde "
-                    "hiç görülmedi — öneri seti test edilmemiş koşullara dayanıyor. "
-                    "Spesifik yüzdelerden çok çerçeveyi esas alınız. "
-                    "Tam analiz: Teknik Ekler > Backtest bölümü."
+                    f"Model siniri: Son 12 ayda {_bt_kaz_lbl} dinamik rejim modelinden "
+                    f"daha iyi performans sergiledi (Sharpe: Dinamik {_bt_din_sh:.2f} — "
+                    f"{_bt_en_iyi}: {_bt_kaz_sh}). "
+                    f"Mevcut rejim ({tahsis.rejim.rejim.replace('_', ' ')}) simülasyon "
+                    "doneminde hic gorulmedi — oneri seti test edilmemis kosullara dayaniyor. "
+                    "Spesifik yuzdelerden cok cercevelyi esas aliniz. "
+                    "Tam analiz: Teknik Ekler > Backtest bolumu."
                 )
             elif _bt_k.dinamik_dezavantaj:
                 _bt_ozet_uyari = (
-                    f"Model uyarısı: Dinamik rejim modeli son 12 ayda statik referanstan "
-                    f"geride (Sharpe: {_bt_m.sharpe_yillik:.2f} vs {_bt_r.sharpe_yillik:.2f}). "
-                    "Önerileri rehber olarak kullanın, kesin emir olarak değil."
+                    f"Model uyarisi: Son 12 ayda {_bt_kaz_lbl} dinamik rejim modelinden "
+                    f"daha iyi performans sergiledi (Sharpe: Dinamik {_bt_din_sh:.2f} — "
+                    f"{_bt_en_iyi}: {_bt_kaz_sh}). "
+                    "Onerileri rehber olarak kullanin, kesin emir olarak degil."
                 )
     except Exception:
         pass
@@ -1095,9 +1118,10 @@ def rapor_pdf_direkt_olustur(
         col_w=[w * 0.32, w * 0.18, w * 0.32, w * 0.18],
     )
     doc.paragraf(
-        f"Siyasi ve jeopolitik haber sayıları farklı zaman pencerelerinden (sırasıyla "
-        f"son {siyasi_pencere}s ve son 48s) farklı kaynaklarla taranır; "
-        "sayılar arasındaki fark bu nedenle normaldir."
+        f"Her iki haber sayısı da aynı {siyasi_pencere} saatlik pencerededir. "
+        "Aralarındaki fark zaman değil: farklı anahtar kelime setleriyle farklı kaynaklardan "
+        "taranır ve duygu analizi ağırlıklandırması uygulanır "
+        "(negatif duygu yüksekse sayı ham veriden daha büyük çıkar)."
     )
 
     if danisman.makro_baglam and danisman.makro_baglam.parcalar:

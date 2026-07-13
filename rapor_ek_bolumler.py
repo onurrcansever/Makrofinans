@@ -173,17 +173,36 @@ def varliklarim_pdf_bolumu(
     if hedef > 0:
         bosluk_pct = abs(toplam - hedef) / hedef * 100
         if bosluk_pct >= 15:
-            yontem = "artırmanız" if toplam < hedef else "azaltmanız"
             fark_tutar = abs(toplam - hedef)
+            if toplam < hedef:
+                secenek_a = (
+                    f"(a) ~{fark_tutar:,.0f} {pb} ek sermaye ekleyerek "
+                    f"portföyü {hedef:,.0f} {pb} hedef düzeyine çıkarın"
+                )
+                secenek_b = (
+                    f"(b) Rapordaki tüm yüzdeleri mevcut {toplam:,.0f} {pb} "
+                    "tutarınıza göre yeniden ölçekleyin — her öneri tutarı "
+                    f"otomatik olarak küçülür, dağılım oranları değişmez"
+                )
+            else:
+                secenek_a = (
+                    f"(a) ~{fark_tutar:,.0f} {pb} tutarında pozisyon kapatarak "
+                    f"portföyü {hedef:,.0f} {pb} hedef düzeyine indirin"
+                )
+                secenek_b = (
+                    f"(b) Öneri tabanını mevcut {toplam:,.0f} {pb} tutarınıza "
+                    "göre yeniden ölçekleyin — dağılım oranları değişmez"
+                )
             doc.kutu(
                 f"Büyük Portföy Boşluğu — %{bosluk_pct:.0f} Fark",
-                f"Mevcut portföyünüz ({toplam:,.0f} {pb}) öneri hedefinden "
+                f"Mevcut portföyünüz ({toplam:,.0f} {pb}) öneri tabanından "
                 f"{fark_tutar:,.0f} {pb} (%{bosluk_pct:.0f}) uzakta. "
-                f"Bu büyüklükteki bir fark, portföyü {yontem} anlamına gelir. "
-                "Rapor bu yeniden yapılandırmayı öneriler içinde açıkça belirtmemektedir; "
-                "ancak gerçekte büyük bir varlık hareketi gerekmektedir. "
-                "Pozisyon değişikliğini tek seferde değil, birden fazla işlemle "
-                "gerçekleştirmeniz piyasa riskini azaltır.",
+                "Rapor bu farkı öneriler içinde açıkça ele almıyor. "
+                "İki seçenek mevcut: "
+                f"{secenek_a}; "
+                f"VEYA {secenek_b}. "
+                "Pozisyon değişikliğini tek seferde değil kademeli yapmanız "
+                "piyasa riskini azaltır.",
             )
         elif bosluk_pct > 5:
             doc.madde(
@@ -367,17 +386,39 @@ def varliklarim_html_blok(
     if hedef > 0:
         bosluk_pct = abs(toplam - hedef) / hedef * 100
         if bosluk_pct >= 15:
-            yontem = "artırmanız" if toplam < hedef else "azaltmanız"
             fark_tutar = abs(toplam - hedef)
+            if toplam < hedef:
+                sec_a = (
+                    f"<strong>(a)</strong> ~{fark_tutar:,.0f} {esc(pb)} ek sermaye ekleyerek "
+                    f"portföyü {hedef:,.0f} {esc(pb)} hedef düzeyine çıkarın"
+                )
+                sec_b = (
+                    f"<strong>(b)</strong> Rapordaki tüm yüzdeleri mevcut "
+                    f"<strong>{toplam:,.0f} {esc(pb)}</strong> tutarınıza göre yeniden ölçekleyin "
+                    "— her öneri tutarı küçülür, dağılım oranları değişmez"
+                )
+            else:
+                sec_a = (
+                    f"<strong>(a)</strong> ~{fark_tutar:,.0f} {esc(pb)} tutarında pozisyon "
+                    "kapatarak portföyü hedef düzeyine indirin"
+                )
+                sec_b = (
+                    f"<strong>(b)</strong> Öneri tabanını mevcut "
+                    f"<strong>{toplam:,.0f} {esc(pb)}</strong> tutarınıza göre "
+                    "yeniden ölçekleyin — dağılım oranları değişmez"
+                )
             bosluk_html = f"""
 <div class="ozet-kutu tl-onerilmiyor">
 <strong>Büyük Portföy Boşluğu — %{bosluk_pct:.0f} Fark</strong>
-<p>Mevcut portföyünüz (<strong>{toplam:,.0f} {esc(pb)}</strong>) öneri hedefinden
+<p>Mevcut portföyünüz (<strong>{toplam:,.0f} {esc(pb)}</strong>) öneri tabanından
 <strong>{fark_tutar:,.0f} {esc(pb)}</strong> (%{bosluk_pct:.0f}) uzakta.
-Bu büyüklükteki fark portföyü <strong>{yontem}</strong> anlamına gelir.
-Rapor bu yeniden yapılandırmayı öneriler içinde açıkça belirtmemektedir;
-ancak gerçekte büyük bir varlık hareketi gerekmektedir.
-Pozisyon değişikliğini tek seferde değil, birden fazla işlemle gerçekleştirmeniz piyasa riskini azaltır.</p>
+Rapor bu farkı öneriler içinde açıkça ele almıyor.</p>
+<p>İki seçenek mevcut:</p>
+<ol>
+<li>{sec_a}.</li>
+<li>{sec_b}.</li>
+</ol>
+<p class="muted">Pozisyon değişikliğini tek seferde değil kademeli yapmanız piyasa riskini azaltır.</p>
 </div>"""
         elif bosluk_pct > 5:
             bosluk_html = f"<p class='muted'>Portföy ile öneri hedefi arasında %{bosluk_pct:.1f} fark — kontrol edin.</p>"

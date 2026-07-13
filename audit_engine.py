@@ -109,6 +109,7 @@ def denetim_calistir(
     # ── 1) Veri güncelliği ──────────────────────────────────────
     cds_kaynak = kh.get("cds", "")
     cds_lower = cds_kaynak.lower()
+    _cds_bloomberg = "bloomberg" in cds_lower and "erişilemedi" not in cds_lower
     if "investing" in cds_lower and any(x in cds_lower for x in ("çelişki", "çapraz", "tercih")):
         _ekle(bulgular, DenetimBulgusu(
             "UYARI", "veri",
@@ -117,29 +118,40 @@ def denetim_calistir(
             f"Kaynak: **{cds_kaynak}**.",
             "Bloomberg Terminal bağlantısını kontrol edin.",
         ))
-    elif any(x in " ".join(getattr(snap, "cekim_uyarilari", []) or []).lower() for x in ("geciken veri", "bloomberg terminal erişilemedi")):
-        _ekle(bulgular, DenetimBulgusu(
-            "UYARI", "veri",
-            "CDS yalnızca Investing (gecikmeli) veya tek kaynak",
-            f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
-            f"Kaynak: **{cds_kaynak}**.",
-            "Bloomberg Terminal (BLPAPI) bağlantısı kurulursa çapraz doğrulama aktif olur.",
-        ))
     elif any(x in cds_lower for x in ("piyasa modeli", "proxy", "türetilmiş")):
         _ekle(bulgular, DenetimBulgusu(
-            "BILGI", "veri",
-            "CDS piyasa modeli ile tahmin ediliyor",
+            "UYARI", "veri",
+            "CDS piyasa modeli / proxy ile tahmin ediliyor",
             f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
             f"Kaynak: **{cds_kaynak}** — doğrudan CDS kotasyonu değil, makro proxy.",
-            "Bloomberg Terminal veya Investing erişimini kontrol edin.",
+            "Sonuçlar gerçek piyasa kotasyonundan sapabilir; Bloomberg Terminal veya Investing bağlantısını kontrol edin.",
         ))
-    elif any(x in cds_lower for x in ("acil yedek", "ulaşılamadı")):
+    elif any(x in cds_lower for x in ("acil yedek", "ulaşılamadı", "önbellek")):
         _ekle(bulgular, DenetimBulgusu(
             "UYARI", "veri",
-            "CDS kaynağına ulaşılamadı",
+            "CDS kaynağına ulaşılamadı — önbellek/yedek kullanılıyor",
             f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
             f"Kaynak: **{cds_kaynak}**.",
             "Ağ bağlantısını kontrol edin; sistem bir sonraki yenilemede tekrar dener.",
+        ))
+    elif not _cds_bloomberg and cds_kaynak:
+        # Bloomberg çapraz doğrulaması yok — her koşulda göster
+        _ekle(bulgular, DenetimBulgusu(
+            "UYARI", "veri",
+            "CDS tek kaynak (Bloomberg doğrulaması yok)",
+            f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
+            f"Kaynak: **{cds_kaynak}** — Bloomberg Terminal bağlı değil.",
+            "Bloomberg Terminal (BLPAPI) bağlantısı kurulursa çapraz doğrulama aktif olur.",
+        ))
+    # cekim_uyarilari'nda Bloomberg/Investing uyarısı varsa da ekle
+    if any(x in " ".join(getattr(snap, "cekim_uyarilari", []) or []).lower()
+           for x in ("bloomberg terminal erişilemedi", "geciken veri")):
+        _ekle(bulgular, DenetimBulgusu(
+            "UYARI", "veri",
+            "CDS Investing (gecikmeli) — Bloomberg erişilemedi",
+            f"Rejim motoru CDS **{cds or '?'} bp** ile çalışıyor.",
+            f"Kaynak: **{cds_kaynak}**.",
+            "Bloomberg Terminal bağlantısı kurulursa gerçek zamanlı çapraz doğrulama aktif olur.",
         ))
 
     enf_kaynak = kh.get("enflasyon", "")

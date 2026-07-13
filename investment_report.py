@@ -244,14 +244,25 @@ def _backtest_html(
     def _sh(m):
         return f"{m.sharpe_yillik:.2f}" if m.sharpe_yillik is not None else "—"
 
+    # Dinamik'i yenen karşılaştırmayı bul (statik mi, bugünkü ağırlıklar mı?)
+    _en_iyi = kars.en_iyi_strateji
+    _din_sh = met.sharpe_yillik or 0
+    if (karsi and karsi.sharpe_yillik is not None
+            and karsi.sharpe_yillik - _din_sh >= 0.25):
+        _kaz_lbl = "bugünkü ağırlıkları sabit tutmak"
+        _kaz_sh = f"{karsi.sharpe_yillik:.2f}"
+    else:
+        _kaz_lbl = "statik referans portföy"
+        _kaz_sh = f"{ref.sharpe_yillik:.2f}" if ref.sharpe_yillik else "—"
+
     uyari = ""
     if kars.dinamik_dezavantaj and rejim_hic_gorulmedi:
         uyari = f"""<div class="ozet-kutu tl-onerilmiyor">
 <strong>Önemli Uyarı — Bu Raporun Önerisini Nasıl Okumalısınız</strong>
 <p>Backtest iki kritik sorunu aynı anda ortaya koyuyor:</p>
 <ol>
-<li>Son {ay} ayda dinamik rejim modeli, basit statik tahsisten <strong>daha kötü</strong> performans sergiledi
-(Sharpe: Dinamik {met.sharpe_yillik:.2f} &ndash; Statik {ref.sharpe_yillik:.2f}).</li>
+<li>Son {ay} ayda <strong>{_kaz_lbl}</strong> dinamik rejim modelinden <strong>daha iyi</strong> performans sergiledi
+(Sharpe: Dinamik {_din_sh:.2f} &ndash; {_esc(_en_iyi)}: {_kaz_sh}).</li>
 <li>Mevcut rejim (<em>{_esc(rejim.replace("_", " "))}</em>) bu dönemde hiç görülmedi
 (%{met.mevcut_rejim_oran_pct:.0f}) — bugünkü öneri seti <strong>test edilmemiş koşullara</strong> dayanıyor.</li>
 </ol>
@@ -630,28 +641,50 @@ def rapor_html_olustur(
         if _bt_kars:
             _bt_met = _bt_kars.dinamik
             _bt_ref = _bt_kars.referans_statik
+            _bt_karsi = _bt_kars.karsi_olgusal
             _bt_rejim_hic = (
                 tahsis.rejim.rejim
                 and _bt_met.mevcut_rejim_oran_pct is not None
                 and _bt_met.mevcut_rejim_oran_pct < 1
             )
+            # Dinamik'i yenen karşılaştırmayı bul (statik mi, bugünkü ağırlıklar mı?)
+            _bt_en_iyi = _bt_kars.en_iyi_strateji
+            if _bt_karsi and _bt_karsi.sharpe_yillik is not None and _bt_met.sharpe_yillik is not None:
+                _kar_sh = _bt_karsi.sharpe_yillik
+                _din_sh = _bt_met.sharpe_yillik
+                if _kar_sh - _din_sh >= 0.25:
+                    _bt_kazanan_etiket = "bugünkü ağırlıkları sabit tutmak"
+                    _bt_kazanan_sh = f"{_kar_sh:.2f}"
+                    _bt_din_sh_str = f"{_din_sh:.2f}"
+                else:
+                    _bt_kazanan_etiket = "statik referans portföy"
+                    _bt_kazanan_sh = f"{_bt_ref.sharpe_yillik:.2f}" if _bt_ref.sharpe_yillik else "—"
+                    _bt_din_sh_str = f"{_din_sh:.2f}"
+            else:
+                _bt_kazanan_etiket = _bt_en_iyi.lower()
+                _bt_kazanan_sh = (
+                    f"{_bt_ref.sharpe_yillik:.2f}" if _bt_ref.sharpe_yillik else "—"
+                )
+                _bt_din_sh_str = f"{_bt_met.sharpe_yillik:.2f}" if _bt_met.sharpe_yillik else "—"
+
             if _bt_kars.dinamik_dezavantaj and _bt_rejim_hic:
                 _backtest_ozet_uyari = (
                     f'<div class="ozet-kutu tl-onerilmiyor" style="margin-top:14px">'
                     f"<strong>Model Sınırı — Önemli:</strong> "
-                    f"Son 12 ayda dinamik rejim modeli statik tahsisten "
-                    f"<strong>daha kötü</strong> performans sergiledi "
-                    f"(Sharpe: {_bt_met.sharpe_yillik:.2f} vs {_bt_ref.sharpe_yillik:.2f}). "
+                    f"Son 12 ayda <strong>{_bt_kazanan_etiket}</strong> dinamik rejim modelinden "
+                    f"<strong>daha iyi</strong> performans sergiledi "
+                    f"(Sharpe: Dinamik {_bt_din_sh_str} — {_bt_en_iyi}: {_bt_kazanan_sh}). "
                     f"Üstelik mevcut rejim ({_esc(tahsis.rejim.rejim.replace('_', ' '))}) "
                     "simülasyon döneminde hiç görülmedi — öneri seti test edilmemiş koşullara dayanıyor. "
                     "Spesifik yüzdelerden çok çerçeveyi (başabaş kur, TL tavan, reel getiri) esas alınız. "
-                    "Teknik Ekler bölümünde tam backtest analizi mevcuttur.</div>"
+                    "Teknik Ekler &gt; Backtest bölümünde tam analiz mevcuttur.</div>"
                 )
             elif _bt_kars.dinamik_dezavantaj:
                 _backtest_ozet_uyari = (
                     f'<div class="ozet-kutu tl-sinirli" style="margin-top:14px">'
-                    f"<strong>Model Uyarısı:</strong> Dinamik rejim modeli son 12 ayda "
-                    f"statik referanstan geride (Sharpe: {_bt_met.sharpe_yillik:.2f} vs {_bt_ref.sharpe_yillik:.2f}). "
+                    f"<strong>Model Uyarısı:</strong> Son 12 ayda <strong>{_bt_kazanan_etiket}</strong> "
+                    f"dinamik rejim modelinden daha iyi performans sergiledi "
+                    f"(Sharpe: Dinamik {_bt_din_sh_str} — {_bt_en_iyi}: {_bt_kazanan_sh}). "
                     "Önerileri rehber olarak kullanın, kesin emir olarak değil.</div>"
                 )
     except Exception:
@@ -830,8 +863,9 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
     <tr><td>Döviz rezervleri</td><td class="num">{rezerv}</td>
         <td>TL maksimum pay</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td></tr>
 </table>
-<p class="muted">Siyasi ve jeopolitik haber sayıları farklı zaman pencerelerinden (sırasıyla son {siyasi_pencere}s ve son 48s)
-farklı kaynaklarla taranır — sayılar arasındaki fark bu nedenle normaldir.</p>
+<p class="muted">Siyasi ve jeopolitik haber sayıları farklı anahtar kelime setleriyle farklı kaynaklardan taranır.
+Her iki sayı da aynı {siyasi_pencere} saatlik pencerededir; aralarındaki fark zaman değil,
+duygu analizi ağırlıklandırmasından (negatif duygu sayıyı artırır) ve farklı sorgu konularından kaynaklanır.</p>
 
 <!-- 7. MAKRO DEĞERLENDİRME -->
 <h2>Makro Piyasa Değerlendirmesi</h2>

@@ -211,9 +211,10 @@ def explain_tl_decision(
         baglayici = ("Kapı 4 (rezerv)", etki, onceki, pay)
 
     # Kapı 1b — jeopolitik (etkin)
-    # Not: bu sayı Kapı 1'deki siyasi sayısından FARKLI bir kaynaktan gelir.
-    # etkin_jeo: jeopolitik/savaş haberlerinin duygu-düzeltilmiş sayısı (son 48s)
-    # Kapı 1'deki "ham" ise siyasi haberlerin ham GDELT sayısıdır (son 24s)
+    # Not: bu sayı Kapı 1'deki siyasi sayısından farklı bir sorgu + kaynaktan gelir.
+    # etkin_jeo: jeopolitik/savaş haberlerinin duygu-düzeltilmiş sayısı
+    # Kapı 1 siyasi politika haberlerini tarar; Kapı 1b savaş/jeopolitik tehdit haberlerini tarar.
+    # Her ikisi de aynı zaman penceresi; fark sorgu konusu + duygu ağırlıklandırmasından gelir.
     duygu_j = sentiment.jeopolitik.ort_duygu if sentiment else 0
     onceki = pay
     if veri.savas_risk_guvenilir is False:
@@ -229,7 +230,7 @@ def explain_tl_decision(
         TlExplainAdim(
             adim=(
                 f"Kapı 1b — Jeopolitik risk (duygu-düzeltilmiş: {etkin_jeo}, "
-                f"duygu skoru: {duygu_j:+.2f}) — Kapı 1'den farklı kaynak/pencere"
+                f"duygu skoru: {duygu_j:+.2f}) — Kapı 1 siyasiyle aynı pencere, farklı sorgu"
             ),
             etki=etki,
             kirdi_mi=kirdi,
