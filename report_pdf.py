@@ -394,12 +394,17 @@ def _backtest_bolumu(
     profil: YatirimProfili,
     ay: int = 12,
     sabit_agirliklar: Optional[dict] = None,
+    onceden_hesaplanan_kars=None,
 ) -> None:
+    """Backtest PDF bölümü. onceden_hesaplanan_kars verilirse yeniden hesaplama yapılmaz."""
     try:
-        satirlar = backtest_calistir(ay, profil=profil)
-        kars = backtest_karsilastirma_uret(
-            satirlar, rejim, bugun_agirliklar=sabit_agirliklar, profil=profil
-        )
+        if onceden_hesaplanan_kars is not None:
+            kars = onceden_hesaplanan_kars
+        else:
+            satirlar = backtest_calistir(ay, profil=profil)
+            kars = backtest_karsilastirma_uret(
+                satirlar, rejim, bugun_agirliklar=sabit_agirliklar, profil=profil
+            )
     except Exception:
         return
     if not kars:
@@ -705,8 +710,18 @@ class RaporPDF:
         )
 
     def antet(self, profil: YatirimProfili, snap: MacroSnapshot) -> None:
-        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         veri = _zaman_kisa(snap.veri_zamani)
+        try:
+            import subprocess
+            _git_hash = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=__file__[:__file__.rfind("/")],
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            ).decode().strip()
+        except Exception:
+            _git_hash = "—"
         self.pdf.set_fill_color(0, 51, 102)
         self.pdf.rect(0, 0, 210, 30, "F")
         self.pdf.set_text_color(255, 255, 255)
@@ -726,7 +741,7 @@ class RaporPDF:
         self.pdf.ln(6)
         self.pdf.set_text_color(0, 0, 0)
         self.pdf.set_font("TR", "", 8.5)
-        self.paragraf(f"Rapor tarihi: {now}  ·  Veri güncellemesi: {veri}  ·  Mod: {snap.veri_kaynak.upper()}")
+        self.paragraf(f"Rapor üretildi: {now}  ·  Veri güncellemesi: {veri}  ·  Mod: {snap.veri_kaynak.upper()}  ·  Sürüm: {_git_hash}")
         self.paragraf(f"Yatırımcı profili: {profil.ozet()}")
         self.pdf.ln(2)
 
@@ -890,14 +905,20 @@ def rapor_pdf_direkt_olustur(
     doc = RaporPDF()
     doc.antet(profil, snap)
 
-    # ── Backtest özet uyarısı — section 1'e taşı ─────────────────────────────
-    _bt_ozet_uyari = ""
+    # ── Backtest tek seferinde hesapla — hem özet uyarısı hem de teknik ek paylaşır ──
+    _bt_kars_onceden = None
     try:
         _bt_s = backtest_calistir(12, profil=profil)
-        _bt_k = backtest_karsilastirma_uret(
+        _bt_kars_onceden = backtest_karsilastirma_uret(
             _bt_s, tahsis.rejim.rejim,
             bugun_agirliklar=tahsis.agirliklar, profil=profil
         )
+    except Exception:
+        _bt_kars_onceden = None
+
+    _bt_ozet_uyari = ""
+    try:
+        _bt_k = _bt_kars_onceden
         if _bt_k:
             _bt_m = _bt_k.dinamik
             _bt_r = _bt_k.referans_statik
@@ -935,7 +956,7 @@ def rapor_pdf_direkt_olustur(
                     "Onerileri rehber olarak kullanin, kesin emir olarak degil."
                 )
     except Exception:
-        pass
+        _bt_ozet_uyari = ""
 
     # ── 1. BUGÜNKÜ ÖZET & AKSİYONLAR ─────────────────────────────────────────
     doc.bolum("Bugünkü Durum ve Önerilen Aksiyonlar")
@@ -1172,7 +1193,11 @@ def rapor_pdf_direkt_olustur(
     _, profil_vade_gun = profil_mevduat_vadesi(tahsis.profil or YatirimProfili())
     _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama, birlesik_oneri=birlesik_oneri)
 
-    _backtest_bolumu(doc, tahsis.rejim.rejim, profil, sabit_agirliklar=tahsis.agirliklar)
+    _backtest_bolumu(
+        doc, tahsis.rejim.rejim, profil,
+        sabit_agirliklar=tahsis.agirliklar,
+        onceden_hesaplanan_kars=_bt_kars_onceden,
+    )
 
     doc.footer_disclaimer()
     return doc.bytes()

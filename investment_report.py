@@ -221,12 +221,18 @@ def _backtest_html(
     profil: YatirimProfili,
     bugun_agirliklar: Optional[dict] = None,
     ay: int = 12,
+    onceden_hesaplanan_kars=None,
 ) -> str:
+    """Backtest HTML bloğu. onceden_hesaplanan_kars verilirse yeniden hesaplama yapılmaz."""
     try:
-        satirlar = backtest_calistir(ay, profil=profil)
-        kars = backtest_karsilastirma_uret(
-            satirlar, rejim, bugun_agirliklar=bugun_agirliklar, profil=profil
-        )
+        if onceden_hesaplanan_kars is not None:
+            kars = onceden_hesaplanan_kars
+            satirlar = kars.satirlar
+        else:
+            satirlar = backtest_calistir(ay, profil=profil)
+            kars = backtest_karsilastirma_uret(
+                satirlar, rejim, bugun_agirliklar=bugun_agirliklar, profil=profil
+            )
     except Exception:
         return ""
     if not kars:
@@ -365,6 +371,17 @@ def rapor_html_olustur(
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     v = snap.veri
     now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    rapor_uretim_zamani = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    try:
+        import subprocess
+        _git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=__file__[:__file__.rfind("/")],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).decode().strip()
+    except Exception:
+        _git_hash = "—"
     vade_metin = VADE_SECENEKLERI.get(profil.vade, profil.vade)
 
     makro_satirlar = ""
@@ -627,18 +644,26 @@ def rapor_html_olustur(
         <h3>Piyasaya Göre Öne Çıkanlar</h3>
         {piyasa_html}"""
 
-    backtest_html = _backtest_html(
-        tahsis.rejim.rejim, profil, bugun_agirliklar=tahsis.agirliklar
-    )
-    # Backtest özet uyarısı — bölüm 1 (özet) için erken hesaplama
+    # Backtest tek seferinde çalıştır — hem özet hem de teknik ek aynı sonucu kullanır
     _backtest_ozet_uyari = ""
+    _bt_kars_onceden = None
     try:
         _bt_satirlar = backtest_calistir(12, profil=profil)
-        _bt_kars = backtest_karsilastirma_uret(
+        _bt_kars_onceden = backtest_karsilastirma_uret(
             _bt_satirlar, tahsis.rejim.rejim,
             bugun_agirliklar=tahsis.agirliklar, profil=profil
         )
-        if _bt_kars:
+    except Exception:
+        _bt_kars_onceden = None
+
+    backtest_html = _backtest_html(
+        tahsis.rejim.rejim, profil,
+        bugun_agirliklar=tahsis.agirliklar,
+        onceden_hesaplanan_kars=_bt_kars_onceden,
+    )
+
+    _bt_kars = _bt_kars_onceden
+    if _bt_kars:
             _bt_met = _bt_kars.dinamik
             _bt_ref = _bt_kars.referans_statik
             _bt_karsi = _bt_kars.karsi_olgusal
@@ -687,8 +712,6 @@ def rapor_html_olustur(
                     f"(Sharpe: Dinamik {_bt_din_sh_str} — {_bt_en_iyi}: {_bt_kazanan_sh}). "
                     "Önerileri rehber olarak kullanın, kesin emir olarak değil.</div>"
                 )
-    except Exception:
-        pass
 
     from kullanici_portfoy import varsayilan_portfoy
     from rapor_ek_bolumler import birlesik_oneri_html_blok, varliklarim_html_blok
@@ -804,7 +827,7 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
 <div class="antet">
     <h1>Yatırım Raporu</h1>
     <p class="alt">Kişisel Portföy Asistanı — Makro Analiz &amp; Hisse Taraması</p>
-    <p class="meta">Rapor tarihi: {now} &nbsp;·&nbsp; Veri güncellemesi: {_esc(snap.veri_zamani)} &nbsp;·&nbsp; Mod: {_esc(snap.veri_kaynak.upper())}</p>
+    <p class="meta">Rapor üretildi: {rapor_uretim_zamani} &nbsp;·&nbsp; Veri güncellemesi: {_esc(snap.veri_zamani)} &nbsp;·&nbsp; Mod: {_esc(snap.veri_kaynak.upper())} &nbsp;·&nbsp; Sürüm: <code style="font-size:0.85em;color:#555">{_git_hash}</code></p>
     <p class="meta">Yatırımcı profili: {_esc(profil.ozet())}</p>
 </div>
 
