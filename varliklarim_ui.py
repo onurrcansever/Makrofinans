@@ -206,7 +206,11 @@ def _poz_form_icerigi(
         pb_baslangic = (poz.para_birimi if poz and poz.para_birimi in pb_secenekler
                         else varsayilan_pb)
         pb_idx = pb_secenekler.index(pb_baslangic) if pb_baslangic in pb_secenekler else 0
-        para = fc6.selectbox("Para birimi", pb_secenekler, index=pb_idx)
+        # key içinde tur dahil: tür değişince widget sıfırlanır, yeni varsayılan geçerli olur
+        para = fc6.selectbox(
+            "Para birimi", pb_secenekler, index=pb_idx,
+            key=f"{form_key}_para_{tur}",
+        )
 
         toplam_maliyet = miktar * alim_fiyati if birimli and alim_fiyati > 0 else miktar
         if birimli and alim_fiyati > 0:

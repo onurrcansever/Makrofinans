@@ -469,8 +469,14 @@ def portfoy_degerle(
             poz_para_override = "TL"
             birim_guncel = eur_try
             if p.para_birimi == "EUR" and p.miktar > 0:
+                # Normal: miktar EUR cinsinden girilmiş
+                qty = p.miktar
+            elif p.alim_fiyati > 0 and p.miktar > 0 and p.maliyet > p.miktar * 1.5:
+                # Form bug düzeltmesi: para_birimi="TL" kaydedilmiş ama miktar EUR,
+                # maliyet=miktar×alim_fiyati (TL). miktar'ı EUR olarak kullan.
                 qty = p.miktar
             elif p.maliyet > 0 and eur_try > 0:
+                # Legacy mod: miktar TL tutar olarak girilmiş
                 qty = p.maliyet / eur_try
             else:
                 qty = p.miktar if p.miktar > 0 else 0.0
@@ -491,6 +497,9 @@ def portfoy_degerle(
             poz_para_override = "TL"
             birim_guncel = usd_try
             if p.para_birimi == "USD" and p.miktar > 0:
+                qty = p.miktar
+            elif p.alim_fiyati > 0 and p.miktar > 0 and p.maliyet > p.miktar * 1.5:
+                # Form bug düzeltmesi: para_birimi="TL" ama miktar USD
                 qty = p.miktar
             elif p.maliyet > 0 and usd_try > 0:
                 qty = p.maliyet / usd_try
