@@ -360,9 +360,11 @@ def uygulama_onbellegi_al(
     st.session_state.birlesik_oneri = ob.birlesik
     st.session_state._birlesik_ck = key
 
-    # BIST/hisse taramasını hemen arka planda başlat — Portföy Tahsisi'ne
-    # gelene kadar hazır olsun; profil/rejim değişimlerinde gecikme yaşanmasın.
-    tarama_cek(
+    # BIST/hisse taramasını hemen başlat — Portföy Tahsisi'ne gelene kadar
+    # hazır olsun; profil/rejim değişimlerinde gecikme yaşanmasın.
+    # Sonucu ob.tarama'ya yaz ki fragment "None" görmesin ve 8 sn'de bir
+    # disk önbelleğini kontrol edebilsin.
+    _ob_tarama = tarama_cek(
         canli_mod,
         tahsis.rejim.rejim,
         snap.veri_kaynak,
@@ -370,6 +372,7 @@ def uygulama_onbellegi_al(
         profil_risk=profil.risk,
         profil_vade=profil.vade,
     )
+    ob.tarama = _ob_tarama
 
     progress.progress(1.0, text="Temel veriler hazır — ağır bölümler sekmede yüklenir")
     progress.empty()

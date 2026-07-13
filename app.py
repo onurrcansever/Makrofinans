@@ -768,14 +768,19 @@ if sayfa == "Portföy Tahsisi":
     _ob = _sayfa_onbellegi_hazirla(_ob)
     birlesik = _ob.birlesik
 
-    @st.fragment(run_every=15)
+    @st.fragment(run_every=8)
     def _portfoy_bist_otoyenile():
         ob = st.session_state.get("app_onbellek")
         if ob is None:
             return
-        tarama_hazir = ob.tarama is not None and not tarama_yukleniyor(ob.tarama)
-        if not tarama_hazir or ob.birlesik_tarama_hazir:
+        # Zaten tamam → dur
+        if ob.birlesik_tarama_hazir:
             return
+        # Tarama hiç başlamadıysa → bekle
+        if ob.tarama is None:
+            return
+        # Tarama yükleniyor (placeholder) VEYA tarama bitti ama birleşik güncellenmedi
+        # → disk önbelleğini kontrol et; arka plan tamamlandıysa veriyi al
         from app_onbellek import onbellek_sayfa_hazirla as _osh
         _osh(
             ob,
@@ -788,7 +793,8 @@ if sayfa == "Portföy Tahsisi":
             bt_ay=bt_ay,
         )
         st.session_state.birlesik_oneri = ob.birlesik
-        st.rerun()
+        if ob.birlesik_tarama_hazir:
+            st.rerun()
 
     if not _ob.birlesik_tam or (not _ob.birlesik_tarama_hazir and not tarama_yukleniyor(_ob.tarama)):
         with st.spinner("TEFAS ve BIST önerileri hazırlanıyor (ilk seferde ~1 dk, sonrası anında)…"):
