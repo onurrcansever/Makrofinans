@@ -360,6 +360,17 @@ def uygulama_onbellegi_al(
     st.session_state.birlesik_oneri = ob.birlesik
     st.session_state._birlesik_ck = key
 
+    # BIST/hisse taramasını hemen arka planda başlat — Portföy Tahsisi'ne
+    # gelene kadar hazır olsun; profil/rejim değişimlerinde gecikme yaşanmasın.
+    tarama_cek(
+        canli_mod,
+        tahsis.rejim.rejim,
+        snap.veri_kaynak,
+        tick,
+        profil_risk=profil.risk,
+        profil_vade=profil.vade,
+    )
+
     progress.progress(1.0, text="Temel veriler hazır — ağır bölümler sekmede yüklenir")
     progress.empty()
 
