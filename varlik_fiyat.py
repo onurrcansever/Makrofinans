@@ -220,7 +220,7 @@ def _fx_period(portfoy: VarlikPortfoy, bugun: date) -> str:
     """Döviz alım tarihine göre Yahoo FX geçmişi süresi."""
     en_eski: Optional[date] = None
     for p in portfoy.pozisyonlar:
-        if p.tur not in ("nakit_eur", "nakit_usd"):
+        if p.tur not in ("nakit_eur", "nakit_usd", "nakit_ron"):
             continue
         g = _alim_tarihi_date(p.alim_tarihi)
         if g and (en_eski is None or g < en_eski):
@@ -302,6 +302,8 @@ def _miktar_etiket(p: VarlikPozisyon, qty: float) -> str:
         return f"{qty:,.2f} EUR"
     if p.tur == "nakit_usd":
         return f"{qty:,.2f} USD"
+    if p.tur == "nakit_ron":
+        return f"{qty:,.2f} RON"
     return f"{qty:,.0f} {p.para_birimi or 'TL'}"
 
 
@@ -366,6 +368,8 @@ def _yf_sembolleri(pozisyonlar: List[VarlikPozisyon]) -> List[str]:
             out.add("EURTRY=X")
         elif p.tur == "nakit_usd":
             out.add("USDTRY=X")
+        elif p.tur == "nakit_ron":
+            out.add("RONTRY=X")
     return sorted(out)
 
 
@@ -451,6 +455,8 @@ def portfoy_degerle(
         maliyet_d = p.maliyet_toplam()
         deger = maliyet_d
         seri = pd.Series(dtype=float)
+        # nakit_eur/usd/ron için deger TL cinsinden hesaplanır; para="TL" olarak sakla
+        poz_para_override: Optional[str] = None
 
         if p.tur == "nakit_tl":
             birim_guncel = 1.0
@@ -459,6 +465,8 @@ def portfoy_degerle(
             p_miktar = p.miktar
             getiriler = {et: 0.0 for et in PERIYOTLAR}
         elif p.tur == "nakit_eur":
+            # deger/maliyet_d TL cinsinden → para="TL" kullan (çift dönüşümü önle)
+            poz_para_override = "TL"
             birim_guncel = eur_try
             if p.para_birimi == "EUR" and p.miktar > 0:
                 qty = p.miktar
@@ -479,6 +487,8 @@ def portfoy_degerle(
             p_miktar = qty
             getiriler = _getiriler_portfoy(fx_eur, p.alim_tarihi, bugun) if not fx_eur.empty else {et: 0.0 for et in PERIYOTLAR}
         elif p.tur == "nakit_usd":
+            # deger/maliyet_d TL cinsinden → para="TL" kullan
+            poz_para_override = "TL"
             birim_guncel = usd_try
             if p.para_birimi == "USD" and p.miktar > 0:
                 qty = p.miktar
@@ -498,6 +508,31 @@ def portfoy_degerle(
             deger = qty * usd_try if qty > 0 else maliyet_d
             p_miktar = qty
             getiriler = _getiriler_portfoy(fx_usd, p.alim_tarihi, bugun) if not fx_usd.empty else {et: 0.0 for et in PERIYOTLAR}
+        elif p.tur == "nakit_ron":
+            # RON/TRY — deger/maliyet_d TL cinsinden
+            poz_para_override = "TL"
+            ron_try = snap.veri.__dict__.get("ron_try") or getattr(snap.veri, "ron_try", None) or 0.0
+            if ron_try <= 0 and not df.empty:
+                fx_ron = _close_al(df, "RONTRY=X")
+                ron_try = float(fx_ron.iloc[-1]) if not fx_ron.empty else 0.0
+            else:
+                fx_ron = _close_al(df, "RONTRY=X") if not df.empty else pd.Series(dtype=float)
+            if ron_try <= 0:
+                ron_try = eur_try / 5.0  # kaba tahmini (1 EUR ≈ 5 RON)
+            birim_guncel = ron_try
+            qty = p.miktar if p.miktar > 0 else 0.0
+            maliyet_kayit = p.maliyet if p.maliyet > 0 else 0.0
+            alim_kur = _doviz_alim_kuru(p, fx_ron if not df.empty else pd.Series(dtype=float), qty, maliyet_kayit)
+            birim_alim = alim_kur or 0.0
+            if alim_kur and qty > 0:
+                maliyet_d = qty * alim_kur
+            elif maliyet_kayit > 0:
+                maliyet_d = maliyet_kayit
+            else:
+                maliyet_d = qty * ron_try if qty > 0 else 0.0
+            deger = qty * ron_try if qty > 0 else maliyet_d
+            p_miktar = qty
+            getiriler = _getiriler_portfoy(fx_ron, p.alim_tarihi, bugun) if not df.empty and not fx_ron.empty else {et: 0.0 for et in PERIYOTLAR}
         elif p.tur == "tl_mevduat":
             deger = _mevduat_deger(p, bugun)
             birim_guncel = deger / p.miktar if p.miktar > 0 else 1.0
@@ -619,6 +654,8 @@ def portfoy_degerle(
 
         kz = deger - maliyet_d
         kz_pct = (kz / maliyet_d * 100) if maliyet_d > 0 else 0.0
+        # poz_para_override: döviz pozisyonlarında deger TL'de; çift dönüşümü önle
+        _para = poz_para_override if poz_para_override else (p.para_birimi or "TL")
         poz_degerler.append(
             PozisyonDeger(
                 pozisyon=p,
@@ -629,10 +666,11 @@ def portfoy_degerle(
                 maliyet_deger=maliyet_d,
                 kar_zarar=kz,
                 kar_zarar_pct=kz_pct,
-                para=p.para_birimi or "TL",
+                para=_para,
                 getiriler=getiriler,
             )
         )
+        poz_para_override = None  # sıfırla
 
     toplam = {"TL": 0.0, "EUR": 0.0, "USD": 0.0}
     maliyet_toplam = {"TL": 0.0, "EUR": 0.0, "USD": 0.0}

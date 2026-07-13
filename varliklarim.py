@@ -22,6 +22,7 @@ TUR_SECENEKLERI = {
     "nakit_tl": "TL nakit",
     "nakit_eur": "EUR nakit",
     "nakit_usd": "USD nakit",
+    "nakit_ron": "RON nakit (Rumen Leyi)",
     "tl_mevduat": "TL vadeli mevduat",
     "tefas": "TEFAS fon",
     "hisse": "BIST hissesi",
@@ -37,6 +38,7 @@ MIKTAR_ETIKET = {
     "nakit_tl": "Tutar (TL)",
     "nakit_eur": "Tutar (EUR)",
     "nakit_usd": "Tutar (USD)",
+    "nakit_ron": "Tutar (RON)",
     "tl_mevduat": "Anapara (TL)",
     "tefas": "Pay adedi",
     "hisse": "Lot / adet",
@@ -54,6 +56,7 @@ ALIM_FIYAT_ETIKET = {
     "kripto": "Alış fiyatı (USD/BTC)",
     "nakit_eur": "Alım kuru (EUR/TL, isteğe bağlı)",
     "nakit_usd": "Alım kuru (USD/TL, isteğe bağlı)",
+    "nakit_ron": "Alım kuru (RON/TL, isteğe bağlı)",
 }
 
 

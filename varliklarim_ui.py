@@ -22,6 +22,7 @@ from varliklarim import (
     kaydet_store,
     oneri_portfoye_aktar,
     pozisyon_ekle,
+    pozisyon_guncelle,
     pozisyon_sil,
     portfoy_sil,
     yeni_portfoy,
@@ -82,7 +83,7 @@ def _fmt_birim(v: float, tur: str) -> str:
         return f"{v:,.2f}"
     if tur == "kripto":
         return f"{v:,.0f}"
-    if tur in ("nakit_eur", "nakit_usd"):
+    if tur in ("nakit_eur", "nakit_usd", "nakit_ron"):
         return f"{v:,.4f}"
     return f"{v:,.2f}"
 
@@ -121,18 +122,39 @@ def _pozisyon_tablo(deger, pb: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _pozisyon_formu(store: VarlikStore, aktif: VarlikPortfoy) -> None:
-    """Pozisyon ekleme — fiyat yüklenmeden önce gösterilir (vade/mevduat girişi için)."""
-    with st.expander("Pozisyon ekle / düzenle", expanded=not aktif.pozisyonlar):
-        tur = st.selectbox(
-            "Tür",
-            list(TUR_SECENEKLERI.keys()),
-            format_func=lambda k: TUR_SECENEKLERI[k],
-            key="varlik_tur_sec",
-        )
-        birimli = tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
-        varsayilan_pb = "EUR" if tur == "nakit_eur" else "USD" if tur == "nakit_usd" else "TL"
+def _doviz_turler():
+    return ("nakit_eur", "nakit_usd", "nakit_ron")
 
+
+def _varsayilan_pb(tur: str) -> str:
+    return {"nakit_eur": "EUR", "nakit_usd": "USD", "nakit_ron": "RON"}.get(tur, "TL")
+
+
+def _poz_form_icerigi(
+    form_key: str,
+    submit_etiket: str,
+    *,
+    tur_baslangic: str = "nakit_tl",
+    poz: "VarlikPozisyon | None" = None,
+) -> "VarlikPozisyon | None":
+    """Ortak pozisyon form içeriği. Yeni ekleme veya düzenleme için kullanılır.
+    Düzenlemede poz!=None; form alanları mevcut değerlerle doldurulur.
+    Başarılı submit'te VarlikPozisyon döndürür, yoksa None."""
+    tur_listesi = list(TUR_SECENEKLERI.keys())
+    tur_idx = tur_listesi.index(poz.tur) if poz and poz.tur in tur_listesi else tur_listesi.index(tur_baslangic)
+
+    tur = st.selectbox(
+        "Tür",
+        tur_listesi,
+        index=tur_idx,
+        format_func=lambda k: TUR_SECENEKLERI[k],
+        key=f"{form_key}_tur",
+        disabled=poz is not None,  # düzenlemede tür değiştirilemez
+    )
+    birimli = tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
+    varsayilan_pb = _varsayilan_pb(tur)
+
+    if not poz:
         st.caption(
             "**Nasıl girilir?** "
             + (
@@ -143,83 +165,137 @@ def _pozisyon_formu(store: VarlikStore, aktif: VarlikPortfoy) -> None:
             )
         )
 
-        with st.form("varlik_poz_form", clear_on_submit=True):
-            fc1, fc2, fc3 = st.columns(3)
-            sembol = fc1.text_input(
-                "Sembol (THYAO, YIV, CSPX…)",
-                "",
-                disabled=tur in ("nakit_tl", "nakit_eur", "nakit_usd", "tl_mevduat", "altin", "gumus"),
-            )
-            ad = fc2.text_input("Açıklama", "")
-            alim = fc3.date_input("Alım tarihi", value=date.today())
+    with st.form(form_key, clear_on_submit=not poz):
+        fc1, fc2, fc3 = st.columns(3)
+        sembol_disabled = tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat", "altin", "gumus")
+        sembol = fc1.text_input(
+            "Sembol (THYAO, YIV, CSPX…)",
+            value=poz.sembol if poz else "",
+            disabled=sembol_disabled,
+        )
+        ad = fc2.text_input("Açıklama", value=poz.ad if poz else "")
 
-            fc4, fc5, fc6 = st.columns(3)
-            miktar_et = MIKTAR_ETIKET.get(tur, "Miktar")
-            miktar = fc4.number_input(
-                miktar_et, min_value=0.0, step=0.01 if birimli else 1000.0,
-                format="%.4f" if birimli else "%.0f",
-            )
-            alim_fiyat_et = ALIM_FIYAT_ETIKET.get(tur, "Alış fiyatı (birim)")
-            alim_fiyati = fc5.number_input(
-                alim_fiyat_et,
-                min_value=0.0,
-                step=0.01 if birimli else 0.5,
-                value=0.0,
-                disabled=not birimli and tur not in ("nakit_eur", "nakit_usd"),
-            )
-            para = fc6.selectbox(
-                "Para birimi", ["TL", "EUR", "USD"],
-                index=["TL", "EUR", "USD"].index(varsayilan_pb),
-            )
+        alim_val = date.today()
+        if poz and poz.alim_tarihi:
+            try:
+                alim_val = date.fromisoformat(poz.alim_tarihi)
+            except ValueError:
+                pass
+        alim = fc3.date_input("Alım tarihi", value=alim_val)
 
-            toplam_maliyet = miktar * alim_fiyati if birimli and alim_fiyati > 0 else miktar
-            if birimli and alim_fiyati > 0:
-                st.info(f"Tahmini maliyet: **{toplam_maliyet:,.2f} {para}** (= {miktar:,.4f} × {alim_fiyati:,.4f})")
-            elif tur in ("nakit_eur", "nakit_usd") and alim_fiyati > 0:
-                st.info("Alım kuru kaydedildi — K/Z kur farkından hesaplanır.")
-            elif tur in ("nakit_eur", "nakit_usd"):
-                st.caption("Alım kuru boş bırakılırsa **alım tarihindeki** EUR/TL kuru kullanılır.")
+        fc4, fc5, fc6 = st.columns(3)
+        miktar_et = MIKTAR_ETIKET.get(tur, "Miktar")
+        miktar_default = float(poz.miktar) if poz else 0.0
+        miktar = fc4.number_input(
+            miktar_et,
+            min_value=0.0,
+            step=0.01 if birimli else 1.0,
+            value=miktar_default,
+            format="%.4f" if birimli else "%.2f",
+        )
+        alim_fiyat_et = ALIM_FIYAT_ETIKET.get(tur, "Alış fiyatı (birim)")
+        alim_fiyati_default = float(poz.alim_fiyati) if poz else 0.0
+        alim_fiyati = fc5.number_input(
+            alim_fiyat_et,
+            min_value=0.0,
+            step=0.01 if birimli else 0.1,
+            value=alim_fiyati_default,
+            disabled=not birimli and tur not in _doviz_turler(),
+        )
+        pb_secenekler = ["TL", "EUR", "USD", "RON"]
+        pb_baslangic = (poz.para_birimi if poz and poz.para_birimi in pb_secenekler
+                        else varsayilan_pb)
+        pb_idx = pb_secenekler.index(pb_baslangic) if pb_baslangic in pb_secenekler else 0
+        para = fc6.selectbox("Para birimi", pb_secenekler, index=pb_idx)
 
-            fc7, fc8, fc9 = st.columns(3)
-            banka = fc7.text_input("Banka (mevduat)", "", disabled=tur != "tl_mevduat")
-            faiz = fc8.number_input("Brüt faiz % (mevduat)", min_value=0.0, step=0.5, disabled=tur != "tl_mevduat")
-            vade_gun = fc9.number_input(
-                "Vade (gün, mevduat)",
-                min_value=0,
-                max_value=730,
-                step=1,
-                value=0,
-                disabled=tur != "tl_mevduat",
-                help="Örn. 92 = 3 ay. Girilirse vade sonu tarihi izlenir, Karar Asistanı ve WhatsApp uyarısı devreye girer.",
+        toplam_maliyet = miktar * alim_fiyati if birimli and alim_fiyati > 0 else miktar
+        if birimli and alim_fiyati > 0:
+            st.info(f"Tahmini maliyet: **{toplam_maliyet:,.2f} {para}** (= {miktar:,.4f} × {alim_fiyati:,.4f})")
+        elif tur in _doviz_turler() and alim_fiyati > 0:
+            st.info("Alım kuru kaydedildi — K/Z kur farkından hesaplanır.")
+        elif tur in _doviz_turler():
+            st.caption("Alım kuru boş bırakılırsa **alım tarihindeki** kur kullanılır.")
+
+        fc7, fc8, fc9 = st.columns(3)
+        banka = fc7.text_input("Banka (mevduat)", value=poz.banka if poz else "",
+                               disabled=tur != "tl_mevduat")
+        faiz = fc8.number_input("Brüt faiz % (mevduat)",
+                                min_value=0.0, step=0.5,
+                                value=float(poz.brut_faiz) if poz else 0.0,
+                                disabled=tur != "tl_mevduat")
+        vade_gun = fc9.number_input(
+            "Vade (gün, mevduat)",
+            min_value=0, max_value=730, step=1,
+            value=int(poz.vade_gun) if poz else 0,
+            disabled=tur != "tl_mevduat",
+            help="Örn. 92 = 3 ay.",
+        )
+
+        if st.form_submit_button(submit_etiket, type="primary"):
+            if miktar <= 0:
+                st.warning("Miktar / tutar girin.")
+                return None
+            if birimli and alim_fiyati <= 0:
+                st.warning(f"{alim_fiyat_et} zorunlu — K/Z için birim alış fiyatı gerekli.")
+                return None
+            if tur in _doviz_turler():
+                maliyet = float(miktar * alim_fiyati) if alim_fiyati > 0 else 0.0
+            elif birimli:
+                maliyet = miktar * alim_fiyati
+            else:
+                maliyet = miktar
+            return VarlikPozisyon(
+                id=poz.id if poz else _uid(),
+                tur=tur,
+                sembol=sembol.strip().upper(),
+                ad=ad.strip(),
+                miktar=float(miktar),
+                maliyet=float(maliyet),
+                alim_fiyati=float(alim_fiyati),
+                para_birimi=para,
+                alim_tarihi=alim.isoformat(),
+                banka=banka,
+                vade_gun=int(vade_gun),
+                brut_faiz=float(faiz),
             )
+    return None
 
-            if st.form_submit_button("Pozisyon ekle", type="primary"):
-                if miktar <= 0:
-                    st.warning("Miktar / tutar girin.")
-                elif birimli and alim_fiyati <= 0:
-                    st.warning(f"{alim_fiyat_et} zorunlu — K/Z için birim alış fiyatı gerekli.")
-                else:
-                    if tur in ("nakit_eur", "nakit_usd"):
-                        maliyet = float(miktar * alim_fiyati) if alim_fiyati > 0 else 0.0
-                    elif birimli:
-                        maliyet = miktar * alim_fiyati
-                    else:
-                        maliyet = miktar
-                    poz = VarlikPozisyon(
-                        id=_uid(),
-                        tur=tur,
-                        sembol=sembol.strip().upper(),
-                        ad=ad.strip(),
-                        miktar=float(miktar),
-                        maliyet=float(maliyet),
-                        alim_fiyati=float(alim_fiyati),
-                        para_birimi=para,
-                        alim_tarihi=alim.isoformat(),
-                        banka=banka,
-                        vade_gun=int(vade_gun),
-                        brut_faiz=float(faiz),
-                    )
-                    pozisyon_ekle(store, aktif.id, poz)
+
+def _pozisyon_formu(store: VarlikStore, aktif: VarlikPortfoy) -> None:
+    """Pozisyon ekleme — fiyat yüklenmeden önce gösterilir (vade/mevduat girişi için)."""
+    with st.expander("Pozisyon ekle / düzenle", expanded=not aktif.pozisyonlar):
+        tab_ekle, tab_duzenle = st.tabs(["➕ Yeni pozisyon", "✏️ Mevcut pozisyonu düzenle"])
+
+        with tab_ekle:
+            yeni = _poz_form_icerigi(
+                "varlik_poz_form",
+                "Pozisyon ekle",
+            )
+            if yeni is not None:
+                pozisyon_ekle(store, aktif.id, yeni)
+                st.session_state.varlik_store = store
+                _onbellek_yenile()
+                st.rerun()
+
+        with tab_duzenle:
+            if not aktif.pozisyonlar:
+                st.info("Henüz pozisyon yok.")
+            else:
+                sec_id = st.selectbox(
+                    "Düzenlenecek pozisyon",
+                    [p.id for p in aktif.pozisyonlar],
+                    format_func=lambda i: next(p.etiket() for p in aktif.pozisyonlar if p.id == i),
+                    key="varlik_duzenle_sec",
+                )
+                mevcut_poz = next(p for p in aktif.pozisyonlar if p.id == sec_id)
+                guncellendi = _poz_form_icerigi(
+                    f"varlik_poz_duzenle_{sec_id}",
+                    "Değişiklikleri kaydet",
+                    tur_baslangic=mevcut_poz.tur,
+                    poz=mevcut_poz,
+                )
+                if guncellendi is not None:
+                    pozisyon_guncelle(store, aktif.id, guncellendi)
                     st.session_state.varlik_store = store
                     _onbellek_yenile()
                     st.rerun()
@@ -432,17 +508,22 @@ def varliklarim_paneli(
             st.plotly_chart(fig2, use_container_width=True)
 
     if aktif.pozisyonlar:
-        sil_id = st.selectbox(
-            "Silinecek pozisyon",
-            [p.id for p in aktif.pozisyonlar],
-            format_func=lambda i: next(p.etiket() for p in aktif.pozisyonlar if p.id == i),
-            key="varlik_sil_sec",
-        )
-        if st.button("Seçili pozisyonu sil"):
-            pozisyon_sil(store, aktif.id, sil_id)
-            st.session_state.varlik_store = store
-            _onbellek_yenile()
-            st.rerun()
+        st.markdown("---")
+        col_sel, col_sil = st.columns([3, 1])
+        with col_sel:
+            sil_id = st.selectbox(
+                "Silinecek pozisyon seç",
+                [p.id for p in aktif.pozisyonlar],
+                format_func=lambda i: next(p.etiket() for p in aktif.pozisyonlar if p.id == i),
+                key="varlik_sil_sec",
+            )
+        with col_sil:
+            st.write("")  # dikey hizalama
+            if st.button("🗑 Sil", use_container_width=True, type="secondary"):
+                pozisyon_sil(store, aktif.id, sil_id)
+                st.session_state.varlik_store = store
+                _onbellek_yenile()
+                st.rerun()
 
 
 def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, snap) -> float:
