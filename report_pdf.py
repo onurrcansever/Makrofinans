@@ -94,6 +94,63 @@ def _pct(val: Optional[float], nd: int = 1) -> str:
 
 _UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
 
+_PLAIN_ONERI = {
+    "UYGUN": "Şu an alınabilir",
+    "SINIRLI": "Sınırlı miktarda değerlendirilebilir",
+    "UYGUN_DEGIL": "Şu an uygun değil",
+    "IZLE": "İzle, henüz erken",
+}
+
+_SINYAL_SADE = {
+    "ALIM_FIRSATI": "Teknik alım sinyali veriyor",
+    "TREND_ALIM": "Yükseliş trendinde, alım destekli",
+    "BEKLE": "Net sinyal yok, beklenebilir",
+    "ASIRI_ALIM": "Fiyat yüksek — aşırı alım bölgesinde",
+    "UZAK_DUR": "Olumsuz görünüm, kaçınılmalı",
+    "VERI_YOK": "Fiyat verisi alınamadı",
+}
+
+
+def _plain_oneri(h) -> str:
+    """Teknik uygunluk kodunu sade Türkçe öneriye dönüştürür."""
+    return _PLAIN_ONERI.get(getattr(h, "alim_uygun", "IZLE"), "İzle, henüz erken")
+
+
+def _sinyal_sade(sinyal: str) -> str:
+    """Teknik sinyal kodunu yatırımcı dostu metne dönüştürür."""
+    return _SINYAL_SADE.get(sinyal, sinyal)
+
+
+def _neden_kisa(h, max_len: int = 110) -> str:
+    """
+    Hisse/ETF için kısa ve sade Türkçe neden açıklaması üretir.
+    Kaynak: alim_uygun_not > trend_notu > profil_notu > temel_not > sinyal
+    """
+    parcalar = []
+    not1 = _temiz(getattr(h, "alim_uygun_not", "") or "")
+    not2 = _temiz(getattr(h, "trend_notu", "") or "")
+    not3 = _temiz(getattr(h, "profil_notu", "") or "")
+    not4 = _temiz(getattr(h, "temel_not", "") or "")
+    sinyal = getattr(h, "sinyal", "")
+    uygun = getattr(h, "alim_uygun", "IZLE")
+
+    for n in (not1, not2, not3, not4):
+        if n and n not in ("—", "Trend filtresi OK", "Rejim uyumlu",
+                           "Faktör nötr", "Profil uyumlu"):
+            parcalar.append(n)
+            break
+
+    if not parcalar and sinyal:
+        parcalar.append(_sinyal_sade(sinyal))
+
+    if not parcalar:
+        parcalar.append(_PLAIN_ONERI.get(uygun, "—"))
+
+    metin = "; ".join(parcalar)
+    if len(metin) > max_len:
+        return metin[:max_len - 1] + "…"
+    return metin
+
 
 def _uygun_tablo_hucre(h) -> str:
     return alim_aksiyon_hucre(h)
@@ -166,39 +223,21 @@ def _uygunluk_ozet_metin(tarama: TaramaSonucu) -> str:
         k = getattr(h, "alim_uygun", "IZLE")
         say[k] = say.get(k, 0) + 1
     return (
-        f"AL: {say['UYGUN']} · DİKKAT: {say['SINIRLI']} · "
-        f"ALMA: {say['UYGUN_DEGIL']} · BEKLE: {say['IZLE']}"
+        f"Şu an alınabilir: {say['UYGUN']}  ·  Sınırlı/Dikkat: {say['SINIRLI']}  ·  "
+        f"Uygun değil: {say['UYGUN_DEGIL']}  ·  İzle: {say['IZLE']}"
     )
 
 
 def _hisse_detay_madde(h) -> str:
-    rsi_txt = f"{h.rsi:.0f}" if h.rsi is not None else "—"
     ek = ""
-    if getattr(h, "alim_uygun_not", ""):
-        ek += f" [{_temiz(h.alim_uygun_not, 70)}]"
-    if getattr(h, "trend_notu", "") and h.trend_notu not in ("", "Trend filtresi OK"):
-        ek += f" Trend: {_temiz(h.trend_notu, 55)}."
-    if getattr(h, "faktor_notu", "") and h.faktor_notu not in ("", "Faktör nötr"):
-        ek += f" Faktör: {_temiz(h.faktor_notu, 50)}."
-    if getattr(h, "profil_notu", "") and h.profil_notu != "Profil uyumlu":
-        ek += f" Profil: {_temiz(h.profil_notu, 50)}."
-    if getattr(h, "rejim_notu", "") and h.rejim_notu != "Rejim uyumlu":
-        ek += f" Rejim: {_temiz(h.rejim_notu, 50)}."
-    if getattr(h, "haber_notu", ""):
-        ek += f" Haber: {_temiz(h.haber_notu, 45)}."
-    peer = getattr(h, "peer_yuzdelik", None)
-    endeks = getattr(h, "endeks_gore", None)
-    z52_txt = format_52h_metin(h).replace("52H ", "")
-    if peer is not None or endeks is not None:
-        if peer is not None:
-            ek += f" Peer %{peer:.0f}"
-        if endeks is not None:
-            ek += f" · Endeks {endeks:+.0f}pp 3A"
+    neden = _neden_kisa(h, 80)
+    if neden:
+        ek = f" — {neden}"
     return _temiz(
-        f"{_uygun_tablo_hucre(h)} · {h.ad} ({h.sembol}) · "
-        f"{SINYAL_ETIKET.get(h.sinyal, h.sinyal)} · RSI {rsi_txt} · skor {h.skor:.0f} · "
-        f"1A {_pct(h.degisim_1ay)} · 3A {_pct(getattr(h, 'degisim_3ay', None))} · "
-        f"{z52_txt} · SMA200 {_sayi(getattr(h, 'sma200', None), 0)}{ek}",
+        f"{_plain_oneri(h)} · {h.ad} ({h.sembol}) · "
+        f"{_sinyal_sade(h.sinyal)} · "
+        f"Son 1 Ay: {_pct(h.degisim_1ay)} · Son 3 Ay: {_pct(getattr(h, 'degisim_3ay', None))}"
+        f"{ek}",
         220,
     )
 
@@ -210,29 +249,21 @@ def _hisse_ozet_satir(
     ilk_sutun: str = "uygunluk",
     sira: int = 0,
 ) -> List[str]:
-    peer = getattr(h, "peer_yuzdelik", None)
-    endeks = getattr(h, "endeks_gore", None)
     if ilk_sutun == "sira":
         col0 = f"#{sira}"
     else:
-        col0 = _uygun_tablo_hucre(h)
+        col0 = _plain_oneri(h)
     row = [
         col0,
+        _temiz(h.ad, 18),
         h.sembol,
-        _temiz(h.ad, 12 if detayli else 10),
         h.piyasa,
-        _temiz(SINYAL_ETIKET.get(h.sinyal, h.sinyal), 10),
-        _sayi(h.skor, 0),
+        _temiz(_sinyal_sade(h.sinyal), 22),
         _pct(h.degisim_1ay, 0),
         _pct(getattr(h, "degisim_3ay", None), 0),
-        _sayi(h.rsi, 0) if h.rsi is not None else "—",
-        _temiz(format_52h_metin(h).replace("52H ", ""), 18),
-        _sayi(peer, 0) if peer is not None else "—",
-        f"{endeks:+.0f}" if endeks is not None else "—",
-        _sayi(getattr(h, "sma200", None), 0) if getattr(h, "sma200", None) else "—",
     ]
     if detayli:
-        row.append(_temiz(getattr(h, "alim_uygun_not", "") or getattr(h, "trend_notu", ""), 22))
+        row.append(_neden_kisa(h, 60))
     return row
 
 
@@ -241,29 +272,26 @@ def _tablo_hisse_ozet(
     hisseler: list,
     *,
     detayli: bool = False,
-    font: float = 5.5,
+    font: float = 8.0,
     ilk_sutun: str = "uygunluk",
 ) -> None:
     if not hisseler:
         return
     w = doc._w()
-    ilk_baslik = "Skor Sırası" if ilk_sutun == "sira" else "Karar"
+    ilk_baslik = "Sıra" if ilk_sutun == "sira" else "Öneri"
     baslik = [
-        ilk_baslik, "Sembol", "Hisse", "Piyasa", "Sinyal", "Skor",
-        "1A", "3A", "RSI", "52H", "Peer", "End.", "SMA200",
+        ilk_baslik, "Varlık Adı", "Sembol", "Piyasa", "Durum", "Son 1 Ay", "Son 3 Ay",
     ]
-    cols = [0.10, 0.07, 0.11, 0.06, 0.09, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.07]
-    if ilk_sutun == "sira":
-        cols[0] = 0.07
-        cols[2] += 0.03
+    cols = [0.13, 0.22, 0.09, 0.07, 0.18, 0.08, 0.08]
     if detayli:
-        baslik.append("Not")
-        cols = [c * 0.88 for c in cols] + [0.20]
+        baslik.append("Kısa Not")
+        toplam = sum(cols)
+        cols = [c * (1 - 0.15) for c in cols] + [0.15]
     rows = [
         _hisse_ozet_satir(h, detayli=detayli, ilk_sutun=ilk_sutun, sira=i + 1)
         for i, h in enumerate(hisseler)
     ]
-    doc.tablo(baslik, rows, font_boyut=font, satir_yuk=3.6, col_w=[w * c for c in cols])
+    doc.tablo(baslik, rows, font_boyut=font, satir_yuk=4.5, col_w=[w * c for c in cols])
 
 
 def _girdi_dogrulama_bolumu(doc: "RaporPDF", snap: MacroSnapshot) -> None:
@@ -327,7 +355,7 @@ def _senaryo_bolumu(doc: "RaporPDF", snap, tahsis, vade_gun: int, tarama=None, b
 
 
 def _kanonik_aday_tablo(doc: "RaporPDF", hisseler: list) -> None:
-    """Tek kanonik alım adayları tablosu — ISIN birleştirmeli."""
+    """Kanonik alım adayları tablosu — tam isim, sade Türkçe öneri, neden açıklaması."""
     if not hisseler:
         return
     birlestir = _isin_birlestir_gosterim(hisseler)
@@ -335,24 +363,28 @@ def _kanonik_aday_tablo(doc: "RaporPDF", hisseler: list) -> None:
     rows = []
     for h in birlestir[:25]:
         rt = getattr(h, "revolut_ticker", "") or h.sembol.split(".")[0]
+        sembol_goster = rt if h.piyasa == "ETF" else h.sembol
+        # Tam isim — kesmeden göster
+        tam_ad = _temiz(h.ad)
+        # ISIN varsa kotasyon bilgisi "Neden?" sütununa ek olarak ekle
+        kotasyon = _kotasyon_notu(h)
+        neden = _neden_kisa(h, 100)
+        if kotasyon and kotasyon.startswith("Kot:"):
+            neden = f"{neden} ({kotasyon})" if neden else kotasyon
         rows.append([
-            _uygun_tablo_hucre(h),
-            rt if h.piyasa == "ETF" else h.sembol,
-            _temiz(h.ad, 14),
+            _plain_oneri(h),
+            tam_ad,
+            sembol_goster,
             h.piyasa,
-            _sayi(getattr(h, "teknik_skor", h.skor), 0),
-            _sayi(getattr(h, "temel_skor", 0), 0),
-            _sayi(getattr(h, "bilesik_skor", h.skor), 0),
             _pct(h.degisim_1ay, 0),
-            _temiz(getattr(h, "isin", "") or "—", 12),
-            _kotasyon_notu(h) or _temiz(getattr(h, "temel_not", ""), 18),
+            neden,
         ])
     doc.tablo(
-        ["Karar", "Sembol", "Varlık", "Piy.", "Teknik", "Temel", "Bileşik", "1A", "ISIN", "Not"],
+        ["Öneri", "Varlık Adı", "Sembol / Kod", "Piyasa", "Son 1 Ay", "Neden?"],
         rows,
-        font_boyut=5.2,
-        satir_yuk=3.5,
-        col_w=[w * x for x in (0.08, 0.07, 0.14, 0.05, 0.07, 0.07, 0.07, 0.06, 0.12, 0.27)],
+        font_boyut=8.5,
+        satir_yuk=4.5,
+        col_w=[w * x for x in (0.15, 0.21, 0.09, 0.07, 0.08, 0.40)],
     )
 
 
@@ -485,53 +517,55 @@ def _backtest_bolumu(
 
 
 def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> None:
-    doc.bolum("Hisse & Endeks Taraması")
+    doc.bolum("Hisse & ETF Yatırım Önerileri")
     profil_oz = getattr(tarama, "profil_ozet", "") or ""
     if profil_oz:
-        doc.kutu("Yatırımcı profili (tarama filtresi)", profil_oz)
+        doc.kutu("Tarama profili", profil_oz)
         for n in (getattr(tarama, "profil_notlari", None) or [])[:5]:
             doc.madde(_temiz(n, 160))
 
-    doc.kutu("Alım uygunluk özeti", _uygunluk_ozet_metin(tarama))
+    ozet_str = getattr(tarama, "tarama_ozet", "") or ""
+    doc.kutu(
+        "Öneri özeti",
+        f"{_uygunluk_ozet_metin(tarama)}"
+        + (f"  —  {ozet_str}" if ozet_str else "")
+        + f"  |  Rejim: {rejim_etiket}",
+    )
     doc.paragraf(
-        "Karar: AL = al · DİKKAT = küçük pay/uyarı · ALMA = alma · BEKLE = izle. "
-        f"Yahoo (gecikmeli) · RSI + SMA20/50/200 · Rejim: {rejim_etiket}. "
-        f"{getattr(tarama, 'tarama_ozet', '') or ''} "
-        "Katmanlar: teknik → trend (1A/SMA200) → rejim → profil → faktör/peer → haber. "
-        "Yatırım tavsiyesi değildir."
+        '"Şu an alınabilir" = teknik ve makro koşullar uygun  ·  '
+        '"Sınırlı" = bazı uyarılar var, küçük pay ile değerlendirilebilir  ·  '
+        '"Şu an uygun değil" = koşullar olumsuz  ·  '
+        '"İzle" = net sinyal yok. Veriler Yahoo Finance (gecikmeli). Yatırım tavsiyesi değildir.'
     )
     for u in (tarama.uyarilar or [])[:3]:
         doc.madde(_temiz(u, 140))
 
     if tarama.endeksler:
-        doc.paragraf("Endeksler — BIST 100 · NASDAQ · S&P 500")
+        doc.paragraf("Ana endeksler — BIST 100 · NASDAQ · S&P 500")
         w = doc._w()
         endeks_rows = []
         for e in tarama.endeksler:
             fiyat = _sayi(e.fiyat, 0 if (e.fiyat or 0) >= 100 else 2)
             endeks_rows.append([
-                _temiz(e.ad, 22),
+                _temiz(e.ad, 24),
                 fiyat,
                 _pct(e.degisim_1g),
                 _pct(e.degisim_1ay),
                 _pct(e.degisim_3ay),
-                _sayi(e.rsi, 0) if e.rsi is not None else "—",
-                _temiz(SINYAL_ETIKET.get(e.sinyal, e.sinyal), 14),
-                _sayi(e.skor, 0),
+                _temiz(_sinyal_sade(e.sinyal), 28),
             ])
         doc.tablo(
-            ["Endeks", "Fiyat", "1G", "1A", "3A", "RSI", "Sinyal", "Skor"],
+            ["Endeks", "Fiyat", "1 Gün", "Son 1 Ay", "Son 3 Ay", "Durum"],
             endeks_rows,
-            font_boyut=7.5,
-            satir_yuk=4,
-            col_w=[w * 0.22, w * 0.12, w * 0.08, w * 0.08, w * 0.08, w * 0.08, w * 0.22, w * 0.12],
+            font_boyut=8.5,
+            satir_yuk=4.5,
+            col_w=[w * 0.26, w * 0.12, w * 0.09, w * 0.10, w * 0.10, w * 0.33],
         )
 
     uygun_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "UYGUN"])
     sinirli_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "SINIRLI"])
     etf_firsat = getattr(tarama, "etf_firsatlari", None) or []
 
-    # Tek kanonik tablo — AL, DİKKAT ve ETF tekrarları birleştirildi
     kanonik = _hisse_sirala(uygun_list + sinirli_list + etf_firsat)
     if kanonik:
         al_n = len(uygun_list)
@@ -540,18 +574,19 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         trunc_not = ""
         if al_n == 0 and len(kanonik) > config.TARAMA_KANONIK_MAX_SATIR:
             trunc_not = (
-                f" AL adayı yok — tablo özet için {config.TARAMA_KANONIK_MAX_SATIR} satırla sınırlandı "
-                f"({len(kanonik)} aday tarandı)."
+                f" Şu an alınabilir aday yok; tablo özet için {config.TARAMA_KANONIK_MAX_SATIR} satırla "
+                f"sınırlandı ({len(kanonik)} aday tarandı)."
             )
             kanonik = kanonik[: config.TARAMA_KANONIK_MAX_SATIR]
         doc.paragraf(
-            f"Kanonik alım adayları — AL: {al_n} · DİKKAT: {dikkat_n} · ETF: {etf_n} "
-            f"(aynı ISIN tek satır).{trunc_not}"
+            f"Yatırım önerileri — Şu an alınabilir: {al_n}  ·  Dikkat/Sınırlı: {dikkat_n}  ·  ETF: {etf_n}"
+            f"{trunc_not}"
         )
         _kanonik_aday_tablo(doc, kanonik)
     elif not kanonik:
         doc.paragraf(
-            "Profil filtreli alım adayı yok — BEKLE veya makro tahsis (mevduat/altın/EUR) öncelikli."
+            "Şu an profil ve piyasa koşullarınıza uygun hisse/ETF alım adayı bulunmuyor. "
+            "Bu dönem makro tahsis (mevduat / altın / EUR) öncelikli."
         )
 
 
@@ -635,65 +670,65 @@ class RaporPDF:
         now = datetime.now().strftime("%d.%m.%Y %H:%M")
         veri = _zaman_kisa(snap.veri_zamani)
         self.pdf.set_fill_color(0, 51, 102)
-        self.pdf.rect(0, 0, 210, 26, "F")
+        self.pdf.rect(0, 0, 210, 30, "F")
         self.pdf.set_text_color(255, 255, 255)
-        self.pdf.set_xy(self._kenar, 9)
-        self.pdf.set_font("TR", "B", 17)
+        self.pdf.set_xy(self._kenar, 8)
+        self.pdf.set_font("TR", "B", 18)
         self.pdf.cell(
-            self._w(), 7, "Anlık Durum Yatırım Raporu",
+            self._w(), 8, "Yatırım Raporu",
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
         )
         self._sol()
         self.pdf.set_x(self._kenar)
-        self.pdf.set_font("TR", "", 9.5)
+        self.pdf.set_font("TR", "", 10)
         self.pdf.cell(
-            self._w(), 5, "Makro Portföy Asistanı · Haber Araştırma & Strateji Özeti",
+            self._w(), 5, "Kişisel Portföy Asistanı  ·  Makro Analiz & Hisse Taraması",
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
         )
-        self.pdf.ln(5)
+        self.pdf.ln(6)
         self.pdf.set_text_color(0, 0, 0)
-        self.pdf.set_font("TR", "", 8)
-        self.paragraf(f"Rapor: {now}  ·  Veri: {veri}  ·  Mod: {snap.veri_kaynak.upper()}")
-        self.paragraf(f"Profil: {profil.ozet()}")
-        self.pdf.ln(1)
+        self.pdf.set_font("TR", "", 8.5)
+        self.paragraf(f"Rapor tarihi: {now}  ·  Veri güncellemesi: {veri}  ·  Mod: {snap.veri_kaynak.upper()}")
+        self.paragraf(f"Yatırımcı profili: {profil.ozet()}")
+        self.pdf.ln(2)
 
     def bolum(self, baslik: str) -> None:
-        self._sayfa_yeterli(14)
-        self.pdf.ln(2)
+        self._sayfa_yeterli(16)
+        self.pdf.ln(3)
         self._sol()
-        self.pdf.set_font("TR", "B", 11.5)
+        self.pdf.set_font("TR", "B", 12)
         self.pdf.set_text_color(0, 51, 102)
-        self.pdf.cell(self._w(), 6, baslik, new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT)
+        self.pdf.cell(self._w(), 7, baslik, new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT)
         self.pdf.set_draw_color(0, 51, 102)
         y = self.pdf.get_y()
         self.pdf.line(self.pdf.l_margin, y, self.pdf.w - self.pdf.r_margin, y)
-        self.pdf.ln(2)
+        self.pdf.ln(2.5)
         self.pdf.set_text_color(0, 0, 0)
 
     def paragraf(self, metin: str) -> None:
-        self._yaz(self._w(), 4.5, metin, boyut=9)
+        self._yaz(self._w(), 4.8, metin, boyut=9.5)
 
     def madde(self, metin: str) -> None:
-        self._yaz(self._w(), 4.2, "• " + _temiz(metin), boyut=8.5)
+        self._yaz(self._w(), 4.5, "• " + _temiz(metin), boyut=9)
 
     def kutu(self, baslik: str, metin: str) -> None:
-        self._sayfa_yeterli(16)
+        self._sayfa_yeterli(18)
         w = self._w()
         self.pdf.set_fill_color(240, 244, 248)
         self._sol()
-        self.pdf.set_font("TR", "B", 9)
+        self.pdf.set_font("TR", "B", 9.5)
         self.pdf.set_text_color(0, 0, 0)
         self.pdf.multi_cell(
-            w, 4.8, _temiz(baslik), fill=True, align=self._Align.L,
+            w, 5.2, _temiz(baslik), fill=True, align=self._Align.L,
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
         )
         self._sol()
-        self.pdf.set_font("TR", "", 8.5)
+        self.pdf.set_font("TR", "", 9)
         self.pdf.multi_cell(
-            w, 4.2, _temiz(metin), fill=True, align=self._Align.L,
+            w, 4.5, _temiz(metin), fill=True, align=self._Align.L,
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
         )
-        self.pdf.ln(1.5)
+        self.pdf.ln(2)
 
     def tablo(
         self,
@@ -768,15 +803,20 @@ class RaporPDF:
         self.pdf.ln(2)
 
     def footer_disclaimer(self) -> None:
-        self._sayfa_yeterli(14)
+        self._sayfa_yeterli(16)
+        self.pdf.ln(4)
+        self.pdf.set_draw_color(180, 180, 180)
+        y = self.pdf.get_y()
+        self.pdf.line(self.pdf.l_margin, y, self.pdf.w - self.pdf.r_margin, y)
         self.pdf.ln(2)
-        self.pdf.set_font("TR", "", 7)
+        self.pdf.set_font("TR", "", 7.5)
         self.pdf.set_text_color(100, 100, 100)
         self._sol()
         self.pdf.multi_cell(
-            self._w(), 3.5,
-            "Yasal uyarı: Bu rapor otomatik üretilmiş karar-destek belgesidir; yatırım tavsiyesi değildir. "
-            "Nihai karar yatırımcıya aittir. © Makro Portföy Asistanı",
+            self._w(), 3.8,
+            "Yasal uyarı: Bu rapor otomatik üretilmiş bir karar-destek belgesidir; yatırım tavsiyesi "
+            "niteliği taşımaz. Geçmiş performans gelecek getirileri garanti etmez. "
+            "Nihai yatırım kararı tamamen yatırımcıya aittir. © Kişisel Portföy Asistanı",
             align=self._Align.L,
             new_x=self._XPos.LMARGIN,
             new_y=self._YPos.NEXT,
@@ -812,86 +852,21 @@ def rapor_pdf_direkt_olustur(
     doc = RaporPDF()
     doc.antet(profil, snap)
 
-    doc.bolum("Yönetici Özeti")
+    # ── 1. BUGÜNKÜ ÖZET & AKSİYONLAR ─────────────────────────────────────────
+    doc.bolum("Bugünkü Durum ve Önerilen Aksiyonlar")
     doc.kutu(
-        f"Makro rejim: {tahsis.rejim.etiket}",
-        tahsis.rejim.aciklama,
+        f"Piyasa rejimi: {tahsis.rejim.etiket}",
+        _temiz(tahsis.rejim.aciklama, 400),
     )
-    doc.paragraf(_temiz(danisman.genel_ozet, 700))
+    doc.paragraf(_temiz(danisman.genel_ozet, 600))
     for n in (tahsis.profil_notlari or [])[:3]:
         doc.madde(_temiz(n, 160))
 
-    _girdi_dogrulama_bolumu(doc, snap)
-
-    doc.bolum("Piyasa Verileri")
-    rezerv = (
-        "Artıyor" if v.rezerv_artiyor
-        else "Azalıyor" if v.rezerv_artiyor is False
-        else "Bilinmiyor (×0,85)"
-    )
-    siyasi_metin = (
-        f"{v.siyasi_risk_makale_sayisi} haber (Kapı 1)"
-        if v.siyasi_risk_makale_sayisi is not None else "—"
-    )
-    savas_metin = (
-        f"{v.savas_risk_makale_sayisi} haber"
-        if v.savas_risk_makale_sayisi is not None and v.savas_risk_guvenilir is not False
-        else (
-            f"Tarama güvensiz ({v.savas_risk_makale_sayisi or 0})"
-            if v.savas_risk_guvenilir is False
-            else "—"
-        )
-    )
-    w = doc._w()
-    doc.tablo(
-        ["Gösterge", "Değer", "Gösterge", "Değer"],
-        [
-            ["EUR/TRY", _sayi(v.eur_try), "USD/TRY", _sayi(v.usd_try)],
-            ["CDS 5Y", f"{_sayi(v.cds_5y_bp, 0)} bp", "VIX (ABD)", _sayi(snap.vix, 1)],
-            ["BIST Vol (TR)", f"{_sayi(snap.bist_vol_30g, 1)}%", "Enflasyon TR", f"%{_sayi(snap.enflasyon_tr_yillik, 1)}"],
-            ["TCMB faizi", f"%{_sayi(v.tcmb_politika_faizi, 1)}", "Fed faizi", f"%{_sayi(v.fed_faizi, 2)}"],
-            ["Altın/oz", f"${_sayi(snap.altin_usd_oz, 0)}", "BIST 100", _sayi(snap.bist100, 0)],
-            ["BTC", f"${_sayi(snap.btc_usd, 0)}", "Siyasi risk", siyasi_metin],
-            ["Jeopolitik", savas_metin, "Rezerv (Kapı 4)", rezerv],
-            ["TL tavan", f"%{tahsis.tl_tavan_oran * 100:.0f}", "", ""],
-        ],
-        col_w=[w * 0.28, w * 0.22, w * 0.28, w * 0.22],
-    )
-
-    vk = veri_kalite_olustur(snap)
-    _veri_kalite_bolumu(doc, vk)
-
-    if tahsis.tl_karar_adimlari:
-        doc.bolum("4 Kapı Özeti (TL tavan)")
-        for adim in tahsis.tl_karar_adimlari[:6]:
-            doc.madde(_temiz(adim, 160))
-
-    if tl_durum:
-        doc.bolum("TL Mevduat Kararı")
-        doc.kutu(
-            tl_durum.baslik,
-            f"Portföy payı %{tl_durum.agirlik_pct:.1f} · 4 kapı tavanı %{tl_durum.tavan_pct:.0f}",
-        )
-        for n in tl_durum.nedenler[:6]:
-            doc.madde(_temiz(n, 200))
-        doc.paragraf(_temiz(f"Alternatif: {tl_durum.alternatif}", 220))
-
-    if mevduat and mevduat.getiri_notu:
-        doc.bolum("Getiri Tanımı (önemli)")
-        doc.kutu(
-            "Yerel reel ≠ EUR bazlı getiri",
-            mevduat.getiri_notu,
-        )
-        doc.paragraf(
-            f"Profil vadeniz ({mevduat.profil_vade}): yerel reel "
-            f"{mevduat.profil_vade_reel:+.1f} pp · EUR bazlı tahmini "
-            f"{mevduat.profil_vade_eur_tahmini:+.1f} pp · EUR mevduat net "
-            f"~%{mevduat.eur_mevduat_net:.1f}."
-        )
-
+    # ── 2. ÖNERİLEN PORTFÖY DAĞILIMI ─────────────────────────────────────────
     doc.bolum("Önerilen Portföy Dağılımı")
     doc.paragraf(
-        f"Toplam {toplam_eur:,.0f} EUR · Vade: {vade} · TL tavan: %{tahsis.tl_tavan_oran * 100:.0f}"
+        f"Toplam portföy: {toplam_eur:,.0f} EUR  ·  Yatırım vadesi: {vade}  ·  "
+        f"TL maksimum pay: %{tahsis.tl_tavan_oran * 100:.0f}"
     )
     pf_rows = []
     for k in sorted(VARLIKLAR, key=lambda x: -tahsis.agirliklar.get(x, 0)):
@@ -902,15 +877,16 @@ def rapor_pdf_direkt_olustur(
             config.VARLIK_ETIKETLERI[k],
             f"%{wgt * 100:.1f}",
             f"{toplam_eur * wgt:,.0f} EUR",
-            f"{tahsis.skorlar.get(k, 0):.0f}",
         ])
+    w = doc._w()
     doc.tablo(
-        ["Varlık", "Ağırlık", "Tutar", "Skor"],
+        ["Varlık Sınıfı", "Portföyden Pay", "Tutar (EUR)"],
         pf_rows,
-        col_w=[doc._w() * 0.38, doc._w() * 0.14, doc._w() * 0.30, doc._w() * 0.18],
+        col_w=[w * 0.46, w * 0.20, w * 0.34],
     )
     doc.paragraf(_temiz(tahsis.tavsiye_metni, 400))
 
+    # ── 3. BİRLEŞİK ÖNERİLER (aksiyon listesi) ───────────────────────────────
     from rapor_ek_bolumler import birlesik_oneri_pdf_bolumu, varliklarim_pdf_bolumu
 
     birlesik_oneri_pdf_bolumu(
@@ -921,20 +897,41 @@ def rapor_pdf_direkt_olustur(
         eur_try=v.eur_try or 35.0,
     )
 
-    if danisman.makro_baglam and danisman.makro_baglam.parcalar:
-        doc.bolum("Canlı Makro Değerlendirme")
-        for p in danisman.makro_baglam.parcalar[:5]:
-            doc.kutu(
-                _temiz(p.baslik, 60),
-                _temiz(f"{p.canli} — {p.beklenti}", 320),
-            )
+    # ── 4. HİSSE & ETF YATIRIM ÖNERİLERİ ────────────────────────────────────
+    if tarama and (tarama.endeksler or tarama.hisseler):
+        _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
+
+    # ── 5. VARLIKLARIM POZİSYONLARI ──────────────────────────────────────────
+    varliklarim_pdf_bolumu(doc, varlik_store, snap, kullanici_portfoy)
+
+    # ── 6. TL MEVDUAT DEĞERLENDİRMESİ ────────────────────────────────────────
+    if tl_durum:
+        doc.bolum("TL Mevduat Kararı")
+        doc.kutu(
+            tl_durum.baslik,
+            f"Portföydeki pay: %{tl_durum.agirlik_pct:.1f}  ·  Maksimum tavan: %{tl_durum.tavan_pct:.0f}",
+        )
+        for n in tl_durum.nedenler[:6]:
+            doc.madde(_temiz(n, 200))
+        doc.paragraf(_temiz(f"Alternatif değerlendirme: {tl_durum.alternatif}", 220))
+
+    if mevduat and mevduat.getiri_notu:
+        doc.kutu(
+            "Getiri tanımı — önemli not",
+            f"Yerel (TL) reel getiri ile EUR bazlı getiri farklıdır. {mevduat.getiri_notu}",
+        )
+        doc.paragraf(
+            f"Profil vadeniz ({mevduat.profil_vade}): yerel reel "
+            f"{mevduat.profil_vade_reel:+.1f} puan  ·  EUR bazlı tahmini "
+            f"{mevduat.profil_vade_eur_tahmini:+.1f} puan  ·  EUR mevduat net ~%{mevduat.eur_mevduat_net:.1f}."
+        )
 
     if mevduat and mevduat.oranlar:
-        doc.bolum("TL Mevduat Faizleri")
+        doc.bolum("TL Mevduat Faiz Oranları")
         doc.paragraf(_temiz(mevduat.ozet, 350))
         mev_rows = []
         for o in mevduat.oranlar:
-            tag = " ✓" if o.vade == mevduat.profil_vade else ""
+            tag = " ✓ Profiliniz" if o.vade == mevduat.profil_vade else ""
             net_pct = (o.net_yillik or 0) * 100
             eur_tah = (
                 f"{_eur_bazli_tahmini(net_pct, mevduat.enflasyon):+.1f}"
@@ -944,13 +941,13 @@ def rapor_pdf_direkt_olustur(
                 o.vade + tag,
                 f"%{o.brut_yillik * 100:.1f}",
                 f"%{net_pct:.1f}",
-                f"{o.reel_yillik or 0:+.1f}",
+                f"{o.reel_yillik or 0:+.1f} puan",
                 eur_tah,
             ])
         doc.tablo(
-            ["Vade", "Brüt", "Net", "Yerel reel", "EUR tah."],
+            ["Vade", "Brüt Faiz", "Net Faiz", "Enf. Üstü Getiri", "EUR Karşılığı (tahmini)"],
             mev_rows,
-            col_w=[doc._w() * 0.28, doc._w() * 0.14, doc._w() * 0.14, doc._w() * 0.22, doc._w() * 0.22],
+            col_w=[w * 0.26, w * 0.14, w * 0.14, w * 0.22, w * 0.24],
         )
         from rates_tr import tl_vade_sonu_hesapla, tl_vade_sonu_rapor_metni, tmsf_uyari_satirlari
 
@@ -971,38 +968,80 @@ def rapor_pdf_direkt_olustur(
                 for tmsf in tmsf_uyari_satirlari(ozet.anapara_tl):
                     doc.madde(_temiz(tmsf, 220))
                 doc.madde(
-                    _temiz(
-                        "Vadeden önce bozmada faiz kaybı olur — acil fon bu tutarın dışında tutulmalı.",
-                        160,
-                    )
+                    "Vadeden önce bozmada faiz kaybı yaşanır. Acil ihtiyaç fonunuzu bu tutarın dışında tutunuz."
                 )
 
-    if tarama and (tarama.endeksler or tarama.hisseler):
-        _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
+    # ── 7. MAKRO VERİLER ──────────────────────────────────────────────────────
+    doc.bolum("Makro Göstergeler")
+    rezerv = (
+        "Artıyor" if v.rezerv_artiyor
+        else "Azalıyor" if v.rezerv_artiyor is False
+        else "Bilinmiyor"
+    )
+    siyasi_metin = (
+        f"{v.siyasi_risk_makale_sayisi} haber"
+        if v.siyasi_risk_makale_sayisi is not None else "—"
+    )
+    savas_metin = (
+        f"{v.savas_risk_makale_sayisi} haber"
+        if v.savas_risk_makale_sayisi is not None and v.savas_risk_guvenilir is not False
+        else "—"
+    )
+    doc.tablo(
+        ["Gösterge", "Değer", "Gösterge", "Değer"],
+        [
+            ["EUR/TRY", _sayi(v.eur_try), "USD/TRY", _sayi(v.usd_try)],
+            ["TCMB Faizi", f"%{_sayi(v.tcmb_politika_faizi, 1)}", "Fed Faizi (ABD)", f"%{_sayi(v.fed_faizi, 2)}"],
+            ["Enflasyon (TR)", f"%{_sayi(snap.enflasyon_tr_yillik, 1)}", "BIST 100", _sayi(snap.bist100, 0)],
+            ["Altın (USD/oz)", f"${_sayi(snap.altin_usd_oz, 0)}", "BTC (USD)", f"${_sayi(snap.btc_usd, 0)}"],
+            ["Ülke riski (CDS)", f"{_sayi(v.cds_5y_bp, 0)} bp", "ABD Korku Endeksi (VIX)", _sayi(snap.vix, 1)],
+            ["Siyasi risk haberleri", siyasi_metin, "Jeopolitik haberler", savas_metin],
+            ["Döviz rezervleri", rezerv, "TL maksimum pay", f"%{tahsis.tl_tavan_oran * 100:.0f}"],
+        ],
+        col_w=[w * 0.32, w * 0.18, w * 0.32, w * 0.18],
+    )
 
-    varliklarim_pdf_bolumu(doc, varlik_store, snap, kullanici_portfoy)
+    if danisman.makro_baglam and danisman.makro_baglam.parcalar:
+        doc.bolum("Makro Piyasa Değerlendirmesi")
+        for p in danisman.makro_baglam.parcalar[:5]:
+            doc.kutu(
+                _temiz(p.baslik, 60),
+                _temiz(f"{p.canli} — {p.beklenti}", 320),
+            )
 
-    from investor_profile import profil_mevduat_vadesi
-
-    _, profil_vade_gun = profil_mevduat_vadesi(tahsis.profil or YatirimProfili())
-    _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama, birlesik_oneri=birlesik_oneri)
-
+    # ── 8. VARLIK STRATEJİ NOTLARI ────────────────────────────────────────────
     doc.bolum("Varlık Bazlı Strateji Notları")
     for var in danisman.varliklar:
         if var.agirlik_pct < 0.5 and var.sinyal == "KACIN":
             continue
         doc.kutu(
-            _temiz(f"{var.ad} · {var.sinyal_etiket} · %{var.agirlik_pct:.0f}", 70),
-            _temiz(var.baslik, 160),
+            _temiz(f"{var.ad}  ·  {var.sinyal_etiket}  ·  Portföy payı: %{var.agirlik_pct:.0f}", 80),
+            _temiz(var.baslik, 200),
         )
         for n in var.nedenler[:2]:
-            doc.madde(_temiz(n, 140))
+            doc.madde(_temiz(n, 160))
+
+    # ── 9. TEKNİK EKLER ───────────────────────────────────────────────────────
+    _girdi_dogrulama_bolumu(doc, snap)
 
     if danisman.denetim and danisman.denetim.bulgular:
-        doc.bolum("Denetim Uyarıları")
+        doc.bolum("Tutarlılık Kontrolleri")
         doc.paragraf(_temiz(danisman.denetim.ozet, 200))
         for b in danisman.denetim.bulgular[:5]:
             doc.madde(_temiz(f"[{b.seviye}] {b.baslik}", 120))
+
+    if tahsis.tl_karar_adimlari:
+        doc.bolum("TL Karar Adımları (Teknik Detay)")
+        for adim in tahsis.tl_karar_adimlari[:6]:
+            doc.madde(_temiz(adim, 160))
+
+    vk = veri_kalite_olustur(snap)
+    _veri_kalite_bolumu(doc, vk)
+
+    from investor_profile import profil_mevduat_vadesi
+
+    _, profil_vade_gun = profil_mevduat_vadesi(tahsis.profil or YatirimProfili())
+    _senaryo_bolumu(doc, snap, tahsis, profil_vade_gun, tarama=tarama, birlesik_oneri=birlesik_oneri)
 
     _backtest_bolumu(doc, tahsis.rejim.rejim, profil, sabit_agirliklar=tahsis.agirliklar)
 

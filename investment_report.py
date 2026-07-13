@@ -63,6 +63,56 @@ def _md_strip(text: str) -> str:
 
 _UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
 
+_PLAIN_ONERI = {
+    "UYGUN": "Şu an alınabilir",
+    "SINIRLI": "Sınırlı miktarda değerlendirilebilir",
+    "UYGUN_DEGIL": "Şu an uygun değil",
+    "IZLE": "İzle, henüz erken",
+}
+
+_SINYAL_SADE = {
+    "ALIM_FIRSATI": "Teknik alım sinyali veriyor",
+    "TREND_ALIM": "Yükseliş trendinde, alım destekli",
+    "BEKLE": "Net sinyal yok, beklenebilir",
+    "ASIRI_ALIM": "Fiyat yüksek — aşırı alım bölgesinde",
+    "UZAK_DUR": "Olumsuz görünüm, kaçınılmalı",
+    "VERI_YOK": "Fiyat verisi alınamadı",
+}
+
+_ONERI_CSS = {
+    "UYGUN": "oneri-al",
+    "SINIRLI": "oneri-dikkat",
+    "UYGUN_DEGIL": "oneri-alma",
+    "IZLE": "oneri-bekle",
+}
+
+
+def _plain_oneri_html(h) -> str:
+    return _PLAIN_ONERI.get(getattr(h, "alim_uygun", "IZLE"), "İzle, henüz erken")
+
+
+def _sinyal_sade_html(sinyal: str) -> str:
+    return _SINYAL_SADE.get(sinyal, sinyal)
+
+
+def _oneri_css(h) -> str:
+    return _ONERI_CSS.get(getattr(h, "alim_uygun", "IZLE"), "oneri-bekle")
+
+
+def _neden_kisa_html(h, max_len: int = 160) -> str:
+    not1 = (getattr(h, "alim_uygun_not", "") or "").strip()
+    not2 = (getattr(h, "trend_notu", "") or "").strip()
+    not3 = (getattr(h, "profil_notu", "") or "").strip()
+    not4 = (getattr(h, "temel_not", "") or "").strip()
+    sinyal = getattr(h, "sinyal", "")
+    uygun = getattr(h, "alim_uygun", "IZLE")
+    for n in (not1, not2, not3, not4):
+        if n and n not in ("Trend filtresi OK", "Rejim uyumlu", "Faktör nötr", "Profil uyumlu"):
+            return n[:max_len - 1] + "…" if len(n) > max_len else n
+    if sinyal:
+        return _sinyal_sade_html(sinyal)
+    return _PLAIN_ONERI.get(uygun, "—")
+
 
 def _uygun_tablo_hucre(h) -> str:
     return alim_aksiyon_hucre(h)
@@ -94,78 +144,75 @@ def _uygunluk_ozet_html(tarama: TaramaSonucu) -> str:
         k = getattr(h, "alim_uygun", "IZLE")
         say[k] = say.get(k, 0) + 1
     return (
-        f"AL: {say['UYGUN']} · DİKKAT: {say['SINIRLI']} · "
-        f"ALMA: {say['UYGUN_DEGIL']} · BEKLE: {say['IZLE']}"
+        f"Şu an alınabilir: {say['UYGUN']}  ·  Sınırlı/Dikkat: {say['SINIRLI']}  ·  "
+        f"Şu an uygun değil: {say['UYGUN_DEGIL']}  ·  İzle/Bekle: {say['IZLE']}"
     )
 
 
 def _hisse_tablo_html(hisseler: list, *, detayli: bool = False, ilk_sutun: str = "uygunluk") -> str:
+    """
+    Yatırımcı dostu hisse/ETF tablosu.
+    Ana sütunlar: Öneri (renk kodlu) · Varlık Adı · Sembol · Piyasa · Son 1 Ay · Neden?
+    Teknik detay (ilk_sutun='sira') modunda sıra numarası + ek kolon gösterilir.
+    """
     if not hisseler:
         return ""
-    ilk_baslik = "Skor Sırası" if ilk_sutun == "sira" else "Karar"
-    heads = [
-        ilk_baslik, "Sembol", "Hisse", "Piyasa", "Sinyal", "Skor",
-        "1A", "3A", "RSI", "52H", "Peer", "End.", "SMA200",
-    ]
-    if detayli:
-        heads.append("Not")
-    num_cols = {5, 6, 7, 8, 10, 11, 12}
+
+    if ilk_sutun == "sira":
+        heads = ["Sıra", "Varlık Adı", "Sembol", "Piyasa", "Durum", "Son 1 Ay", "Son 3 Ay"]
+    else:
+        heads = ["Öneri", "Varlık Adı", "Sembol / Kod", "Piyasa", "Son 1 Ay", "Neden?"]
+
     thead = "".join(f"<th>{_esc(h)}</th>" for h in heads)
     rows = ""
+
     for i, h in enumerate(hisseler):
-        peer = getattr(h, "peer_yuzdelik", None)
-        endeks = getattr(h, "endeks_gore", None)
-        z52_txt = _esc(format_52h_metin(h).replace("52H ", ""))
-        col0 = f"#{i + 1}" if ilk_sutun == "sira" else _esc(_uygun_tablo_hucre(h))
-        cells = [
-            col0,
-            _esc(h.sembol),
-            _esc(h.ad),
-            _esc(h.piyasa),
-            _esc(SINYAL_ETIKET.get(h.sinyal, h.sinyal)),
-            f"{h.skor:.0f}",
-            _pct_html(h.degisim_1ay, 0),
-            _pct_html(getattr(h, "degisim_3ay", None), 0),
-            f"{h.rsi:.0f}" if h.rsi is not None else "—",
-            z52_txt,
-            f"{peer:.0f}" if peer is not None else "—",
-            f"{endeks:+.0f}" if endeks is not None else "—",
-            _fmt_num(getattr(h, "sma200", None), 0) if getattr(h, "sma200", None) else "—",
-        ]
-        if detayli:
-            cells.append(_esc(getattr(h, "alim_uygun_not", "") or getattr(h, "trend_notu", "")))
+        css = _oneri_css(h)
+        rt = getattr(h, "revolut_ticker", "") or h.sembol.split(".")[0]
+        sembol_goster = rt if h.piyasa == "ETF" else h.sembol
+
+        if ilk_sutun == "sira":
+            cells = [
+                f"#{i + 1}",
+                _esc(h.ad),
+                _esc(h.sembol),
+                _esc(h.piyasa),
+                _esc(_sinyal_sade_html(h.sinyal)),
+                _pct_html(h.degisim_1ay, 0),
+                _pct_html(getattr(h, "degisim_3ay", None), 0),
+            ]
+            num_set = {5, 6}
+        else:
+            cells = [
+                f'<span class="{css}">{_esc(_plain_oneri_html(h))}</span>',
+                _esc(h.ad),
+                _esc(sembol_goster),
+                _esc(h.piyasa),
+                _pct_html(h.degisim_1ay, 0),
+                _esc(_neden_kisa_html(h)),
+            ]
+            num_set = {4}
+
         tds = ""
         for j, c in enumerate(cells):
-            cls = ' class="num"' if j in num_cols else ""
+            cls = ' class="num"' if j in num_set else ""
             tds += f"<td{cls}>{c}</td>"
         rows += f"<tr>{tds}</tr>"
+
     return f"<table><thead><tr>{thead}</tr></thead><tbody>{rows}</tbody></table>"
 
 
 def _hisse_detay_li(h) -> str:
-    rsi = f"{h.rsi:.0f}" if h.rsi is not None else "—"
-    z52_txt = format_52h_metin(h).replace("52H ", "")
-    ek = ""
-    if getattr(h, "alim_uygun_not", ""):
-        ek += f" [{_esc(h.alim_uygun_not)}]"
-    if getattr(h, "trend_notu", "") and h.trend_notu not in ("", "Trend filtresi OK"):
-        ek += f" Trend: {_esc(h.trend_notu)}."
-    if getattr(h, "faktor_notu", "") and h.faktor_notu not in ("", "Faktör nötr"):
-        ek += f" Faktör: {_esc(h.faktor_notu)}."
-    if getattr(h, "profil_notu", "") and h.profil_notu != "Profil uyumlu":
-        ek += f" Profil: {_esc(h.profil_notu)}."
-    peer = getattr(h, "peer_yuzdelik", None)
-    endeks = getattr(h, "endeks_gore", None)
-    if peer is not None:
-        ek += f" Peer %{peer:.0f}"
-    if endeks is not None:
-        ek += f" · Endeks {endeks:+.0f}pp 3A"
-    sma = _fmt_num(getattr(h, "sma200", None), 0) if getattr(h, "sma200", None) else "—"
+    neden = _neden_kisa_html(h, 80)
+    css = _oneri_css(h)
     return (
-        f"<li>{_esc(_uygun_tablo_hucre(h))} · {_esc(h.ad)} ({_esc(h.sembol)}) · "
-        f"{_esc(SINYAL_ETIKET.get(h.sinyal, h.sinyal))} · RSI {rsi} · skor {h.skor:.0f} · "
-        f"1A {_pct_html(h.degisim_1ay)} · 3A {_pct_html(getattr(h, 'degisim_3ay', None))} · "
-        f"{_esc(z52_txt)} · SMA200 {sma}{ek}</li>"
+        f'<li><span class="{css}">{_esc(_plain_oneri_html(h))}</span> &nbsp;'
+        f'{_esc(h.ad)} ({_esc(h.sembol)}) &nbsp;·&nbsp; '
+        f'{_esc(_sinyal_sade_html(h.sinyal))} &nbsp;·&nbsp; '
+        f'Son 1 Ay: {_pct_html(h.degisim_1ay)} &nbsp;·&nbsp; '
+        f'Son 3 Ay: {_pct_html(getattr(h, "degisim_3ay", None))}'
+        + (f' &nbsp;— {_esc(neden)}' if neden else '')
+        + '</li>'
     )
 
 
@@ -305,7 +352,6 @@ def rapor_html_olustur(
             <td>{_esc(config.VARLIK_ETIKETLERI[k])}</td>
             <td class="num">%{w * 100:.1f}</td>
             <td class="num">{toplam_eur * w:,.0f} EUR</td>
-            <td class="num">{tahsis.skorlar.get(k, 0):.0f}</td>
         </tr>"""
 
     varlik_kartlari = ""
@@ -403,7 +449,7 @@ def rapor_html_olustur(
             d1 = f"{e.degisim_1g:+.1f}%" if e.degisim_1g is not None else "—"
             d1a = f"{e.degisim_1ay:+.1f}%" if e.degisim_1ay is not None else "—"
             d3a = f"{e.degisim_3ay:+.1f}%" if e.degisim_3ay is not None else "—"
-            rsi = f"{e.rsi:.0f}" if e.rsi is not None else "—"
+            durum = _esc(_sinyal_sade_html(e.sinyal))
             endeks_rows += f"""
             <tr>
                 <td>{_esc(e.ad)}</td>
@@ -411,9 +457,7 @@ def rapor_html_olustur(
                 <td class="num">{d1}</td>
                 <td class="num">{d1a}</td>
                 <td class="num">{d3a}</td>
-                <td class="num">{rsi}</td>
-                <td>{_esc(SINYAL_ETIKET.get(e.sinyal, e.sinyal))}</td>
-                <td class="num">{e.skor:.0f}</td>
+                <td>{durum}</td>
             </tr>"""
 
         uygun_list = _hisse_sirala_html([
@@ -439,11 +483,14 @@ def rapor_html_olustur(
                     f"({len(kanonik)} aday).</span>"
                 )
             kanonik_blok = f"""
-            <h3>Kanonik alım adayları — AL: {al_n} · DİKKAT: {len(sinirli_list)} · ETF: {len(etf_firsat)}{trunc_not}</h3>
-            {_hisse_tablo_html(kanonik[:max_satir], detayli=True)}"""
+            <h3>Yatırım Önerileri — {al_n} Al · {len(sinirli_list)} Dikkat · {len(etf_firsat)} ETF{trunc_not}</h3>
+            <p class="muted">Her satırda "Öneri" sütunu o varlığı şu an almanızın uygun olup olmadığını,
+            "Neden?" sütunu ise gerekçeyi sade dilde açıklar.</p>
+            {_hisse_tablo_html(kanonik[:max_satir])}"""
         else:
             kanonik_blok = (
-                "<p class='muted'>Profil filtreli alım adayı yok — BEKLE veya makro tahsis öncelikli.</p>"
+                "<p class='muted'>Şu an profil ve piyasa koşullarınıza uygun alım adayı bulunmuyor. "
+                "Makro tahsis (mevduat / altın / EUR) öncelikli dönem.</p>"
             )
 
         onemli = _hisse_sirala_html([
@@ -454,14 +501,22 @@ def rapor_html_olustur(
         teknik_blok = ""
         if onemli:
             teknik_blok = f"""
-            <h3>Teknik özet — öncelikli {len(onemli)} varlık (skor sıralı, bilgi amaçlı)</h3>
-            {_hisse_tablo_html(onemli, detayli=False, ilk_sutun="sira")}"""
+            <h3>Teknik Görünüm — Öne Çıkan {len(onemli)} Varlık</h3>
+            <p class="muted">Aşağıdaki tablo teknik durum bilgisi içindir. Alım kararı için yukarıdaki
+            "Yatırım Önerileri" tablosunu esas alınız.</p>
+            {_hisse_tablo_html(onemli, ilk_sutun="sira")}"""
 
         piyasa_html = ""
         piyasa_html += (
-            "<p class='muted'>Bilgi amaçlı en yüksek skorlu 6 varlık — "
-            "alım kararı için yalnızca üstteki Alım uygunluk bölümüne bakın.</p>"
+            "<p class='muted'>Her piyasadan en yüksek puan alan 6 varlık. "
+            "Alım kararı için yalnızca &ldquo;Yatırım Önerileri&rdquo; tablosunu esas alınız.</p>"
         )
+        piyasa_etiket = {
+            "BIST": "Borsa İstanbul (BIST)",
+            "SP500": "ABD S&P 500",
+            "NASDAQ": "ABD NASDAQ",
+            "ETF": "ETF (Borsa Yatırım Fonu)",
+        }
         for piyasa in ("BIST", "SP500", "NASDAQ", "ETF"):
             grup = _skor_sirala_html([
                 h for h in (tarama.hisseler or [])
@@ -470,8 +525,8 @@ def rapor_html_olustur(
             if not grup:
                 continue
             piyasa_html += f"""
-            <h4>{piyasa} — top 6 (skor sıralı)</h4>
-            {_hisse_tablo_html(grup, detayli=True, ilk_sutun="sira")}"""
+            <h4>{piyasa_etiket.get(piyasa, piyasa)}</h4>
+            {_hisse_tablo_html(grup, ilk_sutun="sira")}"""
 
         uyarilar = "".join(f"<li>{_esc(u)}</li>" for u in (tarama.uyarilar or [])[:3])
         profil_blok = ""
@@ -480,26 +535,31 @@ def rapor_html_olustur(
                 f"<li>{_esc(n)}</li>" for n in (getattr(tarama, "profil_notlari", None) or [])[:5]
             )
             profil_blok = f"""
-        <div class="box"><strong>Yatırımcı profili (tarama filtresi):</strong> {_esc(tarama.profil_ozet)}
+        <div class="box"><strong>Tarama profili:</strong> {_esc(tarama.profil_ozet)}
         <ul>{profil_not}</ul></div>"""
         ozet = getattr(tarama, "tarama_ozet", "") or ""
         tarama_html = f"""
-        <h2>Hisse & Endeks Taraması</h2>
-        <p class="muted">Karar: AL = al · DİKKAT = küçük pay/uyarı · ALMA = alma · BEKLE = izle.
-        Yahoo (gecikmeli) · RSI + SMA20/50/200 · Rejim: {_esc(tahsis.rejim.etiket)}.
-        Katmanlar: teknik → trend → rejim → profil → faktör/peer → haber.</p>
+        <h2>Hisse &amp; ETF Yatırım Önerileri</h2>
+        <p class="muted"><strong>Öneri açıklaması:</strong>
+        "Şu an alınabilir" = teknik ve makro koşullar uygun, alım değerlendirilebilir ·
+        "Sınırlı" = bazı uyarılar var, küçük pay ile değerlendirilebilir ·
+        "Şu an uygun değil" = koşullar olumsuz, beklenmeli ·
+        "İzle" = net bir sinyal yok, fiyat takibi önerilir.
+        Tüm veriler Yahoo Finance (gecikmeli). Mevcut rejim: {_esc(tahsis.rejim.etiket)}.</p>
         {profil_blok}
-        <div class="box"><strong>Alım uygunluk özeti:</strong> {_esc(_uygunluk_ozet_html(tarama))}</div>
-        <p class="muted">{_esc(ozet)}</p>
-        {"<ul>" + uyarilar + "</ul>" if uyarilar else ""}
-        <h3>Endeksler — BIST 100 · NASDAQ · S&P 500</h3>
+        <div class="box">
+            <strong>Özet:</strong> {_esc(_uygunluk_ozet_html(tarama))}
+            {"<p class='muted'>" + _esc(ozet) + "</p>" if ozet else ""}
+        </div>
+        {"<ul class='muted'>" + uyarilar + "</ul>" if uyarilar else ""}
+        <h3>Ana Endeksler — BIST 100 · NASDAQ · S&amp;P 500</h3>
         <table>
-            <thead><tr><th>Endeks</th><th>Fiyat</th><th>1 Gün</th><th>1 Ay</th><th>3 Ay</th><th>RSI</th><th>Sinyal</th><th>Skor</th></tr></thead>
+            <thead><tr><th>Endeks</th><th>Fiyat</th><th>1 Gün</th><th>1 Ay</th><th>3 Ay</th><th>Durum</th></tr></thead>
             <tbody>{endeks_rows}</tbody>
         </table>
         {kanonik_blok}
         {teknik_blok}
-        <h3>Piyasa bazında öne çıkanlar</h3>
+        <h3>Piyasaya Göre Öne Çıkanlar</h3>
         {piyasa_html}"""
 
     backtest_html = _backtest_html(
@@ -560,125 +620,150 @@ def rapor_html_olustur(
     rezerv = (
         "Artıyor" if v.rezerv_artiyor
         else "Azalıyor" if v.rezerv_artiyor is False
-        else "Bilinmiyor (Kapı 4 ×0,85)"
+        else "Bilinmiyor"
     )
     kapi_html = ""
     if tahsis.tl_karar_adimlari:
-        kapi_html = "<h2>4 Kapı Özeti (TL tavan)</h2><ul>" + "".join(
-            f"<li>{_esc(a)}</li>" for a in tahsis.tl_karar_adimlari[:6]
-        ) + "</ul>"
+        kapi_html = (
+            "<details><summary><strong>TL Karar Adımları (teknik detay)</strong></summary><ul>"
+            + "".join(f"<li>{_esc(a)}</li>" for a in tahsis.tl_karar_adimlari[:6])
+            + "</ul></details>"
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="utf-8"/>
-<title>Anlık Durum Yatırım Raporu — {now}</title>
+<title>Yatırım Raporu — {now}</title>
 <style>
 @page {{ margin: 18mm 15mm; }}
-body {{ font-family: Georgia, 'Times New Roman', serif; color: #1a1a1a; line-height: 1.55; font-size: 11pt; max-width: 210mm; margin: 0 auto; padding: 12px; }}
-.antet {{ background: linear-gradient(135deg, #003366 0%, #004080 100%); color: #fff; padding: 28px 32px; margin: -12px -12px 24px -12px; }}
-.antet h1 {{ margin: 0 0 6px 0; font-size: 22pt; font-weight: 700; }}
-.antet .alt {{ font-size: 13pt; opacity: 0.92; margin: 0; }}
-.antet .meta {{ margin-top: 14px; font-size: 10pt; opacity: 0.85; }}
-h2 {{ color: #003366; border-bottom: 2px solid #003366; padding-bottom: 6px; margin-top: 28px; font-size: 14pt; }}
-h4 {{ color: #004080; margin: 12px 0 6px 0; font-size: 11pt; }}
-.ozet-kutu {{ background: #f0f4f8; border-left: 4px solid #003366; padding: 14px 18px; margin: 16px 0; }}
+body {{ font-family: Georgia, 'Times New Roman', serif; color: #1a1a1a; line-height: 1.6; font-size: 11pt; max-width: 210mm; margin: 0 auto; padding: 12px; }}
+.antet {{ background: linear-gradient(135deg, #003366 0%, #004080 100%); color: #fff; padding: 28px 32px; margin: -12px -12px 28px -12px; }}
+.antet h1 {{ margin: 0 0 6px 0; font-size: 22pt; font-weight: 700; letter-spacing: -0.3px; }}
+.antet .alt {{ font-size: 12pt; opacity: 0.90; margin: 0 0 4px 0; }}
+.antet .meta {{ margin-top: 12px; font-size: 9.5pt; opacity: 0.82; }}
+h2 {{ color: #003366; border-bottom: 2px solid #003366; padding-bottom: 5px; margin-top: 30px; font-size: 13.5pt; }}
+h3 {{ color: #003366; border-bottom: 1px solid #a0b4cc; padding-bottom: 4px; margin-top: 22px; font-size: 11.5pt; }}
+h4 {{ color: #004080; margin: 14px 0 6px 0; font-size: 10.5pt; }}
+.ozet-kutu {{ background: #f0f4f8; border-left: 4px solid #003366; padding: 14px 18px; margin: 16px 0; border-radius: 2px; }}
 .tl-onerilmiyor {{ border-left-color: #c0392b; background: #fdf2f2; }}
 .tl-sinirli {{ border-left-color: #d68910; background: #fef9e7; }}
 .tl-cazip, .tl-guclu {{ border-left-color: #1e8449; background: #eafaf1; }}
-table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }}
-th {{ background: #003366; color: #fff; padding: 8px 10px; text-align: left; }}
-td {{ border-bottom: 1px solid #ddd; padding: 7px 10px; }}
-td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-.makro-kart, .varlik-kart {{ border: 1px solid #dde; border-radius: 6px; padding: 12px 16px; margin: 10px 0; background: #fafbfc; }}
-.muted {{ color: #555; font-size: 9.5pt; }}
-.disclaimer {{ margin-top: 32px; padding-top: 16px; border-top: 1px solid #ccc; font-size: 9pt; color: #666; }}
-@media print {{ body {{ padding: 0; }} .antet {{ margin: 0 0 20px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }} }}
+table {{ width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10pt; }}
+th {{ background: #003366; color: #fff; padding: 10px 12px; text-align: left; font-size: 10pt; font-weight: 600; }}
+td {{ border-bottom: 1px solid #dde; padding: 8px 12px; vertical-align: top; }}
+tr:nth-child(even) td {{ background: #f8f9fb; }}
+td.num {{ text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+.oneri-al {{ background: #d4edda; color: #155724; padding: 2px 7px; border-radius: 3px; font-weight: 600; font-size: 9.5pt; white-space: nowrap; }}
+.oneri-dikkat {{ background: #fff3cd; color: #856404; padding: 2px 7px; border-radius: 3px; font-weight: 600; font-size: 9.5pt; white-space: nowrap; }}
+.oneri-alma {{ background: #f8d7da; color: #721c24; padding: 2px 7px; border-radius: 3px; font-weight: 600; font-size: 9.5pt; white-space: nowrap; }}
+.oneri-bekle {{ background: #e2e3e5; color: #383d41; padding: 2px 7px; border-radius: 3px; font-weight: 600; font-size: 9.5pt; white-space: nowrap; }}
+.box {{ background: #f0f4f8; border: 1px solid #c8d8e8; border-radius: 4px; padding: 12px 16px; margin: 12px 0; }}
+.makro-kart, .varlik-kart {{ border: 1px solid #dde; border-radius: 5px; padding: 14px 18px; margin: 10px 0; background: #fafbfc; }}
+.muted {{ color: #556; font-size: 9.5pt; }}
+details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6px 0; }}
+.disclaimer {{ margin-top: 36px; padding-top: 16px; border-top: 1px solid #ccc; font-size: 9pt; color: #666; line-height: 1.5; }}
+@media print {{
+  body {{ padding: 0; }}
+  .antet {{ margin: 0 0 22px 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+  details {{ display: block; }}
+  details summary {{ display: none; }}
+}}
 </style>
 </head>
 <body>
 <div class="antet">
-    <h1>Anlık Durum Yatırım Raporu</h1>
-    <p class="alt">Makro Portföy Asistanı · Haber Araştırma & Strateji Özeti</p>
-    <p class="meta">Rapor tarihi: {now} · Veri çekimi: {_esc(snap.veri_zamani)} · Mod: {_esc(snap.veri_kaynak.upper())}</p>
+    <h1>Yatırım Raporu</h1>
+    <p class="alt">Kişisel Portföy Asistanı — Makro Analiz &amp; Hisse Taraması</p>
+    <p class="meta">Rapor tarihi: {now} &nbsp;·&nbsp; Veri güncellemesi: {_esc(snap.veri_zamani)} &nbsp;·&nbsp; Mod: {_esc(snap.veri_kaynak.upper())}</p>
     <p class="meta">Yatırımcı profili: {_esc(profil.ozet())}</p>
 </div>
 
-<h2>Yönetici Özeti</h2>
+<!-- 1. BUGÜNKÜ DURUM VE AKSİYONLAR -->
+<h2>Bugünkü Durum ve Önerilen Aksiyonlar</h2>
 <div class="ozet-kutu">
-    <p><strong>Makro rejim:</strong> {_esc(tahsis.rejim.etiket)} — {_esc(tahsis.rejim.aciklama)}</p>
+    <p><strong>Piyasa rejimi:</strong> {_esc(tahsis.rejim.etiket)} — {_esc(tahsis.rejim.aciklama)}</p>
     <p>{_esc(_md_strip(danisman.genel_ozet))}</p>
-    <p>{_esc(_md_strip(danisman.rejim_yorumu)[:600])}</p>
+    {"<p>" + _esc(_md_strip(danisman.rejim_yorumu)[:600]) + "</p>" if getattr(danisman, "rejim_yorumu", "") else ""}
 </div>
 {profil_notlari}
 {girdi_html}
 
-<h2>Piyasa Verileri (Canlı)</h2>
-<table>
-    <tr><td>EUR/TRY</td><td class="num">{_fmt_num(v.eur_try)}</td>
-        <td>USD/TRY</td><td class="num">{_fmt_num(v.usd_try)}</td></tr>
-    <tr><td>CDS 5Y</td><td class="num">{_fmt_num(v.cds_5y_bp, 0)} bp</td>
-        <td>VIX (ABD)</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
-    <tr><td>BIST Vol (TR)</td><td class="num">{_fmt_num(snap.bist_vol_30g, 1)}%</td>
-        <td>Enflasyon TR</td><td class="num">%{_fmt_num(snap.enflasyon_tr_yillik, 1)}</td></tr>
-    <tr><td>Enflasyon kaynağı</td><td colspan="3" class="muted">{_esc((snap.kaynak_haritasi or {}).get("enflasyon", "—"))}</td></tr>
-    <tr><td>TCMB faizi</td><td class="num">%{_fmt_num(v.tcmb_politika_faizi, 1)}</td>
-        <td>Fed faizi</td><td class="num">%{_fmt_num(v.fed_faizi, 2)}</td></tr>
-    <tr><td>Altın USD/oz</td><td class="num">${_fmt_num(snap.altin_usd_oz, 0)}</td>
-        <td>BIST 100</td><td class="num">{_fmt_num(snap.bist100, 0)}</td></tr>
-    <tr><td>BTC USD</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td>
-        <td>Siyasi risk (Kapı 1, {config.SIYASI_RISK_TARAMA_SAAT}s)</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber</td></tr>
-    <tr><td>Jeopolitik (48s)</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td>
-        <td>Rezerv (Kapı 4)</td><td class="num">{rezerv}</td></tr>
-    <tr><td>TL tavan</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td>
-        <td></td><td></td></tr>
-</table>
-
-{kapi_html}
-
-{tl_html}
-
+<!-- 2. ÖNERİLEN PORTFÖY DAĞILIMI -->
 <h2>Önerilen Portföy Dağılımı</h2>
-<p>Toplam portföy: <strong>{toplam_eur:,.0f} EUR</strong> · Yatırım vadesi: <strong>{_esc(vade_metin)}</strong> · TL tavan: <strong>%{tahsis.tl_tavan_oran * 100:.1f}</strong></p>
+<p>Toplam portföy: <strong>{toplam_eur:,.0f} EUR</strong> &nbsp;·&nbsp; Yatırım vadesi: <strong>{_esc(vade_metin)}</strong> &nbsp;·&nbsp; TL maksimum pay: <strong>%{tahsis.tl_tavan_oran * 100:.1f}</strong></p>
 <table>
-    <thead><tr><th>Varlık</th><th>Ağırlık</th><th>Tutar</th><th>Skor</th></tr></thead>
+    <thead><tr><th>Varlık Sınıfı</th><th>Portföyden Pay</th><th>Tutar (EUR)</th></tr></thead>
     <tbody>{tahsis_rows}</tbody>
 </table>
 <p class="muted">{_esc(tahsis.tavsiye_metni)}</p>
 
 {birlesik_html}
 
+<!-- 3. HİSSE & ETF YATIRIM ÖNERİLERİ -->
+{tarama_html}
+
+<!-- 4. VARLIKLARIM POZİSYONLARI -->
 {varlik_html}
 
-<h2>Canlı Makro Değerlendirme</h2>
-{makro_satirlar or '<p class="muted">Makro bağlam verisi yok.</p>'}
+<!-- 5. TL MEVDUAT DEĞERLENDİRMESİ -->
+{tl_html}
 
 {mevduat_html}
 
-{tarama_html}
+<!-- 6. MAKRO VERİLER -->
+<h2>Makro Göstergeler</h2>
+<table>
+    <tr><td>EUR/TRY</td><td class="num">{_fmt_num(v.eur_try)}</td>
+        <td>USD/TRY</td><td class="num">{_fmt_num(v.usd_try)}</td></tr>
+    <tr><td>TCMB Faizi</td><td class="num">%{_fmt_num(v.tcmb_politika_faizi, 1)}</td>
+        <td>Fed Faizi (ABD)</td><td class="num">%{_fmt_num(v.fed_faizi, 2)}</td></tr>
+    <tr><td>Enflasyon (TR)</td><td class="num">%{_fmt_num(snap.enflasyon_tr_yillik, 1)}</td>
+        <td>BIST 100</td><td class="num">{_fmt_num(snap.bist100, 0)}</td></tr>
+    <tr><td>Altın (USD/oz)</td><td class="num">${_fmt_num(snap.altin_usd_oz, 0)}</td>
+        <td>BTC (USD)</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td></tr>
+    <tr><td>Ülke riski (CDS 5Y)</td><td class="num">{_fmt_num(v.cds_5y_bp, 0)} bp</td>
+        <td>ABD Korku Endeksi (VIX)</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
+    <tr><td>Siyasi risk haberleri</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber</td>
+        <td>Jeopolitik haberler</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td></tr>
+    <tr><td>Döviz rezervleri</td><td class="num">{rezerv}</td>
+        <td>TL maksimum pay</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td></tr>
+</table>
 
-{backtest_html}
+<!-- 7. MAKRO DEĞERLENDİRME -->
+<h2>Makro Piyasa Değerlendirmesi</h2>
+{makro_satirlar or '<p class="muted">Makro bağlam verisi yok.</p>'}
 
+<!-- 8. VARLIK STRATEJİ NOTLARI -->
 <h2>Varlık Bazlı Strateji Notları</h2>
 {varlik_kartlari}
 
+<!-- 9. TEKNİK EKLER -->
 {denetim_html}
 
-<h2>Algoritma Adımları</h2>
-<ul>{"".join(f"<li>{_esc(a)}</li>" for a in tahsis.adimlar[:20])}</ul>
+{backtest_html}
 
-<h2>Veri Kalitesi & Kaynak Şeffaflığı</h2>
+{kapi_html}
+
+<details>
+<summary><strong>Algoritma Adımları (teknik detay)</strong></summary>
+<ul>{"".join(f"<li>{_esc(a)}</li>" for a in tahsis.adimlar[:20])}</ul>
+</details>
+
+<details>
+<summary><strong>Veri Kalitesi &amp; Kaynak Şeffaflığı</strong></summary>
 {kalite_blok}
 <table>
     <thead><tr><th>Gösterge</th><th>Değer</th><th>Kalite</th><th>Kaynak</th><th>Yaş</th></tr></thead>
     <tbody>{kaynak_rows}</tbody>
 </table>
+</details>
 
 <div class="disclaimer">
-    <p><strong>Yasal uyarı:</strong> Bu rapor Makro Portföy Asistanı tarafından otomatik üretilmiş
-    kural tabanlı bir karar-destek belgesidir. Yatırım tavsiyesi niteliği taşımaz.
-    Nihai yatırım kararı yatırımcıya aittir.</p>
-    <p>© {datetime.now().year} Makro Portföy Asistanı</p>
+    <p><strong>Yasal uyarı:</strong> Bu rapor otomatik üretilmiş bir karar-destek belgesidir.
+    Yatırım tavsiyesi niteliği taşımaz. Nihai yatırım kararı yatırımcıya aittir.
+    Geçmiş performans gelecek getirileri garanti etmez.</p>
+    <p>© {datetime.now().year} Kişisel Portföy Asistanı</p>
 </div>
 </body>
 </html>"""
