@@ -227,7 +227,7 @@ def _backtest_html(
     try:
         if onceden_hesaplanan_kars is not None:
             kars = onceden_hesaplanan_kars
-            satirlar = kars.satirlar
+            satirlar = kars.satirlar or []
         else:
             satirlar = backtest_calistir(ay, profil=profil)
             kars = backtest_karsilastirma_uret(
