@@ -619,6 +619,43 @@ def rapor_html_olustur(
     backtest_html = _backtest_html(
         tahsis.rejim.rejim, profil, bugun_agirliklar=tahsis.agirliklar
     )
+    # Backtest özet uyarısı — bölüm 1 (özet) için erken hesaplama
+    _backtest_ozet_uyari = ""
+    try:
+        _bt_satirlar = backtest_calistir(12, profil=profil)
+        _bt_kars = backtest_karsilastirma_uret(
+            _bt_satirlar, tahsis.rejim.rejim,
+            bugun_agirliklar=tahsis.agirliklar, profil=profil
+        )
+        if _bt_kars:
+            _bt_met = _bt_kars.dinamik
+            _bt_ref = _bt_kars.referans_statik
+            _bt_rejim_hic = (
+                tahsis.rejim.rejim
+                and _bt_met.mevcut_rejim_oran_pct is not None
+                and _bt_met.mevcut_rejim_oran_pct < 1
+            )
+            if _bt_kars.dinamik_dezavantaj and _bt_rejim_hic:
+                _backtest_ozet_uyari = (
+                    f'<div class="ozet-kutu tl-onerilmiyor" style="margin-top:14px">'
+                    f"<strong>Model Sınırı — Önemli:</strong> "
+                    f"Son 12 ayda dinamik rejim modeli statik tahsisten "
+                    f"<strong>daha kötü</strong> performans sergiledi "
+                    f"(Sharpe: {_bt_met.sharpe_yillik:.2f} vs {_bt_ref.sharpe_yillik:.2f}). "
+                    f"Üstelik mevcut rejim ({_esc(tahsis.rejim.rejim.replace('_', ' '))}) "
+                    "simülasyon döneminde hiç görülmedi — öneri seti test edilmemiş koşullara dayanıyor. "
+                    "Spesifik yüzdelerden çok çerçeveyi (başabaş kur, TL tavan, reel getiri) esas alınız. "
+                    "Teknik Ekler bölümünde tam backtest analizi mevcuttur.</div>"
+                )
+            elif _bt_kars.dinamik_dezavantaj:
+                _backtest_ozet_uyari = (
+                    f'<div class="ozet-kutu tl-sinirli" style="margin-top:14px">'
+                    f"<strong>Model Uyarısı:</strong> Dinamik rejim modeli son 12 ayda "
+                    f"statik referanstan geride (Sharpe: {_bt_met.sharpe_yillik:.2f} vs {_bt_ref.sharpe_yillik:.2f}). "
+                    "Önerileri rehber olarak kullanın, kesin emir olarak değil.</div>"
+                )
+    except Exception:
+        pass
 
     from kullanici_portfoy import varsayilan_portfoy
     from rapor_ek_bolumler import birlesik_oneri_html_blok, varliklarim_html_blok
@@ -681,8 +718,11 @@ def rapor_html_olustur(
     kapi_html = ""
     if tahsis.tl_karar_adimlari:
         kapi_html = (
-            "<details><summary><strong>TL Karar Adımları (teknik detay)</strong></summary><ul>"
-            + "".join(f"<li>{_esc(a)}</li>" for a in tahsis.tl_karar_adimlari[:6])
+            "<details><summary><strong>TL Karar Adımları — tüm indirim basamakları (teknik detay)</strong></summary>"
+            "<p class='muted'>Her satır bir indirim basamağını gösterir. 'Kapı' basamakları karar motorunun çıktısı; "
+            "sonraki satırlar reel getiri ve rejim kısıtlamalarını uygular. "
+            "Son satır nihai portföy payını gösterir.</p><ul>"
+            + "".join(f"<li>{_esc(a)}</li>" for a in tahsis.tl_karar_adimlari)
             + "</ul></details>"
         )
 
@@ -742,6 +782,7 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
     <p>{_esc(_md_strip(danisman.genel_ozet))}</p>
     {"<p>" + _esc(_md_strip(danisman.rejim_yorumu)[:600]) + "</p>" if getattr(danisman, "rejim_yorumu", "") else ""}
 </div>
+{_backtest_ozet_uyari}
 {profil_notlari}
 {girdi_html}
 

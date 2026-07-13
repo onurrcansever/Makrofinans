@@ -879,12 +879,49 @@ def rapor_pdf_direkt_olustur(
     doc = RaporPDF()
     doc.antet(profil, snap)
 
+    # ── Backtest özet uyarısı — section 1'e taşı ─────────────────────────────
+    _bt_ozet_uyari = ""
+    try:
+        _bt_s = backtest_calistir(12, profil=profil)
+        _bt_k = backtest_karsilastirma_uret(
+            _bt_s, tahsis.rejim.rejim,
+            bugun_agirliklar=tahsis.agirliklar, profil=profil
+        )
+        if _bt_k:
+            _bt_m = _bt_k.dinamik
+            _bt_r = _bt_k.referans_statik
+            _bt_rejim_hic = (
+                tahsis.rejim.rejim
+                and _bt_m.mevcut_rejim_oran_pct is not None
+                and _bt_m.mevcut_rejim_oran_pct < 1
+            )
+            if _bt_k.dinamik_dezavantaj and _bt_rejim_hic:
+                _bt_ozet_uyari = (
+                    f"Model sınırı: Son 12 ayda dinamik rejim modeli statik tahsisten "
+                    f"daha kötü performans sergiledi (Sharpe: {_bt_m.sharpe_yillik:.2f} vs "
+                    f"{_bt_r.sharpe_yillik:.2f}). Mevcut rejim "
+                    f"({tahsis.rejim.rejim.replace('_', ' ')}) simülasyon döneminde "
+                    "hiç görülmedi — öneri seti test edilmemiş koşullara dayanıyor. "
+                    "Spesifik yüzdelerden çok çerçeveyi esas alınız. "
+                    "Tam analiz: Teknik Ekler > Backtest bölümü."
+                )
+            elif _bt_k.dinamik_dezavantaj:
+                _bt_ozet_uyari = (
+                    f"Model uyarısı: Dinamik rejim modeli son 12 ayda statik referanstan "
+                    f"geride (Sharpe: {_bt_m.sharpe_yillik:.2f} vs {_bt_r.sharpe_yillik:.2f}). "
+                    "Önerileri rehber olarak kullanın, kesin emir olarak değil."
+                )
+    except Exception:
+        pass
+
     # ── 1. BUGÜNKÜ ÖZET & AKSİYONLAR ─────────────────────────────────────────
     doc.bolum("Bugünkü Durum ve Önerilen Aksiyonlar")
     doc.kutu(
         f"Piyasa rejimi: {tahsis.rejim.etiket}",
         _temiz(tahsis.rejim.aciklama, 400),
     )
+    if _bt_ozet_uyari:
+        doc.kutu("Model Sınırı — Önemli", _temiz(_bt_ozet_uyari, 600))
     doc.paragraf(_temiz(danisman.genel_ozet, 600))
     for n in (tahsis.profil_notlari or [])[:3]:
         doc.madde(_temiz(n, 160))
@@ -1094,8 +1131,14 @@ def rapor_pdf_direkt_olustur(
 
     if tahsis.tl_karar_adimlari:
         doc.bolum("TL Karar Adımları (Teknik Detay)")
-        for adim in tahsis.tl_karar_adimlari[:6]:
-            doc.madde(_temiz(adim, 160))
+        doc.paragraf(
+            "Her satır bir indirim basamağını gösterir. 'Kapı' satırları karar motorunun "
+            "çıktısı (en yüksek olası tavan). Sonraki satırlar reel getiri, rejim ve risk "
+            "kısıtlamalarını uygular ve tavan daha da düşebilir. "
+            "'ham': GDELT ham sayısı · 'etkin'/'kapı': duygu analizi ile ağırlıklandırılmış."
+        )
+        for adim in tahsis.tl_karar_adimlari:
+            doc.madde(_temiz(adim, 200))
 
     vk = veri_kalite_olustur(snap)
     _veri_kalite_bolumu(doc, vk)

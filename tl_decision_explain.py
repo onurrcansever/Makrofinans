@@ -90,6 +90,9 @@ def explain_tl_decision(
     baglayici = ("İdeal pay", "reel faiz / başabaş", ideal, ideal)
 
     # Kapı 1 — siyasi (kap1 sayım + çift kapı)
+    # ham: GDELT'ten gelen siyasi haber sayısı (google news son 24s)
+    # etkin: negatif duygu varsa ham * çarpan (spekülasyon şişirmesi)
+    # kapı: kriz histerezisi ve siyasi_kriz_mi() koşulundan sonra karar sayısı
     kriz_mi = siyasi_kriz_mi(raw_siyasi or kap1_siyasi, etkin_siyasi)
     kriz, kriz_not = haber_kriz_histerezis(kap1_siyasi)
     if (kriz and kriz_mi) or (kap1_siyasi >= es["kriz"] and kriz_mi):
@@ -99,8 +102,9 @@ def explain_tl_decision(
         adimlar.append(
             TlExplainAdim(
                 adim=(
-                    f"Kapı 1 (ham {raw_siyasi or '—'}, etkin {etkin_siyasi}, "
-                    f"kapı {kap1_siyasi}, duygu {duygu:+.2f})"
+                    f"Kapı 1 — Siyasi risk (ham GDELT: {raw_siyasi or '—'}, "
+                    f"duygu-düzeltilmiş etkin: {etkin_siyasi}, "
+                    f"karar sayısı/kapı: {kap1_siyasi}, duygu skoru: {duygu:+.2f})"
                 ),
                 etki="KRİZ — tavan %0",
                 kirdi_mi=True,
@@ -115,8 +119,9 @@ def explain_tl_decision(
     adimlar.append(
         TlExplainAdim(
             adim=(
-                f"Kapı 1 (ham {raw_siyasi or '—'}, etkin {etkin_siyasi}, "
-                f"kapı {kap1_siyasi}, duygu {duygu_s:+.2f})"
+                f"Kapı 1 — Siyasi risk (ham GDELT: {raw_siyasi or '—'}, "
+                f"duygu-düzeltilmiş etkin: {etkin_siyasi}, "
+                f"karar sayısı/kapı: {kap1_siyasi}, duygu skoru: {duygu_s:+.2f})"
             ),
             etki="geçti",
             kirdi_mi=False,
@@ -206,6 +211,9 @@ def explain_tl_decision(
         baglayici = ("Kapı 4 (rezerv)", etki, onceki, pay)
 
     # Kapı 1b — jeopolitik (etkin)
+    # Not: bu sayı Kapı 1'deki siyasi sayısından FARKLI bir kaynaktan gelir.
+    # etkin_jeo: jeopolitik/savaş haberlerinin duygu-düzeltilmiş sayısı (son 48s)
+    # Kapı 1'deki "ham" ise siyasi haberlerin ham GDELT sayısıdır (son 24s)
     duygu_j = sentiment.jeopolitik.ort_duygu if sentiment else 0
     onceki = pay
     if veri.savas_risk_guvenilir is False:
@@ -213,13 +221,16 @@ def explain_tl_decision(
         etki = "×0.85 (tarama güvensiz)"
     elif etkin_jeo >= config.SAVAS_RISK_YUKSEK_ESIGI:
         pay = pay * config.SAVAS_TAVAN_CARPANI
-        etki = f"×{config.SAVAS_TAVAN_CARPANI} (etkin {etkin_jeo})"
+        etki = f"×{config.SAVAS_TAVAN_CARPANI} (duygu-düzeltilmiş jeopolitik: {etkin_jeo})"
     else:
-        etki = f"etkin {etkin_jeo} — geçti"
+        etki = f"duygu-düzeltilmiş jeopolitik: {etkin_jeo} — geçti"
     kirdi = pay < onceki - 1e-6
     adimlar.append(
         TlExplainAdim(
-            adim=f"Kapı 1b (jeopolitik duygu {duygu_j:+.2f})",
+            adim=(
+                f"Kapı 1b — Jeopolitik risk (duygu-düzeltilmiş: {etkin_jeo}, "
+                f"duygu skoru: {duygu_j:+.2f}) — Kapı 1'den farklı kaynak/pencere"
+            ),
             etki=etki,
             kirdi_mi=kirdi,
             pay_once=onceki,
