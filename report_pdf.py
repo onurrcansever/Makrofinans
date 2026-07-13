@@ -408,14 +408,41 @@ def _backtest_bolumu(
     met = kars.dinamik
     karsi = kars.karsi_olgusal
     ref = kars.referans_statik
+    rejim_hic_gorulmedi = (
+        rejim and met.mevcut_rejim_oran_pct is not None
+        and met.mevcut_rejim_oran_pct < 1
+    )
     bilgi_amacli = (
         met.model_drift
         or (rejim and met.mevcut_rejim_oran_pct < config.BACKTEST_REJIM_MIN_ORAN)
     )
 
-    doc.bolum("Backtest — Dinamik vs Statik Karşılaştırma")
-    if kars.dinamik_dezavantaj and kars.uyari_mesaji:
-        doc.kutu("⚠ Dinamik katman uyarısı", _temiz(kars.uyari_mesaji, 420))
+    doc.bolum("Backtest — Dinamik Rejim vs Statik Karşılaştırma")
+
+    # Güçlü çift-koşul uyarısı: dinamik kötü VE rejim hiç görülmemiş
+    if kars.dinamik_dezavantaj and rejim_hic_gorulmedi:
+        doc.kutu(
+            "Önemli Uyarı — Bu Raporun Önerisini Nasıl Okumalısınız",
+            f"Backtest iki kritik sorunu aynı anda gösteriyor: "
+            f"(1) Son {ay} ayda dinamik rejim modeli statik tahsisten DAHA KÖTÜ performans sergiledi "
+            f"(Sharpe: Dinamik {met.sharpe_yillik:.2f} vs Statik {ref.sharpe_yillik:.2f}). "
+            f"(2) Mevcut rejim ({rejim.replace('_', ' ')}) bu dönemde hiç "
+            f"görülmedi (%{met.mevcut_rejim_oran_pct:.0f}) — dolayısıyla bugünkü "
+            "öneri seti test edilmemiş koşullara dayanıyor. "
+            "Bu durumda rapordaki spesifik yüzdelerden çok çerçeveyi (başabaş kur, "
+            "TL tavan mantığı, reel getiri ayrımı) esas alınız. "
+            "Büyük pozisyon değişikliği yapmadan önce yaklaşan merkez bankası "
+            "kararlarını beklemek raporun kendi verileriyle uyumludur.",
+        )
+    elif kars.dinamik_dezavantaj and kars.uyari_mesaji:
+        doc.kutu("Dinamik Katman Uyarısı", _temiz(kars.uyari_mesaji, 420))
+    elif rejim_hic_gorulmedi:
+        doc.kutu(
+            "Dikkat — Test Edilmemiş Rejim",
+            f"Mevcut rejim ({rejim.replace('_', ' ')}) geçmiş {ay} aylık simülasyonda "
+            f"%{met.mevcut_rejim_oran_pct:.0f} ile temsil edildi — tarihsel referans çok sınırlı. "
+            "Önerilen tahsis bu koşullarda daha önce test edilmemiştir.",
+        )
 
     doc.paragraf(_temiz(kars.ozet.replace("**", ""), 420))
 
@@ -895,6 +922,7 @@ def rapor_pdf_direkt_olustur(
         para_birimi=para_birimi or "EUR",
         toplam_eur=toplam_eur,
         eur_try=v.eur_try or 35.0,
+        makro_agirliklar=tahsis.agirliklar,
     )
 
     # ── 4. HİSSE & ETF YATIRIM ÖNERİLERİ ────────────────────────────────────
@@ -916,32 +944,56 @@ def rapor_pdf_direkt_olustur(
         doc.paragraf(_temiz(f"Alternatif değerlendirme: {tl_durum.alternatif}", 220))
 
     if mevduat and mevduat.getiri_notu:
-        doc.kutu(
-            "Getiri tanımı — önemli not",
-            f"Yerel (TL) reel getiri ile EUR bazlı getiri farklıdır. {mevduat.getiri_notu}",
-        )
+        profil_reel = getattr(mevduat, "profil_vade_reel", None)
+        profil_eur = getattr(mevduat, "profil_vade_eur_tahmini", None)
+        reel_cok_dusuk = profil_reel is not None and profil_reel < 0.5
+        eur_pozitif = profil_eur is not None and profil_eur > 0
+        baslik = "Getiri tanımı — önemli not"
+        if reel_cok_dusuk:
+            baslik = "Getiri tanımı — DİKKAT: Yerel reel getiri pratikte sıfır"
+        metin = f"Yerel (TL) reel getiri ile EUR bazlı getiri farklıdır. {mevduat.getiri_notu}"
+        if reel_cok_dusuk:
+            metin += (
+                f" Profilinizin vadesi için yerel reel getiri yalnızca "
+                f"{profil_reel:+.1f} puan — pratikte enflasyona karşı sıfır koruma. "
+            )
+        if eur_pozitif and profil_eur is not None:
+            metin += (
+                f"EUR bazlı tahmin {profil_eur:+.1f} puan, ancak bu tahmin "
+                "EUR/TRY kurunun vade boyunca değişmeyeceği varsayımına dayanır. "
+                "Kur şok senaryosunda bu getiri negatife dönebilir."
+            )
+        doc.kutu(baslik, _temiz(metin, 600))
         doc.paragraf(
-            f"Profil vadeniz ({mevduat.profil_vade}): yerel reel "
-            f"{mevduat.profil_vade_reel:+.1f} puan  ·  EUR bazlı tahmini "
-            f"{mevduat.profil_vade_eur_tahmini:+.1f} puan  ·  EUR mevduat net ~%{mevduat.eur_mevduat_net:.1f}."
+            f"Profil vadeniz ({mevduat.profil_vade}): "
+            f"yerel reel {profil_reel:+.1f} puan  ·  "
+            f"EUR bazlı tahmini {profil_eur:+.1f} puan (kur sabit varsayımı)  ·  "
+            f"EUR mevduat net ~%{mevduat.eur_mevduat_net:.1f}."
         )
 
     if mevduat and mevduat.oranlar:
         doc.bolum("TL Mevduat Faiz Oranları")
         doc.paragraf(_temiz(mevduat.ozet, 350))
+        doc.paragraf(
+            '"EUR Karşılığı" sütunu, EUR/TRY kurunun vade boyunca sabit kalacağı varsayımıyla '
+            "hesaplanmıştır. Kur oynaklığı bu tahmini önemli ölçüde değiştirebilir."
+        )
         mev_rows = []
         for o in mevduat.oranlar:
             tag = " ✓ Profiliniz" if o.vade == mevduat.profil_vade else ""
             net_pct = (o.net_yillik or 0) * 100
             eur_tah = (
-                f"{_eur_bazli_tahmini(net_pct, mevduat.enflasyon):+.1f}"
+                f"{_eur_bazli_tahmini(net_pct, mevduat.enflasyon):+.1f}*"
                 if o.vade.startswith("TL") else "—"
             )
+            reel_flag = ""
+            if (o.reel_yillik or 0) < 0.5 and o.vade.startswith("TL"):
+                reel_flag = " (!)"
             mev_rows.append([
                 o.vade + tag,
                 f"%{o.brut_yillik * 100:.1f}",
                 f"%{net_pct:.1f}",
-                f"{o.reel_yillik or 0:+.1f} puan",
+                f"{o.reel_yillik or 0:+.1f} puan{reel_flag}",
                 eur_tah,
             ])
         doc.tablo(
@@ -978,14 +1030,18 @@ def rapor_pdf_direkt_olustur(
         else "Azalıyor" if v.rezerv_artiyor is False
         else "Bilinmiyor"
     )
+    siyasi_pencere = getattr(config, "SIYASI_RISK_TARAMA_SAAT", 24)
     siyasi_metin = (
-        f"{v.siyasi_risk_makale_sayisi} haber"
+        f"{v.siyasi_risk_makale_sayisi} haber (son {siyasi_pencere}s)"
         if v.siyasi_risk_makale_sayisi is not None else "—"
     )
     savas_metin = (
-        f"{v.savas_risk_makale_sayisi} haber"
+        f"{v.savas_risk_makale_sayisi} haber (son 48s)"
         if v.savas_risk_makale_sayisi is not None and v.savas_risk_guvenilir is not False
-        else "—"
+        else (
+            f"Güvenilmez — {v.savas_risk_makale_sayisi or 0} haber (son 48s)"
+            if v.savas_risk_guvenilir is False else "—"
+        )
     )
     doc.tablo(
         ["Gösterge", "Değer", "Gösterge", "Değer"],
@@ -995,10 +1051,16 @@ def rapor_pdf_direkt_olustur(
             ["Enflasyon (TR)", f"%{_sayi(snap.enflasyon_tr_yillik, 1)}", "BIST 100", _sayi(snap.bist100, 0)],
             ["Altın (USD/oz)", f"${_sayi(snap.altin_usd_oz, 0)}", "BTC (USD)", f"${_sayi(snap.btc_usd, 0)}"],
             ["Ülke riski (CDS)", f"{_sayi(v.cds_5y_bp, 0)} bp", "ABD Korku Endeksi (VIX)", _sayi(snap.vix, 1)],
-            ["Siyasi risk haberleri", siyasi_metin, "Jeopolitik haberler", savas_metin],
+            [f"Siyasi risk (son {siyasi_pencere}s)", siyasi_metin,
+             "Jeopolitik risk (son 48s)", savas_metin],
             ["Döviz rezervleri", rezerv, "TL maksimum pay", f"%{tahsis.tl_tavan_oran * 100:.0f}"],
         ],
         col_w=[w * 0.32, w * 0.18, w * 0.32, w * 0.18],
+    )
+    doc.paragraf(
+        f"Siyasi ve jeopolitik haber sayıları farklı zaman pencerelerinden (sırasıyla "
+        f"son {siyasi_pencere}s ve son 48s) farklı kaynaklarla taranır; "
+        "sayılar arasındaki fark bu nedenle normaldir."
     )
 
     if danisman.makro_baglam and danisman.makro_baglam.parcalar:

@@ -43,6 +43,7 @@ def birlesik_oneri_pdf_bolumu(
     para_birimi: str,
     toplam_eur: float,
     eur_try: float,
+    makro_agirliklar: Optional[dict] = None,
 ) -> None:
     if not oneri:
         return
@@ -56,6 +57,36 @@ def birlesik_oneri_pdf_bolumu(
     )
     for n in oneri.mevcut_notlar[:4]:
         doc.madde(_temiz_pdf(n, 200))
+
+    # Uyarı: iki tahsis tablosu neden farklı olabilir?
+    if makro_agirliklar and oneri.hedef_tablo:
+        # Hedef tablodaki ana kategorileri topla
+        hedef_toplamlar: dict = {}
+        for h in oneri.hedef_tablo:
+            kat = (h.kategori or "").lower()
+            hedef_toplamlar[kat] = hedef_toplamlar.get(kat, 0) + h.agirlik_pct
+        # Makro tahsisten belirgin fark var mı? (>2pp)
+        farklar = []
+        KATEGORI_MAP = {"altın": "gold", "tl mevduat": "tl_deposit",
+                        "bist / hisse": "bist", "eur nakit": "eur_cash"}
+        for kat_ad, mak_key in KATEGORI_MAP.items():
+            mak_pct = (makro_agirliklar.get(mak_key, 0) or 0) * 100
+            hdf_pct = hedef_toplamlar.get(kat_ad, hedef_toplamlar.get(mak_key, None))
+            if hdf_pct is not None and abs(mak_pct - hdf_pct) > 2:
+                farklar.append(f"{kat_ad}: Makro %{mak_pct:.0f} — Bu tablo %{hdf_pct:.0f}")
+        if farklar:
+            doc.kutu(
+                "Neden İki Farklı Tahsis Tablosu Var?",
+                "Üstteki 'Önerilen Portföy Dağılımı' tablosu saf makro rejim çıktısıdır. "
+                "Bu tablo ise BIST/ETF/TEFAS paylarını araçlara dağıtan birleşik model çıktısıdır; "
+                "BIST payının hisse/ETF'lere bölünmesi ve araç sınırlamalarından dolayı küçük farklar normaldir. "
+                "Farklılıklar: " + " · ".join(farklar),
+            )
+        else:
+            doc.paragraf(
+                "Not: Bu tablo BIST/ETF paylarını araçlara bölen birleşik model çıktısıdır; "
+                "üstteki makro tahsis tablosundan ±2pp sapma normaldir."
+            )
 
     if oneri.hedef_tablo:
         w = doc._w()
@@ -136,20 +167,34 @@ def varliklarim_pdf_bolumu(
 
     doc.kutu(
         f"{aktif.ad} · {pb} görünüm",
-        f"Toplam: {toplam:,.0f} {pb} · Maliyet: {maliyet:,.0f} {pb} · "
-        f"K/Z: {kz:+,.0f} ({kz_pct:+.2f}%) · "
-        f"Sidebar hedef: {hedef:,.0f} {pb}",
+        f"Güncel değer: {toplam:,.0f} {pb}  ·  Maliyet: {maliyet:,.0f} {pb}  ·  "
+        f"Kar/Zarar: {kz:+,.0f} ({kz_pct:+.2f}%)  ·  Öneri hedefi: {hedef:,.0f} {pb}",
     )
-    if hedef > 0 and abs(toplam - hedef) / hedef > 0.02:
-        doc.madde(
-            _temiz_pdf(
-                f"Toplam ile sidebar hedefi arasında %{abs(toplam - hedef) / hedef * 100:.1f} fark var — "
-                "öneriyi yeniden aktarmayı veya pozisyonları kontrol etmeyi düşünün.",
-                220,
+    if hedef > 0:
+        bosluk_pct = abs(toplam - hedef) / hedef * 100
+        if bosluk_pct >= 15:
+            yontem = "artırmanız" if toplam < hedef else "azaltmanız"
+            fark_tutar = abs(toplam - hedef)
+            doc.kutu(
+                f"Büyük Portföy Boşluğu — %{bosluk_pct:.0f} Fark",
+                f"Mevcut portföyünüz ({toplam:,.0f} {pb}) öneri hedefinden "
+                f"{fark_tutar:,.0f} {pb} (%{bosluk_pct:.0f}) uzakta. "
+                f"Bu büyüklükteki bir fark, portföyü {yontem} anlamına gelir. "
+                "Rapor bu yeniden yapılandırmayı öneriler içinde açıkça belirtmemektedir; "
+                "ancak gerçekte büyük bir varlık hareketi gerekmektedir. "
+                "Pozisyon değişikliğini tek seferde değil, birden fazla işlemle "
+                "gerçekleştirmeniz piyasa riskini azaltır.",
             )
-        )
-    else:
-        doc.madde("Toplam, sidebar portföy tutarı ile uyumlu (±%2).")
+        elif bosluk_pct > 5:
+            doc.madde(
+                _temiz_pdf(
+                    f"Portföy ile öneri hedefi arasında %{bosluk_pct:.1f} fark var — "
+                    "pozisyonları kontrol edin veya öneriyi yeniden aktarın.",
+                    220,
+                )
+            )
+        else:
+            doc.madde(f"Portföy, öneri hedefi ile uyumlu (fark: %{bosluk_pct:.1f}).")
 
     doc.paragraf(
         "Dönem getirileri (1G/1H/1A/3A/6A) alım tarihinizden itibarendir; bugün eklenen pozisyonlarda 0,00%."
@@ -210,6 +255,7 @@ def birlesik_oneri_html_blok(
     toplam_eur: float,
     eur_try: float,
     esc,
+    makro_agirliklar: Optional[dict] = None,
 ) -> str:
     if not oneri:
         return ""
@@ -222,6 +268,35 @@ def birlesik_oneri_html_blok(
             f"<td class='num'>%{h.agirlik_pct:.1f}</td>"
             f"<td class='num'>{h.tutar:,.0f} {esc(h.para)}</td></tr>"
         )
+
+    # Tutarsızlık notu
+    tutarsizlik_html = ""
+    if makro_agirliklar and oneri.hedef_tablo:
+        hedef_toplamlar: dict = {}
+        for h in oneri.hedef_tablo:
+            kat = (h.kategori or "").lower()
+            hedef_toplamlar[kat] = hedef_toplamlar.get(kat, 0) + h.agirlik_pct
+        KATEGORI_MAP = {"altın": "gold", "tl mevduat": "tl_deposit",
+                        "bist / hisse": "bist", "eur nakit": "eur_cash"}
+        farklar = []
+        for kat_ad, mak_key in KATEGORI_MAP.items():
+            mak_pct = (makro_agirliklar.get(mak_key, 0) or 0) * 100
+            hdf_pct = hedef_toplamlar.get(kat_ad, hedef_toplamlar.get(mak_key, None))
+            if hdf_pct is not None and abs(mak_pct - hdf_pct) > 2:
+                farklar.append(f"<strong>{esc(kat_ad)}</strong>: Makro %{mak_pct:.0f} — Bu tablo %{hdf_pct:.0f}")
+        if farklar:
+            tutarsizlik_html = (
+                '<div class="box"><strong>Neden İki Farklı Tahsis Tablosu Var?</strong>'
+                "<p>Üstteki tablo saf makro rejim çıktısı; bu tablo BIST/ETF/TEFAS araçlarına "
+                "bölünen birleşik model çıktısıdır. Farklar:<br>"
+                + " &nbsp;·&nbsp; ".join(farklar) + "</p></div>"
+            )
+        else:
+            tutarsizlik_html = (
+                "<p class='muted'>Bu tablo BIST/ETF paylarını araçlara bölen birleşik model çıktısıdır; "
+                "üstteki makro tahsis tablosundan ±2 puan sapma normaldir.</p>"
+            )
+
     arac_rows = ""
     for s in oneri.arac_dagilim:
         arac_rows += (
@@ -236,7 +311,7 @@ def birlesik_oneri_html_blok(
     if arac_rows:
         arac_tablo = f"""
 <h3>Araç İçi Dağılım (TEFAS / ETF / BIST)</h3>
-<p class="muted">TEFAS/ETF tutarları ilgili nakit payının içinden ayrılır.</p>
+<p class="muted">TEFAS/ETF tutarları ilgili nakit payının içinden ayrılır; çift sayım yapılmaz.</p>
 <table>
 <thead><tr>
 <th>Kategori</th><th>Kod</th><th>Açıklama</th><th>Portföy %</th><th>İç %</th><th>Tutar</th><th>Etiket</th>
@@ -245,7 +320,8 @@ def birlesik_oneri_html_blok(
 </table>"""
     return f"""
 <h2>Önerilen Portföy — Detaylı Hedef</h2>
-<p>Sidebar toplam: <strong>{pb_toplam:,.0f} {esc(para_birimi)}</strong> · EUR referans: <strong>{toplam_eur:,.0f} EUR</strong></p>
+<p>Sidebar toplam: <strong>{pb_toplam:,.0f} {esc(para_birimi)}</strong> &nbsp;·&nbsp; EUR referans: <strong>{toplam_eur:,.0f} EUR</strong></p>
+{tutarsizlik_html}
 <p class="muted">{esc(oneri.ozet)}</p>
 {"<ul>" + notlar + "</ul>" if notlar else ""}
 <table>
@@ -287,9 +363,29 @@ def varliklarim_html_blok(
             f"<td class='num'>{esc(_fmt_getiri(pd_.getiriler.get('1G')))}</td>"
             f"<td class='num'>{esc(_fmt_getiri(pd_.getiriler.get('1A')))}</td></tr>"
         )
+    bosluk_html = ""
+    if hedef > 0:
+        bosluk_pct = abs(toplam - hedef) / hedef * 100
+        if bosluk_pct >= 15:
+            yontem = "artırmanız" if toplam < hedef else "azaltmanız"
+            fark_tutar = abs(toplam - hedef)
+            bosluk_html = f"""
+<div class="ozet-kutu tl-onerilmiyor">
+<strong>Büyük Portföy Boşluğu — %{bosluk_pct:.0f} Fark</strong>
+<p>Mevcut portföyünüz (<strong>{toplam:,.0f} {esc(pb)}</strong>) öneri hedefinden
+<strong>{fark_tutar:,.0f} {esc(pb)}</strong> (%{bosluk_pct:.0f}) uzakta.
+Bu büyüklükteki fark portföyü <strong>{yontem}</strong> anlamına gelir.
+Rapor bu yeniden yapılandırmayı öneriler içinde açıkça belirtmemektedir;
+ancak gerçekte büyük bir varlık hareketi gerekmektedir.
+Pozisyon değişikliğini tek seferde değil, birden fazla işlemle gerçekleştirmeniz piyasa riskini azaltır.</p>
+</div>"""
+        elif bosluk_pct > 5:
+            bosluk_html = f"<p class='muted'>Portföy ile öneri hedefi arasında %{bosluk_pct:.1f} fark — kontrol edin.</p>"
+
     return f"""
 <h2>Varlıklarım — {esc(aktif.ad)}</h2>
-<p>Toplam: <strong>{toplam:,.0f} {esc(pb)}</strong> · Maliyet: {maliyet:,.0f} · K/Z: {kz:+,.0f} ({kz_pct:+.2f}%) · Sidebar hedef: {hedef:,.0f} {esc(pb)}</p>
+<p>Güncel değer: <strong>{toplam:,.0f} {esc(pb)}</strong> &nbsp;·&nbsp; Maliyet: {maliyet:,.0f} &nbsp;·&nbsp; K/Z: {kz:+,.0f} ({kz_pct:+.2f}%) &nbsp;·&nbsp; Öneri hedefi: {hedef:,.0f} {esc(pb)}</p>
+{bosluk_html}
 <table>
 <thead><tr><th>Tür</th><th>Araç</th><th>Sembol</th><th>Maliyet</th><th>Güncel</th><th>K/Z</th><th>1G</th><th>1A</th></tr></thead>
 <tbody>{poz_rows}</tbody>

@@ -235,13 +235,38 @@ def _backtest_html(
     met = kars.dinamik
     ref = kars.referans_statik
     karsi = kars.karsi_olgusal
+    rejim = rejim  # local alias for clarity
+    rejim_hic_gorulmedi = (
+        rejim and met.mevcut_rejim_oran_pct is not None
+        and met.mevcut_rejim_oran_pct < 1
+    )
 
     def _sh(m):
         return f"{m.sharpe_yillik:.2f}" if m.sharpe_yillik is not None else "—"
 
     uyari = ""
-    if kars.dinamik_dezavantaj and kars.uyari_mesaji:
-        uyari = f"<div class='warn'><strong>Dinamik katman uyarısı:</strong> {_esc(kars.uyari_mesaji)}</div>"
+    if kars.dinamik_dezavantaj and rejim_hic_gorulmedi:
+        uyari = f"""<div class="ozet-kutu tl-onerilmiyor">
+<strong>Önemli Uyarı — Bu Raporun Önerisini Nasıl Okumalısınız</strong>
+<p>Backtest iki kritik sorunu aynı anda ortaya koyuyor:</p>
+<ol>
+<li>Son {ay} ayda dinamik rejim modeli, basit statik tahsisten <strong>daha kötü</strong> performans sergiledi
+(Sharpe: Dinamik {met.sharpe_yillik:.2f} &ndash; Statik {ref.sharpe_yillik:.2f}).</li>
+<li>Mevcut rejim (<em>{_esc(rejim.replace("_", " "))}</em>) bu dönemde hiç görülmedi
+(%{met.mevcut_rejim_oran_pct:.0f}) — bugünkü öneri seti <strong>test edilmemiş koşullara</strong> dayanıyor.</li>
+</ol>
+<p><strong>Sonuç:</strong> Rapordaki spesifik yüzdelerden çok <em>çerçeveyi</em> (başabaş kur, TL tavan mantığı,
+reel getiri ayrımı) esas alınız. Yaklaşan merkez bankası kararları öncesinde
+büyük pozisyon değişikliği yapmamak raporun kendi verileriyle uyumludur.</p>
+</div>"""
+    elif kars.dinamik_dezavantaj and kars.uyari_mesaji:
+        uyari = f"<div class='ozet-kutu tl-sinirli'><strong>Dinamik Katman Uyarısı:</strong> {_esc(kars.uyari_mesaji)}</div>"
+    elif rejim_hic_gorulmedi:
+        uyari = f"""<div class="ozet-kutu tl-sinirli">
+<strong>Dikkat — Test Edilmemiş Rejim:</strong>
+Mevcut rejim ({_esc(rejim.replace("_", " "))}) geçmiş {ay} aylık simülasyonda
+%{met.mevcut_rejim_oran_pct:.0f} ile temsil edildi — tarihsel referans çok sınırlı.
+</div>"""
 
     karsi_hdr = "<th>Bugünkü ağırlıklar</th>" if karsi else ""
     karsi_cells = ""
@@ -369,25 +394,54 @@ def rapor_html_olustur(
 
     mevduat_html = ""
     if mevduat:
+        profil_reel = getattr(mevduat, "profil_vade_reel", None)
+        profil_eur_tah = getattr(mevduat, "profil_vade_eur_tahmini", None)
+        reel_cok_dusuk = profil_reel is not None and profil_reel < 0.5
+
         mev_rows = ""
         for o in mevduat.oranlar:
             isaret = " ✓" if o.vade == mevduat.profil_vade else ""
             net_pct = o.net_yillik * 100
             eur_tah = (
-                f"{_eur_bazli_tahmini(net_pct, mevduat.enflasyon):+.1f}"
+                f"{_eur_bazli_tahmini(net_pct, mevduat.enflasyon):+.1f}*"
                 if o.vade.startswith("TL") else "—"
             )
+            reel_val = o.reel_yillik or 0
+            reel_str = f"{reel_val:+.1f}"
+            if reel_val < 0.5 and o.vade.startswith("TL"):
+                reel_str = f'<span style="color:#c0392b;font-weight:600">{reel_val:+.1f} (!)</span>'
             mev_rows += f"""
             <tr>
                 <td>{_esc(o.vade)}{isaret}</td>
                 <td class="num">%{o.brut_yillik * 100:.2f}</td>
                 <td class="num">%{net_pct:.2f}</td>
-                <td class="num">{o.reel_yillik or 0:+.1f}</td>
+                <td class="num">{reel_str}</td>
                 <td class="num">{eur_tah}</td>
             </tr>"""
+
         getiri_kutu = ""
         if mevduat.getiri_notu:
-            getiri_kutu = f'<div class="ozet-kutu"><strong>Getiri tanımı:</strong> {_esc(mevduat.getiri_notu)}</div>'
+            uyari_sinif = "ozet-kutu tl-sinirli" if reel_cok_dusuk else "ozet-kutu"
+            uyari_ek = ""
+            if reel_cok_dusuk:
+                uyari_ek = (
+                    f" <strong>Uyarı:</strong> Profilinizin vadesi için yerel reel getiri "
+                    f"yalnızca {profil_reel:+.1f} puan — pratikte enflasyona karşı sıfır koruma."
+                )
+            eur_caveat = ""
+            if profil_eur_tah is not None and profil_eur_tah > 0:
+                eur_caveat = (
+                    f" EUR bazlı tahmin (<strong>{profil_eur_tah:+.1f} puan</strong>) "
+                    "EUR/TRY kurunun vade boyunca <em>değişmeyeceği</em> varsayımına dayanır. "
+                    "Kur şok senaryosunda bu getiri negatife dönebilir. "
+                    'Tablodaki "*" işaretli değerler bu varsayımı içerir.'
+                )
+            getiri_kutu = (
+                f'<div class="{uyari_sinif}">'
+                f"<strong>Getiri Tanımı — Önemli:</strong> {_esc(mevduat.getiri_notu)}"
+                f"{uyari_ek}{eur_caveat}</div>"
+            )
+
         vade_sonu_html = ""
         profil_o = next((o for o in mevduat.oranlar if o.vade == mevduat.profil_vade), None)
         if profil_o and v.eur_try:
@@ -409,14 +463,14 @@ def rapor_html_olustur(
                     f"<ul>{tmsf_html}</ul>"
                 )
         mevduat_html = f"""
-        <h2>TL Mevduat & Faiz Karşılaştırması</h2>
+        <h2>TL Mevduat &amp; Faiz Karşılaştırması</h2>
         <p>{_esc(mevduat.ozet)}</p>
         <p class="muted">Enflasyon girdisi: {_esc((snap.kaynak_haritasi or {}).get("enflasyon", "—"))}</p>
         {getiri_kutu}
         {vade_sonu_html}
-        <p class="muted">Veri: {_esc(mevduat.veri_kaynagi)} · Profil vadesi: {_esc(mevduat.profil_vade)}</p>
+        <p class="muted">Veri: {_esc(mevduat.veri_kaynagi)} &nbsp;·&nbsp; Profil vadesi: {_esc(mevduat.profil_vade)}</p>
         <table>
-            <thead><tr><th>Vade</th><th>Brüt %</th><th>Net %</th><th>Yerel reel</th><th>EUR tah.</th></tr></thead>
+            <thead><tr><th>Vade</th><th>Brüt %</th><th>Net %</th><th>Yerel Reel (enf. üstü)</th><th>EUR Karş. (tahmini*)</th></tr></thead>
             <tbody>{mev_rows}</tbody>
         </table>"""
 
@@ -576,6 +630,7 @@ def rapor_html_olustur(
         toplam_eur=toplam_eur,
         eur_try=v.eur_try or 35.0,
         esc=_esc,
+        makro_agirliklar=tahsis.agirliklar,
     )
     varlik_html = varliklarim_html_blok(varlik_store, snap, kp, esc=_esc)
 
@@ -622,6 +677,7 @@ def rapor_html_olustur(
         else "Azalıyor" if v.rezerv_artiyor is False
         else "Bilinmiyor"
     )
+    siyasi_pencere = getattr(config, "SIYASI_RISK_TARAMA_SAAT", 24)
     kapi_html = ""
     if tahsis.tl_karar_adimlari:
         kapi_html = (
@@ -724,11 +780,17 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
         <td>BTC (USD)</td><td class="num">${_fmt_num(snap.btc_usd, 0)}</td></tr>
     <tr><td>Ülke riski (CDS 5Y)</td><td class="num">{_fmt_num(v.cds_5y_bp, 0)} bp</td>
         <td>ABD Korku Endeksi (VIX)</td><td class="num">{_fmt_num(snap.vix, 1)}</td></tr>
-    <tr><td>Siyasi risk haberleri</td><td class="num">{_esc(v.siyasi_risk_makale_sayisi)} haber</td>
-        <td>Jeopolitik haberler</td><td class="num">{_esc(v.savas_risk_makale_sayisi)} haber</td></tr>
+    <tr>
+        <td>Siyasi risk haberleri <span class="muted">(son {siyasi_pencere}s)</span></td>
+        <td class="num">{_esc(v.siyasi_risk_makale_sayisi) if v.siyasi_risk_makale_sayisi is not None else "—"} haber</td>
+        <td>Jeopolitik risk haberleri <span class="muted">(son 48s)</span></td>
+        <td class="num">{(_esc(v.savas_risk_makale_sayisi) if v.savas_risk_guvenilir is not False else "Güvenilmez") if v.savas_risk_makale_sayisi is not None else "—"} haber</td>
+    </tr>
     <tr><td>Döviz rezervleri</td><td class="num">{rezerv}</td>
         <td>TL maksimum pay</td><td class="num">%{_fmt_num(tahsis.tl_tavan_oran * 100, 0)}</td></tr>
 </table>
+<p class="muted">Siyasi ve jeopolitik haber sayıları farklı zaman pencerelerinden (sırasıyla son {siyasi_pencere}s ve son 48s)
+farklı kaynaklarla taranır — sayılar arasındaki fark bu nedenle normaldir.</p>
 
 <!-- 7. MAKRO DEĞERLENDİRME -->
 <h2>Makro Piyasa Değerlendirmesi</h2>
