@@ -385,7 +385,8 @@ def _tefas_serileri(kodlar: List[str], gun: int = 90, *, aninda: bool = False) -
     def _uret():
         try:
             from tefas_data import _ham_veri_cek
-            df, _ = _ham_veri_cek(min(gun, 90), timeout=45.0)
+            # 90 gün TEFAS'ta 45+ sn sürebilir; 30 gün ~8 sn, 1A getiri için yeterli
+            df, _ = _ham_veri_cek(min(gun, 30), timeout=25.0)
             if df is None:
                 return None
             seriler = {}

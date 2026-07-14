@@ -100,7 +100,7 @@ def _ybb_getiri(sub: pd.DataFrame) -> Optional[float]:
 
 
 def _ham_veri_cek(gun: int = 90, *, timeout: float = 45.0) -> Tuple[Optional[pd.DataFrame], str]:
-    """TEFAS YAT fonları — son N gün (önbellekli, zaman aşımı korumalı)."""
+    """TEFAS YAT fonları — son N gün (bellek + disk önbellek, zaman aşımı korumalı)."""
     global _CACHE
     now = time.time()
     if (
@@ -110,14 +110,25 @@ def _ham_veri_cek(gun: int = 90, *, timeout: float = 45.0) -> Tuple[Optional[pd.
     ):
         return _CACHE["df"], f"TEFAS önbellek ({int(_CACHE['gun'])} gün)"
 
-    def _indir():
+    from disk_onbellek import TTL, disk_getir, disk_yaz
+
+    def _disk_key(g: int) -> str:
+        return f"tefas_ham:{g}"
+
+    def _bellege_yaz(df: pd.DataFrame, g: int) -> pd.DataFrame:
+        _CACHE["ts"] = time.time()
+        _CACHE["df"] = df
+        _CACHE["gun"] = g
+        return df
+
+    def _indir(g: int) -> Tuple[Optional[pd.DataFrame], str]:
         try:
             from pytefas import Crawler
         except ImportError:
             return None, "pytefas kurulu değil — pip install pytefas"
 
         end = date.today()
-        start = end - timedelta(days=gun)
+        start = end - timedelta(days=g)
         try:
             df = Crawler().fetch(start, end, kind="YAT", columns="info")
         except Exception as e:
@@ -128,22 +139,53 @@ def _ham_veri_cek(gun: int = 90, *, timeout: float = 45.0) -> Tuple[Optional[pd.
 
         df = df.copy()
         df["date_dt"] = pd.to_datetime(df["date"])
-        _CACHE["ts"] = time.time()
-        _CACHE["df"] = df
-        _CACHE["gun"] = gun
-        return df, f"TEFAS canlı ({gun} gün, {len(df):,} satır)"
+        disk_yaz(_disk_key(g), df)
+        _bellege_yaz(df, g)
+        return df, f"TEFAS canlı ({g} gün, {len(df):,} satır)"
 
-    if timeout and timeout > 0:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+    def _diskten(g: int, *, bayat: bool) -> Tuple[Optional[pd.DataFrame], Optional[float]]:
+        return disk_getir(_disk_key(g), TTL["tefas"], bayat_kabul=bayat)
 
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_indir)
-            try:
-                return fut.result(timeout=timeout)
-            except FutTimeout:
-                return None, f"TEFAS zaman aşımı ({int(timeout)} sn) — önbellekten veya sonra tekrar denenecek"
+    # Hızlı pencere: 90 gün ~70 sn sürebilir; portföy için 30/14 gün yeterli (~8 sn)
+    pencereler = []
+    for g in (min(gun, 30), 14):
+        if g not in pencereler:
+            pencereler.append(g)
 
-    return _indir()
+    # Taze disk
+    for g in pencereler:
+        veri, yas = _diskten(g, bayat=False)
+        if veri is not None:
+            _bellege_yaz(veri, g)
+            return veri, f"TEFAS disk ({g} gün)"
+
+    def _zaman_asimli(g: int) -> Tuple[Optional[pd.DataFrame], str]:
+        if timeout and timeout > 0:
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(_indir, g)
+                try:
+                    return fut.result(timeout=timeout)
+                except FutTimeout:
+                    return None, f"TEFAS zaman aşımı ({int(timeout)} sn, {g} gün)"
+        return _indir(g)
+
+    # Canlı çekim — kısa pencereden başla
+    for g in pencereler:
+        df, mesaj = _zaman_asimli(g)
+        if df is not None:
+            return df, mesaj
+
+    # Zaman aşımı: bayat disk (en az bir fiyat serisi olsun)
+    for g in pencereler:
+        veri, yas = _diskten(g, bayat=True)
+        if veri is not None:
+            _bellege_yaz(veri, g)
+            yas_sn = int(yas or 0)
+            return veri, f"TEFAS disk bayat ({g} gün, {yas_sn // 3600} sa önce)"
+
+    return None, "TEFAS verisi alınamadı — internet bağlantısını kontrol edin"
 
 
 def _breakdown_ham_cek(gun: int = 14):

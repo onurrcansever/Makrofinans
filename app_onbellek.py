@@ -189,8 +189,15 @@ def _varlik_deger_yukle(ob: AppOnbellek, *, tick: int) -> None:
         ob.varlik_deger_portfoy_id = ""
         return
     if ob.varlik_deger is not None and ob.varlik_deger_portfoy_id == aktif.id:
-        return
-    ob.varlik_deger = portfoy_degerle(aktif, ob.snap, cache_salt=str(tick), aninda=True)
+        if not getattr(ob.varlik_deger, "fiyat_bekleniyor", False):
+            return
+    piyasa = any(
+        p.tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
+        for p in aktif.pozisyonlar
+    )
+    ob.varlik_deger = portfoy_degerle(
+        aktif, ob.snap, cache_salt=str(tick), aninda=not piyasa,
+    )
     ob.varlik_deger_portfoy_id = aktif.id
 
 

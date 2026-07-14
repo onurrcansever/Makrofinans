@@ -1,259 +1,768 @@
 <div aria-hidden="true" style="display:none!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;">
-<style id="tv-theme-style">
+<style id="modulcheck-theme-style">
+/* ══════════════════════════════════════════
+   ModulCheck Pro — Enterprise Light Theme
+   Palette:
+     nav-bg      #0f1923   (en koyu, top bar)
+     sidebar-bg  #162032   (sidebar panel)
+     content-bg  #eef1f5   (ana içerik)
+     card-bg     #ffffff   (beyaz kartlar)
+     accent      #2563eb   (mavi)
+     text        #1e293b   (koyu metin)
+     text-muted  #64748b
+     border      #e2e8f0
+     up          #16a34a   (yeşil)
+     down        #dc2626   (kırmızı)
+   ══════════════════════════════════════════ */
+
 :root {
-  --bg: #131722;
-  --panel: #1e222d;
-  --panel-hover: #2a2e39;
-  --border: #2a2e39;
-  --text: #d1d4dc;
-  --text-muted: #787b86;
-  --up: #26a69a;
-  --down: #ef5350;
-  --accent: #2962ff;
-  --warn: #ff9800;
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --mc-nav:      #0f1923;
+  --mc-sidebar:  #162032;
+  --mc-sidebar2: #1a2840;
+  --mc-content:  #eef1f5;
+  --mc-card:     #ffffff;
+  --mc-border:   #e2e8f0;
+  --mc-text:     #1e293b;
+  --mc-muted:    #64748b;
+  --mc-accent:   #2563eb;
+  --mc-accent-h: #1d4ed8;
+  --mc-up:       #16a34a;
+  --mc-down:     #dc2626;
+  --mc-warn:     #d97706;
+  --mc-sb-text:  #cbd5e1;
+  --mc-sb-muted: #64748b;
+  --mc-font:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mc-mono:     "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-  background-color: var(--bg) !important;
-  color: var(--text) !important;
-  font-family: var(--font-sans) !important;
+/* ── Google Fonts ─────────────────────────── */
+
+/* ── Base reset ───────────────────────────── */
+html, body {
+  font-family: var(--mc-font) !important;
+  background-color: var(--mc-content) !important;
+}
+
+/* ── Main app container ───────────────────── */
+[data-testid="stAppViewContainer"] {
+  background-color: var(--mc-content) !important;
+  font-family: var(--mc-font) !important;
 }
 
 [data-testid="stAppViewContainer"] > .main {
-  background-color: var(--bg) !important;
+  background-color: var(--mc-content) !important;
 }
 
 .block-container {
-  padding-top: 1.5rem !important;
+  padding-top: 1.2rem !important;
   max-width: 100% !important;
+  background-color: var(--mc-content) !important;
 }
 
+/* ── Streamlit header bar — top nav feel ──── */
+[data-testid="stHeader"] {
+  background-color: var(--mc-nav) !important;
+  border-bottom: 1px solid #1e3352 !important;
+  height: 48px !important;
+}
+
+[data-testid="stToolbar"] {
+  background-color: var(--mc-nav) !important;
+}
+
+[data-testid="stToolbar"] button,
+[data-testid="stToolbar"] svg {
+  color: #94a3b8 !important;
+  fill: #94a3b8 !important;
+}
+
+[data-testid="stDecoration"] {
+  background: var(--mc-nav) !important;
+}
+
+/* ── Headings ─────────────────────────────── */
 h1 {
-  font-size: 28px !important;
+  font-size: 22px !important;
   font-weight: 700 !important;
-  color: var(--text) !important;
-  letter-spacing: -0.02em;
+  color: var(--mc-text) !important;
+  letter-spacing: -0.02em !important;
 }
 
 h2, h3, h4,
 [data-testid="stMarkdownContainer"] h1,
 [data-testid="stMarkdownContainer"] h2,
 [data-testid="stMarkdownContainer"] h3 {
-  color: var(--text) !important;
+  color: var(--mc-text) !important;
+  font-family: var(--mc-font) !important;
 }
 
-p, li, span, label, .stCaption,
-[data-testid="stMarkdownContainer"] p {
-  color: var(--text) !important;
+/* ── Body text (span hariç — Material ikon ligature bozulmasın) ── */
+p, li, label,
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li,
+[data-testid="stMarkdownContainer"] label {
+  color: var(--mc-text) !important;
+  font-family: var(--mc-font) !important;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
 }
 
-.stCaption, small {
-  color: var(--text-muted) !important;
+[data-testid="stMarkdownContainer"] span:not([data-testid="stExpanderToggleIcon"]) {
+  font-family: inherit !important;
 }
 
+.stCaption, small, [data-testid="stCaptionContainer"] {
+  color: var(--mc-muted) !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+/* ══════════════════════════════════════════
+   SIDEBAR — ModulCheck dark navy
+   ══════════════════════════════════════════ */
 [data-testid="stSidebar"] {
-  background-color: var(--panel) !important;
-  border-right: 1px solid var(--border) !important;
+  background-color: var(--mc-sidebar) !important;
+  border-right: 1px solid #1e3352 !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stSidebar"] > div:first-child {
+  background-color: var(--mc-sidebar) !important;
+}
+
+/* Sidebar brand heading (## Makrofinans) */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: #f1f5f9 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  padding: 4px 0 2px !important;
+}
+
+/* Sidebar section subheaders */
+[data-testid="stSidebar"] [data-testid="stHeading"],
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
-  font-size: 11px !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.5px !important;
-  color: var(--text-muted) !important;
+  font-size: 10px !important;
   font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.6px !important;
+  color: var(--mc-sb-muted) !important;
+  padding: 14px 0 4px !important;
 }
 
+/* Sidebar all text */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
 [data-testid="stSidebar"] label {
-  color: var(--text) !important;
+  color: var(--mc-sb-text) !important;
 }
 
+[data-testid="stSidebar"] .stCaption {
+  color: var(--mc-sb-muted) !important;
+}
+
+/* Sidebar dividers */
+[data-testid="stSidebar"] hr {
+  border-color: #1e3352 !important;
+  margin: 8px 0 !important;
+}
+
+/* Sidebar selectbox + inputs */
+[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+  background-color: #1a2840 !important;
+  border-color: #1e3352 !important;
+  color: var(--mc-sb-text) !important;
+  border-radius: 5px !important;
+}
+
+[data-testid="stSidebar"] div[data-baseweb="select"] svg {
+  fill: var(--mc-sb-text) !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="menu"] {
+  background-color: #1a2840 !important;
+  border: 1px solid #1e3352 !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="menu"] li {
+  color: var(--mc-sb-text) !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="menu"] li:hover {
+  background-color: rgba(37,99,235,0.15) !important;
+}
+
+/* ── Sidebar radio navigation — ModulCheck style ── */
 [data-testid="stSidebar"] [data-baseweb="radio"] > div {
-  gap: 2px !important;
+  gap: 1px !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label {
   background: transparent !important;
   border-left: 3px solid transparent !important;
-  border-radius: 4px !important;
-  padding: 8px 12px !important;
-  margin: 0 !important;
-  color: var(--text-muted) !important;
-  width: 100%;
+  border-radius: 0 5px 5px 0 !important;
+  padding: 9px 14px 9px 12px !important;
+  margin: 1px 0 !important;
+  color: var(--mc-sb-text) !important;
+  width: 100% !important;
+  font-size: 13.5px !important;
+  font-weight: 400 !important;
+  transition: background 0.15s, border-color 0.15s !important;
+}
+
+[data-testid="stSidebar"] [data-baseweb="radio"] label:hover {
+  background: rgba(37,99,235,0.08) !important;
+  color: #f1f5f9 !important;
+  cursor: pointer !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label:has(input:checked) {
-  background: #2962ff14 !important;
-  border-left-color: var(--accent) !important;
-  color: var(--text) !important;
+  background: rgba(37,99,235,0.15) !important;
+  border-left-color: var(--mc-accent) !important;
+  color: #f1f5f9 !important;
   font-weight: 600 !important;
 }
 
-[data-testid="stSidebar"] hr {
-  border-color: var(--border) !important;
+/* Hide radio circles */
+[data-testid="stSidebar"] [data-baseweb="radio"] input[type="radio"] {
+  display: none !important;
 }
 
+/* Sidebar number input */
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
+  background: #1a2840 !important;
+  border: 1px solid #1e3352 !important;
+  color: var(--mc-sb-text) !important;
+  border-radius: 5px !important;
+  font-family: var(--mc-mono) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button {
+  background: #1a2840 !important;
+  border-color: #1e3352 !important;
+  color: var(--mc-sb-text) !important;
+}
+
+/* Sidebar slider */
+[data-testid="stSidebar"] [data-testid="stSlider"] > div > div > div {
+  background: var(--mc-accent) !important;
+}
+
+/* Sidebar toggle */
+[data-testid="stSidebar"] [data-testid="stToggle"] {
+  color: var(--mc-sb-text) !important;
+}
+
+/* Sidebar selectbox for toggle/buttons */
+[data-testid="stSidebar"] .stButton > button {
+  background: var(--mc-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+[data-testid="stSidebar"] .stButton > button:hover {
+  background: var(--mc-accent-h) !important;
+}
+
+/* Sidebar form submit button */
+[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] > button {
+  background: var(--mc-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: 600 !important;
+}
+
+/* ══════════════════════════════════════════
+   MAIN CONTENT — Light enterprise look
+   ══════════════════════════════════════════ */
+
+/* Metric cards — white with shadow */
 [data-testid="stMetric"] {
-  background: var(--panel) !important;
-  border: 1px solid var(--border) !important;
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
   border-radius: 8px !important;
-  padding: 12px 16px !important;
+  padding: 14px 18px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
 }
 
 [data-testid="stMetricLabel"] {
   font-size: 11px !important;
-  color: var(--text-muted) !important;
+  color: var(--mc-muted) !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.4px !important;
+  letter-spacing: 0.45px !important;
+  font-weight: 600 !important;
 }
 
 [data-testid="stMetricValue"] {
-  font-family: var(--font-mono) !important;
+  font-family: var(--mc-font) !important;
   font-variant-numeric: tabular-nums !important;
-  color: var(--text) !important;
-  font-size: 20px !important;
+  font-feature-settings: "tnum" !important;
+  color: var(--mc-text) !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
+  line-height: 1.2 !important;
+}
+
+[data-testid="stMetricDelta"] {
+  font-size: 12px !important;
+  font-family: var(--mc-font) !important;
+  margin-top: 4px !important;
 }
 
 [data-testid="stMetricDelta"] svg {
   display: none;
 }
 
+/* Expanders — kurumsal kart + düzgün ok ikonu */
 [data-testid="stExpander"] {
-  background: var(--panel) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
-  overflow: hidden;
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.05) !important;
+  margin-bottom: 8px !important;
 }
 
-[data-testid="stExpander"] summary {
-  color: var(--text) !important;
+[data-testid="stExpander"] details > summary {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  list-style: none !important;
+  cursor: pointer !important;
+  color: var(--mc-text) !important;
   font-weight: 600 !important;
-}
-
-.stButton > button[kind="primary"],
-.stButton > button[data-testid="baseButton-primary"] {
-  background-color: var(--accent) !important;
-  color: #fff !important;
+  font-size: 14px !important;
+  font-family: var(--mc-font) !important;
+  background: var(--mc-card) !important;
+  padding: 13px 16px !important;
   border: none !important;
-  border-radius: 6px !important;
-  font-weight: 600 !important;
 }
 
-.stButton > button:not([kind="primary"]):not([data-testid="baseButton-primary"]) {
-  background: transparent !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
+[data-testid="stExpander"] details > summary::-webkit-details-marker {
+  display: none !important;
 }
 
-.stButton > button:hover {
-  background-color: var(--panel-hover) !important;
+/* keyboard_arrow_right metnini gizle — CSS ok */
+[data-testid="stExpander"] details > summary > span:first-child,
+[data-testid="stExpander"] summary span[data-testid="stExpanderToggleIcon"] {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  flex-shrink: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #f1f5f9 !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 5px !important;
+  overflow: hidden !important;
+  color: transparent !important;
 }
 
-[data-testid="stAlert"] {
-  background-color: var(--panel) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
+[data-testid="stExpander"] details > summary > span:first-child::after,
+[data-testid="stExpander"] summary span[data-testid="stExpanderToggleIcon"]::after {
+  content: "›" !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  font-family: var(--mc-font) !important;
+  color: var(--mc-muted) !important;
+  line-height: 1 !important;
+  display: block !important;
+  transform: rotate(0deg) !important;
+  transition: transform 0.15s ease !important;
 }
 
+[data-testid="stExpander"] details[open] > summary > span:first-child::after,
+[data-testid="stExpander"] details[open] summary span[data-testid="stExpanderToggleIcon"]::after {
+  transform: rotate(90deg) !important;
+}
+
+[data-testid="stExpander"] details > summary:hover {
+  background: #f8fafc !important;
+}
+
+[data-testid="stExpander"] > div > div,
+[data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+  background: var(--mc-card) !important;
+  padding: 4px 16px 16px 48px !important;
+  border-top: 1px solid #f1f5f9 !important;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
+}
+
+/* Info / Success / Warning / Error — tek kurumsal stil */
+[data-testid="stAlert"],
+div[data-baseweb="notification"] {
+  background: var(--mc-card) !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--mc-border) !important;
+  border-left: 4px solid var(--mc-accent) !important;
+  color: var(--mc-text) !important;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04) !important;
+  margin: 8px 0 !important;
+}
+
+[data-testid="stAlert"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stAlert"] p {
+  margin: 0 !important;
+  font-size: 14px !important;
+  color: var(--mc-text) !important;
+}
+
+[data-testid="stAlert"] svg {
+  flex-shrink: 0 !important;
+}
+
+/* Yeşil banner (canlı veri) — inline HTML */
+.mc-live-banner {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 10px 16px !important;
+  margin: 10px 0 14px !important;
+  background: #f0fdf4 !important;
+  border: 1px solid #bbf7d0 !important;
+  border-left: 4px solid var(--mc-up) !important;
+  border-radius: 8px !important;
+  color: #166534 !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+}
+
+/* Tabs — ModulCheck underline style */
 .stTabs [data-baseweb="tab-list"] {
   background: transparent !important;
-  border-bottom: 1px solid var(--border) !important;
+  border-bottom: 1px solid var(--mc-border) !important;
+  gap: 0 !important;
 }
 
 .stTabs [data-baseweb="tab"] {
-  color: var(--text-muted) !important;
+  color: var(--mc-muted) !important;
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  padding: 8px 18px !important;
+  background: transparent !important;
+  border-bottom: 2px solid transparent !important;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+  color: var(--mc-text) !important;
+  background: rgba(37,99,235,0.05) !important;
 }
 
 .stTabs [aria-selected="true"] {
-  color: var(--accent) !important;
-  border-bottom: 2px solid var(--accent) !important;
-}
-
-div[data-baseweb="select"] > div,
-div[data-baseweb="input"] > div {
-  background-color: var(--panel) !important;
-  border-color: var(--border) !important;
-  color: var(--text) !important;
-}
-
-.stProgress > div > div {
-  background-color: var(--accent) !important;
-}
-
-[data-testid="stStatusWidget"] {
-  background: var(--panel) !important;
-  border: 1px solid var(--border) !important;
-}
-
-.stCode, code {
-  background: var(--panel-hover) !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border) !important;
-}
-
-hr {
-  border-color: var(--border) !important;
-}
-
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-
-/* Form — borderless, tight */
-[data-testid="stForm"] {
-  border: none !important;
-  padding: 0 !important;
+  color: var(--mc-accent) !important;
+  border-bottom: 2px solid var(--mc-accent) !important;
+  font-weight: 600 !important;
   background: transparent !important;
 }
 
-/* Sidebar brand heading */
-[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
-  font-size: 18px !important;
-  text-transform: none !important;
-  letter-spacing: -0.01em !important;
-  color: var(--text) !important;
-  font-weight: 700 !important;
+/* Tab content panel */
+.stTabs [data-testid="stTabsContent"] {
+  background: transparent !important;
+  padding-top: 16px !important;
 }
 
-/* Sidebar section subheaders */
-[data-testid="stSidebar"] [data-testid="stHeading"] {
-  color: var(--text-muted) !important;
+/* ── Buttons — flat ModulCheck style ──────── */
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="baseButton-primary"] {
+  background-color: var(--mc-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  padding: 7px 16px !important;
+  transition: background 0.15s !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+  background-color: var(--mc-accent-h) !important;
+}
+
+.stButton > button:not([kind="primary"]):not([data-testid="baseButton-primary"]) {
+  background: var(--mc-card) !important;
+  color: var(--mc-text) !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 5px !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+}
+
+.stButton > button:not([kind="primary"]):hover {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Download button */
+.stDownloadButton > button {
+  background-color: var(--mc-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: 600 !important;
+}
+
+.stDownloadButton > button:hover {
+  background-color: var(--mc-accent-h) !important;
+}
+
+/* Form submit button */
+[data-testid="stFormSubmitButton"] > button {
+  background-color: var(--mc-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 5px !important;
+  font-weight: 600 !important;
+  transition: box-shadow 0.15s !important;
+}
+
+[data-testid="stFormSubmitButton"] > button:hover {
+  background-color: var(--mc-accent-h) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.25) !important;
+}
+
+/* ── Inputs / Selects ─────────────────────── */
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div {
+  background-color: var(--mc-card) !important;
+  border-color: var(--mc-border) !important;
+  color: var(--mc-text) !important;
+  border-radius: 5px !important;
+}
+
+div[data-baseweb="select"] > div:focus-within,
+div[data-baseweb="input"] > div:focus-within {
+  border-color: var(--mc-accent) !important;
+  box-shadow: 0 0 0 2px rgba(37,99,235,0.15) !important;
+}
+
+[data-testid="stNumberInput"] input {
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  color: var(--mc-text) !important;
+  border-radius: 5px !important;
+  font-family: var(--mc-mono) !important;
+}
+
+[data-testid="stTextInput"] input {
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  color: var(--mc-text) !important;
+  border-radius: 5px !important;
+}
+
+/* Dropdown menu */
+[data-baseweb="menu"] {
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
+}
+
+[data-baseweb="menu"] li {
+  color: var(--mc-text) !important;
+  font-size: 13.5px !important;
+}
+
+[data-baseweb="menu"] li:hover,
+[data-baseweb="menu"] li[aria-selected="true"] {
+  background: rgba(37,99,235,0.08) !important;
+  color: var(--mc-accent) !important;
+}
+
+/* ── Dataframes / Tables ──────────────────── */
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: var(--mc-card) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+
+[data-testid="stDataFrame"] table {
+  background: var(--mc-card) !important;
+}
+
+[data-testid="stDataFrame"] th {
+  background: #f1f5f9 !important;
+  color: var(--mc-muted) !important;
   font-size: 11px !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.5px !important;
+  letter-spacing: 0.45px !important;
   font-weight: 600 !important;
+  border-bottom: 1px solid var(--mc-border) !important;
 }
 
-/* Spinner overlay */
+[data-testid="stDataFrame"] td {
+  color: var(--mc-text) !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  font-size: 13px !important;
+}
+
+[data-testid="stDataFrame"] tr:hover td {
+  background: #f8fafc !important;
+}
+
+/* ── Progress bar ─────────────────────────── */
+.stProgress > div > div {
+  background-color: var(--mc-accent) !important;
+}
+
+.stProgress > div {
+  background-color: #e2e8f0 !important;
+  border-radius: 99px !important;
+}
+
+/* ── Spinner ──────────────────────────────── */
 [data-testid="stSpinner"] {
-  color: var(--accent) !important;
+  color: var(--mc-accent) !important;
 }
 
-/* Better number input */
+/* ── Code blocks ──────────────────────────── */
+.stCode, code, pre {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 5px !important;
+}
+
+/* ── Dividers ─────────────────────────────── */
+hr {
+  border-color: var(--mc-border) !important;
+  margin: 12px 0 !important;
+}
+
+/* ── Status widget ────────────────────────── */
+[data-testid="stStatusWidget"] {
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 7px !important;
+}
+
+/* ── Form container ───────────────────────── */
+[data-testid="stForm"] {
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 8px !important;
+  background: var(--mc-card) !important;
+  padding: 16px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+
+/* ── Toast notifications ──────────────────── */
+[data-testid="stToast"] {
+  background: var(--mc-text) !important;
+  color: #f8fafc !important;
+  border-radius: 7px !important;
+}
+
+/* ── Checkbox / Radio (outside sidebar) ───── */
+[data-testid="stCheckbox"] label,
+[data-baseweb="radio"] label {
+  color: var(--mc-text) !important;
+}
+
+/* ── Sayfa başlıkları ─────────────────────── */
+.block-container h1 {
+  font-size: 24px !important;
+  font-weight: 700 !important;
+  color: var(--mc-nav) !important;
+  letter-spacing: -0.025em !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 4px !important;
+  border-bottom: 2px solid var(--mc-border) !important;
+}
+
+[data-testid="stHeading"] {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--mc-text) !important;
+  letter-spacing: -0.01em !important;
+  padding: 12px 0 6px !important;
+  margin: 0 !important;
+}
+
+[data-testid="stHeading"] h2,
+[data-testid="stHeading"] h3 {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--mc-text) !important;
+  margin: 0 !important;
+}
+
+/* ── Info / success / warning / error renkleri ── */
+[data-testid="element-container"]:has([data-testid="stAlert"]) [data-testid="stAlert"] {
+  border-left-width: 4px !important;
+}
+
+/* Streamlit uyarı türleri — sol şerit rengi */
+div[data-testid="stNotificationContentInfo"],
+[data-testid="stAlert"]:has([data-testid="stIconMaterial"]) {
+  border-left-color: var(--mc-accent) !important;
+}
+
 [data-testid="stNumberInput"] input {
-  background: var(--panel) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text) !important;
-  border-radius: 6px !important;
-  font-family: var(--font-mono) !important;
+  font-family: var(--mc-font) !important;
+  font-variant-numeric: tabular-nums !important;
 }
 
-/* Form submit button glow on hover */
-[data-testid="stFormSubmitButton"] > button {
-  background-color: var(--accent) !important;
-  color: #fff !important;
-  font-weight: 600 !important;
-  border-radius: 6px !important;
-  border: none !important;
-  transition: box-shadow 0.2s ease !important;
+/* ── Plotly chart container ───────────────── */
+[data-testid="stPlotlyChart"] {
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
 }
-[data-testid="stFormSubmitButton"] > button:hover {
-  box-shadow: 0 0 0 3px rgba(41,98,255,0.3) !important;
+
+/* ── Column containers — subtle card ─────── */
+[data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] {
+  gap: 12px !important;
+}
+
+/* ── Hide Streamlit chrome ────────────────── */
+#MainMenu { visibility: hidden !important; }
+footer { visibility: hidden !important; }
+[data-testid="stDecoration"] { display: none !important; }
+
+/* ── Scrollbar — enterprise feel ─────────── */
+::-webkit-scrollbar {
+  width: 6px !important;
+  height: 6px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--mc-content) !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 99px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8 !important;
+}
+
+/* Sidebar scrollbar */
+[data-testid="stSidebar"] ::-webkit-scrollbar-track {
+  background: var(--mc-sidebar) !important;
+}
+
+[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {
+  background: #1e3352 !important;
 }
 </style>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 </div>

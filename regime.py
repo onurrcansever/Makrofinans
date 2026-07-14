@@ -98,7 +98,29 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
     savas_yuksek = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_YUKSEK_ESIGI
     savas_aktif = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_ESIGI
     jeopolitik_kesinti = savas_aktif  # Kapı 1b ×0.9 jeopolitik çarpanı aktifken risk-on yasak
-    tl_makro_risk = bool(v.tl_makro_risk_aktif)
+    # Ham sayılardan anlık config eşikleriyle yeniden hesapla.
+    # Önbellekteki tl_makro_risk_aktif eski eşiklerle hesaplanmış olabilir;
+    # ham sayılar (tl_faiz_indirim_haber, tl_erken_secim_haber) varsa onlara güven.
+    if v.tl_faiz_indirim_haber is not None or v.tl_erken_secim_haber is not None:
+        from tl_makro_risk import _anormal, _secim_anormal
+        faiz_yuksek = (v.tl_faiz_indirim_haber or 0) >= config.TL_MAKRO_FAIZ_ESIGI or (
+            v.tl_faiz_indirim_haber is not None
+            and _anormal(
+                v.tl_faiz_indirim_haber,
+                "faiz_indirim",
+                config.TL_MAKRO_FAIZ_TABAN_VARSAYILAN,
+                config.TL_MAKRO_ANORMAL_CARPAN,
+            )
+        )
+        secim_yuksek = _secim_anormal(
+            v.tl_erken_secim_haber or 0,
+            "erken_secim",
+            config.TL_MAKRO_SECIM_TABAN_VARSAYILAN,
+            config.TL_MAKRO_ANORMAL_CARPAN,
+        )
+        tl_makro_risk = faiz_yuksek or secim_yuksek
+    else:
+        tl_makro_risk = bool(v.tl_makro_risk_aktif)
     cds_uyari = list(getattr(snap, "cekim_uyarilari", []) or [])
     cds_supheli = any("CDS" in u for u in cds_uyari)
     tl_firsat = (

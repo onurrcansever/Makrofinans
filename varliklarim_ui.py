@@ -49,6 +49,13 @@ def _portfoy_fingerprint(portfoy: VarlikPortfoy) -> str:
     )
 
 
+def _piyasa_pozisyon_var(portfoy) -> bool:
+    return any(
+        p.tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
+        for p in portfoy.pozisyonlar
+    )
+
+
 def _degerle_portfoy(portfoy: VarlikPortfoy, snap: MacroSnapshot, *, veri_tick: int = 0):
     fp = _portfoy_fingerprint(portfoy)
     kur = f"{snap.veri.eur_try}:{snap.veri.usd_try}"
@@ -60,7 +67,10 @@ def _degerle_portfoy(portfoy: VarlikPortfoy, snap: MacroSnapshot, *, veri_tick: 
 
     def _hesapla():
         tick = int(st.session_state.get("son_yenileme_sayaci", 0))
-        deger = portfoy_degerle(portfoy, snap, cache_salt=str(tick), aninda=True)
+        # Hisse/ETF/TEFAS: aninda=True boş kalınca alış fiyatı gösterilir
+        deger = portfoy_degerle(
+            portfoy, snap, cache_salt=str(tick), aninda=not _piyasa_pozisyon_var(portfoy),
+        )
         cache[cache_key] = deger
         if len(cache) > 24:
             for k in list(cache.keys())[:-24]:
@@ -84,6 +94,8 @@ def _fmt_birim(v: float, tur: str) -> str:
     if tur == "kripto":
         return f"{v:,.0f}"
     if tur in ("nakit_eur", "nakit_usd", "nakit_ron"):
+        return f"{v:,.4f}"
+    if tur in ("tefas", "hisse", "etf"):
         return f"{v:,.4f}"
     return f"{v:,.2f}"
 
@@ -422,20 +434,32 @@ def varliklarim_paneli(
         and onbellek_portfoy_id
         and aktif.id == onbellek_portfoy_id
         and veri_tick == int(st.session_state.get("son_yenileme_sayaci", 0))
+        and not getattr(deger_onbellek, "fiyat_bekleniyor", False)
     ):
         deger = deger_onbellek
     else:
-        deger = _degerle_portfoy(aktif, snap, veri_tick=veri_tick)
+        if _piyasa_pozisyon_var(aktif):
+            with st.spinner("TEFAS ve piyasa fiyatları güncelleniyor (~10 sn)…"):
+                deger = _degerle_portfoy(aktif, snap, veri_tick=veri_tick)
+        else:
+            deger = _degerle_portfoy(aktif, snap, veri_tick=veri_tick)
 
     if deger.fiyat_bekleniyor:
         c_yenile, _ = st.columns([1, 3])
         with c_yenile:
             if st.button("↻ Canlı fiyatları getir", key="varlik_fiyat_yenile", use_container_width=True):
+                from varlik_fiyat import fiyat_onbellegi_temizle
+                fiyat_onbellegi_temizle()
+                st.session_state.pop("_varlik_deger_cache", None)
+                _onbellek_yenile()
+                st.session_state.son_yenileme_sayaci = int(
+                    st.session_state.get("son_yenileme_sayaci", 0)
+                ) + 1
                 st.rerun()
-        st.info(
-            "Canlı fiyatlar arka planda indiriliyor — mevduat/nakit değerleri doğru, "
-            "hisse/ETF/fon fiyatları geçici olarak alış maliyetinden gösteriliyor. "
-            "30–60 sn sonra **Canlı fiyatları getir** veya sayfayı yenileyin."
+        st.warning(
+            "**Toplam şu an maliyet bazında gösteriliyor** — hisse, ETF, fon ve döviz kurları "
+            "henüz yüklenmedi. Canlı fiyatlar gelince portföy değeriniz (~1,4M TL civarı) "
+            "güncellenecek. **Canlı fiyatları getir** butonuna tıklayın veya 30–60 sn bekleyin."
         )
 
     if aktif.pozisyonlar:
