@@ -1,5 +1,5 @@
 #!/bin/bash
-# Makrofinans WhatsApp alarmları — günlük özet (10:00 / 13:00 / 15:00 / 18:00 TR)
+# Makrofinans WhatsApp — AL değişince anında (--sinyal-alarm); isteğe bağlı günlük özet
 set -euo pipefail
 
 APP_SUPPORT="${APP_SUPPORT:-$HOME/Library/Application Support/TLYatirimAsistani}"
@@ -17,7 +17,7 @@ if [[ -f "$PROJECT/.env" ]]; then
 fi
 
 export BILDIRIM_KANALI="${BILDIRIM_KANALI:-whatsapp}"
-export OZET_ALARM_HER_ZAMAN="${OZET_ALARM_HER_ZAMAN:-1}"
+export OZET_ALARM_HER_ZAMAN="${OZET_ALARM_HER_ZAMAN:-0}"
 
 PYTHON="${PYTHON:-python3}"
 if [[ -x "$PROJECT/.venv/bin/python" ]]; then
@@ -26,5 +26,9 @@ fi
 
 {
   echo "=== $(date '+%Y-%m-%d %H:%M:%S') alarm_sync ==="
-  "$PYTHON" main.py --ozet-alarm --notify 2>&1 || true
+  # Yalnızca AL/SAT değişince mesaj (İZLE dahil değil)
+  "$PYTHON" main.py --sinyal-alarm --notify 2>&1 || true
+  if [[ "${OZET_ALARM_HER_ZAMAN}" == "1" ]]; then
+    "$PYTHON" main.py --ozet-alarm --notify 2>&1 || true
+  fi
 } >> "$LOG" 2>&1

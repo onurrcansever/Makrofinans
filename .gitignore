@@ -1,9 +1,15 @@
 .env
 .regime_state.json
+.decision_history.json
+.regime_history.json
 .signal_state.json
 .tl_engine_state.json
 .girdi_onay_state.json
 .varliklarim.json
+.favoriler.json
+.temel_veri_cache.json
+.llm_aciklama_cache.json
+.portfoy_yorum_cache.json
 cds_history.jsonl
 market_cache.db
 manual_inputs.json

@@ -12,13 +12,13 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import config
+from db_paths import market_cache_db
 
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
 TABAN_MIN_GUN = 7  # "14g taban" etiketi için minimum geçmiş gün
 
 
 def _conn():
-    c = sqlite3.connect(CACHE_DB)
+    c = sqlite3.connect(market_cache_db())
     c.execute(
         "CREATE TABLE IF NOT EXISTS siyasi_baseline "
         "(gun TEXT PRIMARY KEY, sayi INTEGER NOT NULL, ts REAL NOT NULL)"

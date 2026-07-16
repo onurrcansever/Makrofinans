@@ -12,11 +12,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import config
-
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
-ONAY_PATH = config.GIRDI_ONAY_STATE_PATH
+from db_paths import market_cache_db
 
 KRITIK_GOSTERGELER = ("cds", "enflasyon", "tcmb_faizi", "eur_try", "altin_usd")
+
+
+def _onay_path() -> str:
+    return os.getenv("GIRDI_ONAY_STATE_PATH", config.GIRDI_ONAY_STATE_PATH)
 
 
 @dataclass
@@ -38,7 +40,7 @@ class GirdiDogrulamaSonucu:
 
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(CACHE_DB)
+    conn = sqlite3.connect(market_cache_db())
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS gosterge_gecmisi (
@@ -105,17 +107,17 @@ def _onceki_deger(anahtar: str) -> Optional[float]:
 
 
 def _onay_oku() -> dict:
-    if not os.path.isfile(ONAY_PATH):
+    if not os.path.isfile(_onay_path()):
         return {"pending": {}}
     try:
-        with open(ONAY_PATH, encoding="utf-8") as f:
+        with open(_onay_path(), encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {"pending": {}}
 
 
 def _onay_yaz(state: dict) -> None:
-    with open(ONAY_PATH, "w", encoding="utf-8") as f:
+    with open(_onay_path(), "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 

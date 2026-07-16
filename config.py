@@ -174,6 +174,9 @@ WHATSAPP_TO = os.getenv("WHATSAPP_TO", "")              # alıcı numara
 NOTIFY_SINIRLI = os.getenv("NOTIFY_SINIRLI", "false").lower() in ("1", "true", "yes")
 # WhatsApp özet alarmı: değişiklik olmasa da gönder (günde 4 kez — 10/13/15/18 TR)
 OZET_ALARM_HER_ZAMAN = os.getenv("OZET_ALARM_HER_ZAMAN", "1").lower() in ("1", "true", "yes")
+# WhatsApp özetinde AL listesi — 0 = tüm adaylar (varsayılan)
+OZET_AL_MAX_HISSE = int(os.getenv("OZET_AL_MAX_HISSE", "0"))
+OZET_AL_MAX_ETF = int(os.getenv("OZET_AL_MAX_ETF", "0"))
 INVESTOR_RISK = os.getenv("INVESTOR_RISK", "orta")
 INVESTOR_VADE = os.getenv("INVESTOR_VADE", "kisa_6")
 
@@ -411,6 +414,9 @@ PROFIL_MAX_VOL_YILLIK: Dict[str, float] = {
 
 # USD bazlı ETF (EUR yatırımcı için kur şoku notu)
 USD_BAZLI_ETF_SEKTORLER = frozenset({"abd", "teknoloji"})
+
+# Signal Engine v2 — çok faktörlü sinyal motoru
+USE_SIGNAL_ENGINE_V2 = os.getenv("USE_SIGNAL_ENGINE_V2", "1") != "0"
 
 
 @dataclass

@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-07-16T15:57:28",
+  "n_symbols": 18,
+  "download_gaps": [],
+  "lse_usd_calendar": {
+    "group": "LSE_USD",
+    "symbols": {
+      "CSPX.L": {
+        "bars": 505,
+        "d1": "2026-07-16",
+        "missing_vs_union": [
+          "2026-03-06"
+        ],
+        "n_missing_vs_union": 1
+      },
+      "VUAA.L": {
+        "bars": 506,
+        "d1": "2026-07-16",
+        "missing_vs_union": [],
+        "n_missing_vs_union": 0
+      }
+    },
+    "pairwise_extra": [
+      {
+        "a": "CSPX.L",
+        "b": "VUAA.L",
+        "only_a": [],
+        "only_b": [
+          "2026-03-06"
+        ]
+      }
+    ]
+  },
+  "lse_gbp_calendar": {
+    "group": "LSE_GBP",
+    "symbols": {
+      "EQQQ.L": {
+        "bars": 505,
+        "d1": "2026-07-16",
+        "missing_vs_union": [
+          "2026-03-06"
+        ],
+        "n_missing_vs_union": 1
+      },
+      "VUSA.L": {
+        "bars": 505,
+        "d1": "2026-07-16",
+        "missing_vs_union": [
+          "2026-03-06"
+        ],
+        "n_missing_vs_union": 1
+      },
+      "VUKE.L": {
+        "bars": 506,
+        "d1": "2026-07-16",
+        "missing_vs_union": [],
+        "n_missing_vs_union": 0
+      },
+      "VEUR.L": {
+        "bars": 505,
+        "d1": "2026-07-16",
+        "missing_vs_union": [
+          "2026-03-06"
+        ],
+        "n_missing_vs_union": 1
+      },
+      "VWRL.L": {
+        "bars": 505,
+        "d1": "2026-07-16",
+        "missing_vs_union": [
+          "2026-03-06"
+        ],
+        "n_missing_vs_union": 1
+      }
+    },
+    "pairwise_extra": [
+      {
+        "a": "EQQQ.L",
+        "b": "VUKE.L",
+        "only_a": [],
+        "only_b": [
+          "2026-03-06"
+        ]
+      },
+      {
+        "a": "VUSA.L",
+        "b": "VUKE.L",
+        "only_a": [],
+        "only_b": [
+          "2026-03-06"
+        ]
+      },
+      {
+        "a": "VUKE.L",
+        "b": "VEUR.L",
+        "only_a": [
+          "2026-03-06"
+        ],
+        "only_b": []
+      },
+      {
+        "a": "VUKE.L",
+        "b": "VWRL.L",
+        "only_a": [
+          "2026-03-06"
+        ],
+        "only_b": []
+      }
+    ]
+  },
+  "asof_alignment": {
+    "gspc_d1": "2026-07-15",
+    "ahead": [
+      {
+        "symbol": "EQQQ.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "VUSA.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "VUKE.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "VEUR.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "VWRL.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "CSPX.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      },
+      {
+        "symbol": "VUAA.L",
+        "asset_d1": "2026-07-16",
+        "gspc_d1": "2026-07-15"
+      }
+    ]
+  }
+}

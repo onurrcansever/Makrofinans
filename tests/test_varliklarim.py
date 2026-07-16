@@ -148,8 +148,13 @@ class VarliklarimTest(unittest.TestCase):
         )
         snap = _snap(eur_try=54.0)
         dates = pd.date_range("2025-01-01", periods=120, freq="D")
-        fx = pd.Series([48.5] * len(dates), index=dates)
-        df = pd.DataFrame({"EURTRY=X": fx}, index=dates)
+        fx = pd.Series([48.5] * (len(dates) - 1) + [54.0], index=dates)
+        df = pd.DataFrame({
+            "EURTRY=X": fx,
+            "USDTRY=X": fx / 1.08,
+            "GBPUSD=X": [1.34] * len(dates),
+            "EURUSD=X": [1.08] * len(dates),
+        }, index=dates)
         portfoy = VarlikPortfoy(id="p", ad="T", pozisyonlar=[p])
         with unittest.mock.patch("varlik_fiyat._yf_indir", return_value=df):
             deger = portfoy_degerle(portfoy, snap, normalize=False)
@@ -159,6 +164,40 @@ class VarliklarimTest(unittest.TestCase):
         self.assertAlmostEqual(pd_.maliyet_deger, 48_500.0)
         self.assertAlmostEqual(pd_.guncel_deger, 54_000.0)
         self.assertAlmostEqual(pd_.kar_zarar, 5_500.0)
+
+    def test_nakit_ron_alim_kuru_tl_gosterim(self):
+        p = VarlikPozisyon(
+            id="r1",
+            tur="nakit_ron",
+            miktar=7914.98,
+            maliyet=0.0,
+            alim_fiyati=0.0,
+            para_birimi="RON",
+            alim_tarihi="2026-07-13",
+        )
+        snap = _snap(eur_try=53.04, usd_try=57.0)
+        dates = pd.date_range("2026-01-01", periods=200, freq="D")
+        eur_try_s = pd.Series([52.0] * len(dates), index=dates)
+        eur_ron_s = pd.Series([5.10] * len(dates), index=dates)
+        df = pd.DataFrame(
+            {
+                ("EURTRY=X", "Close"): eur_try_s,
+                ("EURRON=X", "Close"): eur_ron_s,
+            }
+        )
+        portfoy = VarlikPortfoy(id="p", ad="T", pozisyonlar=[p])
+        with unittest.mock.patch("varlik_fiyat._yf_indir", return_value=df):
+            deger = portfoy_degerle(portfoy, snap, normalize=False)
+        pd_ = deger.pozisyonlar[0]
+        self.assertAlmostEqual(pd_.alim_birim, 52.0 / 5.10, places=2)
+        self.assertAlmostEqual(pd_.guncel_birim, 52.0 / 5.10, places=2)
+        self.assertAlmostEqual(pd_.maliyet_deger, 7914.98 * (52.0 / 5.10), delta=5.0)
+        from fiyat_para import kaynak_para_birimi, pb_cevir
+        birim_pb = kaynak_para_birimi("", pozisyon_turu="nakit_ron", varlik_turu="nakit_ron")
+        self.assertEqual(birim_pb, "TL")
+        alis_tl = pb_cevir(pd_.alim_birim, birim_pb, "TL", 53.04, 57.0)
+        self.assertLess(alis_tl, 15.0)
+        self.assertGreater(alis_tl, 8.0)
 
     def test_nakit_eur_guncel_kur_alis_olarak_kullanilmaz(self):
         p = VarlikPozisyon(

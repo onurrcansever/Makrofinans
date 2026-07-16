@@ -2,10 +2,13 @@
 """Portföy Tahsisi — sade öneri paneli."""
 from __future__ import annotations
 
+from typing import Any, Optional
+
 import pandas as pd
 import streamlit as st
 
 from birlesik_oneri import BirlesikOneri
+from fiyat_para import session_gosterim_pb, tablo_fx_hazirla, tutar_goster
 from ui_theme import plotly_base_layout, render_df_table
 
 try:
@@ -14,19 +17,48 @@ except ImportError:
     go = None
 
 
-def _hedef_df(oneri: BirlesikOneri) -> pd.DataFrame:
+def _fx_ctx(snap, tarama=None) -> tuple[float, float, dict[str, float]]:
+    """Yahoo FX spot — EUR/GBP→USD dönüşümü için gbp_usd + eur_usd."""
+    fx, _, _, _, _ = tablo_fx_hazirla(snap, tarama)
+    return fx.eur_try, fx.usd_try, {"gbp_usd": fx.gbp_usd, "eur_usd": fx.eur_usd}
+
+
+def _tutar(
+    tutar: float,
+    para: str,
+    gpb: str,
+    eur_try: float,
+    usd_try: float,
+    fx_kw: dict[str, float],
+) -> str:
+    return tutar_goster(tutar, para, gpb, eur_try, usd_try, **fx_kw)
+
+
+def _hedef_df(
+    oneri: BirlesikOneri,
+    gpb: str,
+    eur_try: float,
+    usd_try: float,
+    fx_kw: dict[str, float],
+) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "Varlık sınıfı": h.kategori,
             "Özet": h.arac,
             "Portföy %": f"{h.agirlik_pct:.1f}",
-            "Tutar": f"{h.tutar:,.0f} {h.para}",
+            "Tutar": _tutar(h.tutar, h.para, gpb, eur_try, usd_try, fx_kw),
         }
         for h in oneri.hedef_tablo
     ])
 
 
-def _arac_dagilim_df(oneri: BirlesikOneri) -> pd.DataFrame:
+def _arac_dagilim_df(
+    oneri: BirlesikOneri,
+    gpb: str,
+    eur_try: float,
+    usd_try: float,
+    fx_kw: dict[str, float],
+) -> pd.DataFrame:
     return pd.DataFrame([
         {
             "Kategori": s.ust_kategori,
@@ -34,7 +66,7 @@ def _arac_dagilim_df(oneri: BirlesikOneri) -> pd.DataFrame:
             "Açıklama": (s.aciklama or "")[:55],
             "Portföy %": f"{s.portfoy_pct:.2f}",
             "Kategori içi %": f"{s.kategori_ici_pct:.1f}",
-            "Tutar": f"{s.tutar:,.0f} {s.para}",
+            "Tutar": _tutar(s.tutar, s.para, gpb, eur_try, usd_try, fx_kw),
             "Etiket": s.etiket,
         }
         for s in oneri.arac_dagilim
@@ -45,11 +77,23 @@ def birlesik_oneri_paneli(
     oneri: BirlesikOneri,
     para_birimi: str = "EUR",
     vade_etiket: str = "",
+    snap=None,
+    tarama: Any = None,
 ) -> None:
+    gpb = session_gosterim_pb()
+    try:
+        eur_try, usd_try, fx_kw = _fx_ctx(snap, tarama)
+    except Exception as exc:
+        from fiyat_para_fx import FxUnavailableError
+        if isinstance(exc, FxUnavailableError):
+            st.error(f"FX kurları yüklenemedi — tutarlar gösterilemiyor: {exc}")
+            return
+        raise
+
     st.subheader("Önerilen portföy dağılımı")
     st.caption(
         f"**Vade ufku:** {vade_etiket or oneri.ozet} · "
-        f"Para birimi: **{para_birimi}** · "
+        f"Hesaplama: **{para_birimi}** · Tablo görünümü: **{gpb}** · "
         "Üst tablo makro hedef; alt tablo **TEFAS / ETF / BIST** araçlarının kategori içi payları. "
         "BIST önerisi tarama skoruna göredir — Varlıklarım'daki mevcut hisselerden bağımsızdır."
     )
@@ -96,7 +140,7 @@ def birlesik_oneri_paneli(
 
         with c_tab:
             st.markdown("**Makro hedef**")
-            render_df_table(_hedef_df(oneri), max_height=280)
+            render_df_table(_hedef_df(oneri, gpb, eur_try, usd_try, fx_kw), max_height=280)
     else:
         st.warning("Hedef dağılım hesaplanamadı — verileri yenileyin.")
 
@@ -106,7 +150,7 @@ def birlesik_oneri_paneli(
             "Kategori içi %: o sınıfın (ör. BIST %3,3) içinde her araca düşen pay. "
             "Portföy %: toplam portföydeki net ağırlık. TEFAS/BIST: skor; ETF: öncelik sırası."
         )
-        render_df_table(_arac_dagilim_df(oneri), max_height=320)
+        render_df_table(_arac_dagilim_df(oneri, gpb, eur_try, usd_try, fx_kw), max_height=320)
 
     bugun = [b for b in oneri.bugun if b.etiket == "TUT"]
     if bugun:
@@ -114,7 +158,7 @@ def birlesik_oneri_paneli(
         for b in bugun:
             st.success(
                 f"**{b.baslik}:** {b.detay} "
-                f"({b.tutar:,.0f} {b.para}) — **{b.etiket}**"
+                f"({_tutar(b.tutar, b.para, gpb, eur_try, usd_try, fx_kw)}) — **{b.etiket}**"
             )
         st.caption(
             "Acil alım/satım yok; mevcut pozisyonunuz makro tabloyla uyumlu. "

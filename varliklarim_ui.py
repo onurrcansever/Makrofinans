@@ -8,8 +8,19 @@ import pandas as pd
 import streamlit as st
 
 from birlesik_oneri import BirlesikOneri
+from fiyat_para import (
+    fx_serileri_al,
+    getiri_sutun_adi,
+    kaynak_para_birimi,
+    pb_cevir,
+    session_gosterim_pb,
+    tablo_fx_hazirla,
+    tablo_getiri,
+)
+from portfoy_yoneticisi import yonetici_pozisyon_kolonlari
 from macro_data import MacroSnapshot
-from ui_theme import plotly_base_layout, render_df_table, render_metric_strip
+from ui_theme import plotly_base_layout, render_metric_strip
+from favoriler_widgets import render_df_table_interactive
 from varlik_fiyat import PERIYOTLAR, portfoy_degerle
 from varliklarim import (
     ALIM_FIYAT_ETIKET,
@@ -80,6 +91,41 @@ def _degerle_portfoy(portfoy: VarlikPortfoy, snap: MacroSnapshot, *, veri_tick: 
     return _hesapla()
 
 
+@st.dialog("Pozisyon düzenle", width="large")
+def _pozisyon_duzenle_dialog(poz_id: str, store: VarlikStore, aktif: VarlikPortfoy) -> None:
+    mevcut = next((p for p in aktif.pozisyonlar if p.id == poz_id), None)
+    if not mevcut:
+        st.warning("Pozisyon bulunamadı.")
+        return
+    st.markdown(f"**{mevcut.etiket()}** · {mevcut.sembol or '—'}")
+    guncellendi = _poz_form_icerigi(
+        f"varlik_poz_dlg_{poz_id}",
+        "Değişiklikleri kaydet",
+        poz=mevcut,
+    )
+    if guncellendi is not None:
+        pozisyon_guncelle(store, aktif.id, guncellendi)
+        st.session_state.varlik_store = store
+        _onbellek_yenile()
+        st.rerun()
+    st.markdown("---")
+    if st.button("Bu pozisyonu sil", type="primary", key=f"poz_dlg_sil_{poz_id}"):
+        pozisyon_sil(store, aktif.id, poz_id)
+        st.session_state.varlik_store = store
+        _onbellek_yenile()
+        st.rerun()
+
+
+@st.dialog("Yeni pozisyon ekle", width="large")
+def _pozisyon_ekle_dialog(store: VarlikStore, aktif: VarlikPortfoy) -> None:
+    yeni = _poz_form_icerigi("varlik_poz_ekle_dlg", "Pozisyon ekle")
+    if yeni is not None:
+        pozisyon_ekle(store, aktif.id, yeni)
+        st.session_state.varlik_store = store
+        _onbellek_yenile()
+        st.rerun()
+
+
 def _fmt_getiri(v) -> str:
     if v is None:
         return "—"
@@ -110,27 +156,64 @@ def _vade_etiket(p) -> str:
     return f"{vb.kalan_gun} gün ({vb.vade_tarihi.strftime('%d %b')})"
 
 
-def _pozisyon_tablo(deger, pb: str) -> pd.DataFrame:
+def _pozisyon_tablo(deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None, tarama=None) -> pd.DataFrame:
+    from varlik_fiyat import PERIYOTLAR
+
+    periyot_gun = {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180}
+    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in PERIYOTLAR}
     rows = []
     for pd_ in deger.pozisyonlar:
         p = pd_.pozisyon
-        rows.append({
-            "Tür": TUR_SECENEKLERI.get(p.tur, p.tur),
-            "Araç": p.etiket(),
-            "Sembol": p.sembol or "—",
+        birim_pb = kaynak_para_birimi(
+            p.sembol or "", pozisyon_turu=p.tur, varlik_turu=p.tur,
+        )
+        if p.tur in ("hisse", "etf") and p.sembol:
+            birim_pb = kaynak_para_birimi(p.sembol, varlik_turu=p.tur)
+        alis = pb_cevir(
+            pd_.alim_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        ) if pd_.alim_birim > 0 else 0
+        guncel = pb_cevir(
+            pd_.guncel_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        ) if pd_.guncel_birim > 0 else 0
+        maliyet = pb_cevir(
+            pd_.maliyet_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        )
+        deger_v = pb_cevir(
+            pd_.guncel_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        )
+        kz = deger_v - maliyet
+        kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
+        row = {
+            "Araç": p.etiket()[:24],
+            "Sembol": (p.sembol or "—")[:10],
             "Miktar": pd_.miktar_goster,
-            "Alış": _fmt_birim(pd_.alim_birim, p.tur),
-            "Güncel": _fmt_birim(pd_.guncel_birim, p.tur),
-            "Maliyet": f"{pd_.maliyet_deger:,.0f} {pd_.para}",
-            "Değer": f"{pd_.guncel_deger:,.0f} {pd_.para}",
-            "K/Z": f"{pd_.kar_zarar:+,.0f} ({pd_.kar_zarar_pct:+.1f}%)",
-            "Vadeye kalan": _vade_etiket(p),
-            "1G": _fmt_getiri(pd_.getiriler.get("1G")),
-            "1H": _fmt_getiri(pd_.getiriler.get("1H")),
-            "1A": _fmt_getiri(pd_.getiriler.get("1A")),
-            "3A": _fmt_getiri(pd_.getiriler.get("3A")),
-            "6A": _fmt_getiri(pd_.getiriler.get("6A")),
-        })
+            f"Alış": _fmt_birim(alis, p.tur) if alis > 0 else "—",
+            f"Güncel": _fmt_birim(guncel, p.tur) if guncel > 0 else "—",
+            f"Maliyet": f"{maliyet:,.0f}",
+            f"Değer": f"{deger_v:,.0f}",
+            "K/Z": f"{kz:+,.0f} ({kz_pct:+.1f}%)",
+            **yonetici_pozisyon_kolonlari(
+                p, pd_, tarama=tarama, gosterim_pb=gosterim_pb, fx=fx,
+            ),
+            "Vade": _vade_etiket(p),
+        }
+        for et in PERIYOTLAR:
+            raw = pd_.getiriler.get(et)
+            if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
+                row[getiri_etiket[et]] = _fmt_getiri(raw)
+            else:
+                row[getiri_etiket[et]] = _fmt_getiri(
+                    tablo_getiri(
+                        raw, gosterim_pb, periyot_gun.get(et, 30), eur_s, usd_s,
+                        gbp_seri=gbp_s,
+                        sembol=p.sembol or "", varlik_turu=p.tur, asset_pb=birim_pb,
+                    )
+                )
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -347,6 +430,92 @@ def oneri_aktar_butonu(
         st.rerun()
 
 
+def _render_portfoy_durum_kutusu(aktif, deger, tarama, *, portfoy_kz_pct: float) -> None:
+    """Aşama 2C — özet metrikler + isteğe bağlı Claude portföy yorumu."""
+    from portfoy_yorum import (
+        format_durum_gunu,
+        format_portfoy_yorum_markdown,
+        portfoy_genel_yorum,
+        portfoy_ozet_hesapla,
+    )
+
+    ozet = portfoy_ozet_hesapla(
+        aktif.pozisyonlar,
+        tarama,
+        deger_pozisyonlar=getattr(deger, "pozisyonlar", None),
+    )
+    # Canlı toplam K/Z (gösterim PB) ile hizala
+    ozet["portfoy_kz_pct"] = round(float(portfoy_kz_pct or 0), 1)
+
+    gun_tr = format_durum_gunu()
+    azalt = ozet.get("azalt_agirlik_pct") or 0
+    azalt_uyari = azalt >= 15
+    kons = ozet.get("konsantrasyon_uyari")
+
+    st.markdown(
+        f"""
+<div style="
+  border:1px solid rgba(120,120,120,0.35);
+  border-radius:10px;
+  padding:14px 16px 10px;
+  margin:0 0 14px 0;
+  background:linear-gradient(180deg, rgba(40,48,56,0.06), rgba(40,48,56,0.02));
+">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+    <div style="font-weight:650;font-size:1.05rem;">📊 Portföy Durumu</div>
+    <div style="opacity:0.65;font-size:0.85rem;">{gun_tr}</div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Ort. sinyal", f"{ozet.get('ortalama_skor', 0)}/100")
+    m2.metric("K/Z", f"{ozet.get('portfoy_kz_pct', 0):+.1f}%")
+    m3.metric(
+        "AZALT ağırlık",
+        f"%{azalt:.1f}",
+        delta="dikkat" if azalt_uyari else None,
+        delta_color="inverse" if azalt_uyari else "off",
+    )
+    m4.metric("Pozisyon", f"{ozet.get('toplam_pozisyon', 0)}")
+    if kons:
+        st.caption(f"⚠ Konsantrasyon: {ozet.get('en_buyuk_sektor', '—')}")
+    elif azalt_uyari:
+        st.caption(f"⚠ AZALT sinyalli ağırlık: %{azalt:.1f}")
+
+    if st.button(
+        "✨ Portföy Yorumu Al",
+        key=f"portfoy_yorum_al_{aktif.id}",
+        help="Claude ile 2–3 cümlelik portföy özeti (cache 6 saat; sembol gönderilmez)",
+    ):
+        poz_list = [
+            {
+                "sembol": p.sembol,
+                "miktar": p.miktar,
+                "maliyet": p.maliyet,
+                "kar_zarar_pct": next(
+                    (pd_.kar_zarar_pct for pd_ in deger.pozisyonlar
+                     if getattr(pd_, "pozisyon", None) is p
+                     or getattr(getattr(pd_, "pozisyon", None), "id", None) == p.id),
+                    0.0,
+                ),
+            }
+            for p in aktif.pozisyonlar
+        ]
+        with st.spinner("Portföy yorumu üretiliyor…"):
+            metin, meta = portfoy_genel_yorum(
+                ozet, pozisyon_listesi=poz_list,
+            )
+        st.markdown(format_portfoy_yorum_markdown(metin, meta))
+        if meta.get("cache_hit"):
+            st.caption("cache hit")
+        st.caption(
+            "Yasal uyarı: Otomatik özet; yatırım tavsiyesi değildir. "
+            "Pozisyon detayları modele gönderilmez."
+        )
+
+
 def varliklarim_paneli(
     snap: MacroSnapshot,
     *,
@@ -365,6 +534,8 @@ def varliklarim_paneli(
     if "varlik_store" not in st.session_state:
         st.session_state.varlik_store = yukle_store()
     store: VarlikStore = st.session_state.varlik_store
+    pb = session_gosterim_pb()
+    store.goruntuleme_pb = pb
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -380,15 +551,7 @@ def varliklarim_paneli(
             store.aktif_id = sec
             kaydet_store(store)
     with c2:
-        _eski_pb = store.goruntuleme_pb
-        store.goruntuleme_pb = st.selectbox(
-            "Görüntüleme para birimi",
-            ["TL", "EUR", "USD"],
-            index=["TL", "EUR", "USD"].index(store.goruntuleme_pb),
-            key="varlik_pb_sec",
-        )
-        if store.goruntuleme_pb != _eski_pb:
-            kaydet_store(store)
+        st.caption(f"Tablo birimi: **{pb}** (sidebar)")
     with c3:
         if st.button("+ Yeni portföy", use_container_width=True):
             yeni_portfoy(store)
@@ -472,7 +635,12 @@ def varliklarim_paneli(
         + " · **Şimdi yenile** ile tüm veriler yeniden çekilir."
     )
 
-    pb = store.goruntuleme_pb
+    pb = session_gosterim_pb()
+    store.goruntuleme_pb = pb
+    ob = st.session_state.get("app_onbellek")
+    tarama = getattr(ob, "tarama", None) if ob else None
+    fx, eur_s, usd_s, gbp_s, _ = tablo_fx_hazirla(snap, tarama)
+    eur_try, usd_try = fx.eur_try, fx.usd_try
     toplam = deger.toplam.get(pb, 0)
     maliyet = deger.maliyet_toplam.get(pb, 0)
     kz = toplam - maliyet
@@ -480,6 +648,12 @@ def varliklarim_paneli(
 
     gunluk_snapshot_kaydet(store, aktif.id, deger.toplam)
     st.session_state.varlik_store = store
+
+    # Aşama 2C — Portföy Durumu (daima görünür; yorum butona basınca)
+    if aktif.pozisyonlar:
+        _render_portfoy_durum_kutusu(
+            aktif, deger, tarama, portfoy_kz_pct=kz_pct,
+        )
 
     render_metric_strip([
         {"label": f"Toplam ({pb})", "value": f"{toplam:,.0f}"},
@@ -497,6 +671,7 @@ def varliklarim_paneli(
     st.caption(
         " · ".join(f"**{x}:** {deger.toplam.get(x, 0):,.0f}" for x in diger)
         + " — aynı portföy, farklı kur görünümü · "
+        f"**Getiri ({pb}):** kur hareketi dahil · "
         "**1G/1H/1A/3A/6A:** alım tarihinizden itibaren (bugün eklediyseniz 0,00%)"
     )
 
@@ -507,7 +682,7 @@ def varliklarim_paneli(
             for i in range(len(deger.pozisyonlar))
         ]
         pb_vals = [
-            _pb_cevir_ui(v, deger.pozisyonlar[i].para, pb, snap)
+            _pb_cevir_ui(v, deger.pozisyonlar[i].para, pb, fx)
             for i, v in enumerate(vals)
         ]
         fig = go.Figure(go.Pie(labels=labels, values=pb_vals, hole=0.45))
@@ -515,81 +690,34 @@ def varliklarim_paneli(
         st.plotly_chart(fig, use_container_width=True)
 
     # ── Pozisyonlar + Ekle/Düzenle/Sil ───────────────────────────────────────
+    ob = st.session_state.get("app_onbellek")
+    tarama = getattr(ob, "tarama", None) if ob else None
+
     h1c, h2c = st.columns([5, 1])
     with h1c:
         st.subheader("Pozisyonlar")
     with h2c:
         if st.button("➕ Ekle", use_container_width=True, type="primary", key="poz_ekle_btn"):
-            st.session_state["varlik_form_mod"] = "ekle"
-            st.session_state["varlik_form_sec_id"] = None
+            _pozisyon_ekle_dialog(store, aktif)
 
     if deger.pozisyonlar:
-        render_df_table(_pozisyon_tablo(deger, pb), max_height=360)
-        # Satır içi Düzenle / Sil butonları
-        for pd_ in deger.pozisyonlar:
-            p = pd_.pozisyon
-            c1, c2, c3 = st.columns([5, 1, 1])
-            deger_str = f"{pd_.guncel_deger:,.0f} {pd_.para}"
-            c1.caption(f"**{p.etiket()}** — {pd_.miktar_goster} · {deger_str}")
-            with c2:
-                if st.button("✏️", key=f"duzenle_{p.id}", use_container_width=True,
-                             help="Düzenle"):
-                    st.session_state["varlik_form_mod"] = "duzenle"
-                    st.session_state["varlik_form_sec_id"] = p.id
-            with c3:
-                if st.button("🗑️", key=f"sil_{p.id}", use_container_width=True,
-                             help="Sil"):
-                    pozisyon_sil(store, aktif.id, p.id)
-                    st.session_state.varlik_store = store
-                    _onbellek_yenile()
-                    # Eğer silinen düzenlenen pozisyonsa formu kapat
-                    if st.session_state.get("varlik_form_sec_id") == p.id:
-                        st.session_state["varlik_form_mod"] = None
-                    st.rerun()
+        poz_ids = [pd_.pozisyon.id for pd_ in deger.pozisyonlar]
+
+        pending_poz = st.session_state.pop("poz_edit_id", None)
+        if pending_poz:
+            _pozisyon_duzenle_dialog(pending_poz, store, aktif)
+
+        render_df_table_interactive(
+            _pozisyon_tablo(deger, pb, fx, eur_s, usd_s, gbp_s=gbp_s, tarama=tarama),
+            key_prefix="poz_tablo",
+            max_height=420,
+            row_ids=poz_ids,
+            action_col=True,
+            on_action=lambda pid: st.session_state.update(poz_edit_id=pid),
+        )
+        st.caption("Satır sonundaki **⋯** ile düzenle veya sil")
     else:
         st.info("Henüz pozisyon yok — **➕ Ekle** butonuna basın veya Portföy Tahsisi'nden öneriyi aktarın.")
-
-    # ── Form (Ekle veya Düzenle) ───────────────────────────────────────────────
-    form_mod = st.session_state.get("varlik_form_mod")
-    form_sec_id = st.session_state.get("varlik_form_sec_id")
-    if form_mod == "ekle":
-        st.markdown("---")
-        st.markdown("#### ➕ Yeni Pozisyon Ekle")
-        col_kapat, _ = st.columns([1, 4])
-        with col_kapat:
-            if st.button("✕ İptal", key="poz_form_kapat"):
-                st.session_state["varlik_form_mod"] = None
-                st.rerun()
-        yeni = _poz_form_icerigi("varlik_poz_ekle_form", "Pozisyon ekle")
-        if yeni is not None:
-            pozisyon_ekle(store, aktif.id, yeni)
-            st.session_state.varlik_store = store
-            st.session_state["varlik_form_mod"] = None
-            _onbellek_yenile()
-            st.rerun()
-
-    elif form_mod == "duzenle" and form_sec_id:
-        mevcut_poz = next((p for p in aktif.pozisyonlar if p.id == form_sec_id), None)
-        if mevcut_poz:
-            st.markdown("---")
-            st.markdown(f"#### ✏️ Düzenle: {mevcut_poz.etiket()}")
-            col_kapat, _ = st.columns([1, 4])
-            with col_kapat:
-                if st.button("✕ İptal", key="poz_duzenle_kapat"):
-                    st.session_state["varlik_form_mod"] = None
-                    st.rerun()
-            guncellendi = _poz_form_icerigi(
-                f"varlik_poz_duzenle_{form_sec_id}",
-                "Değişiklikleri kaydet",
-                tur_baslangic=mevcut_poz.tur,
-                poz=mevcut_poz,
-            )
-            if guncellendi is not None:
-                pozisyon_guncelle(store, aktif.id, guncellendi)
-                st.session_state.varlik_store = store
-                st.session_state["varlik_form_mod"] = None
-                _onbellek_yenile()
-                st.rerun()
 
     # Günlük snapshot grafiği
     if store.gunluk_snapshot and go is not None:
@@ -604,8 +732,9 @@ def varliklarim_paneli(
             st.plotly_chart(fig2, use_container_width=True)
 
 
-def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, snap) -> float:
-    eur_try = snap.veri.eur_try or 35.0
-    usd_try = snap.veri.usd_try or eur_try * 1.08
+def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, fx) -> float:
     from varlik_fiyat import _pb_cevir
-    return _pb_cevir(deger, kaynak, hedef, eur_try, usd_try)
+    return _pb_cevir(
+        deger, kaynak, hedef, fx.eur_try, fx.usd_try,
+        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+    )

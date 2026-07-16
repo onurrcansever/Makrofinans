@@ -55,7 +55,11 @@ class KisaVadeTefasTest(unittest.TestCase):
             fiyat=10.0, getiri_1a=6.0, getiri_3a=8.0, hisse_pct=30.0,
             oneri="GUCLU", skor=22.0,
         )
-        sonuc = TefasTaramaSonuc(fonlar=[yak, pp])
+        sonuc = fonlari_skorla(
+            TefasTaramaSonuc(fonlar=[yak, pp]),
+            YatirimProfili(risk="dusuk", vade="kisa_3"),
+            rejim="NOTR",
+        )
         aday = top_oneri(
             sonuc, n=2,
             kategoriler=("para_piyasasi", "borclanma", "katilim"),
@@ -71,7 +75,7 @@ class SiyasiTabanTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             db = os.path.join(td, "test.db")
-            with patch.object(se, "CACHE_DB", db):
+            with patch("siyasi_esik.market_cache_db", return_value=db):
                 es = se.esikler()
                 self.assertEqual(es["taban_kaynak"], "referans")
                 self.assertLess(es["taban"], se.config.SIYASI_RISK_TABAN_VARSAYILAN)
@@ -81,7 +85,7 @@ class SiyasiTabanTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             db = os.path.join(td, "test.db")
-            with patch.object(se, "CACHE_DB", db):
+            with patch("siyasi_esik.market_cache_db", return_value=db):
                 conn = sqlite3.connect(db)
                 conn.execute(
                     "CREATE TABLE siyasi_baseline "

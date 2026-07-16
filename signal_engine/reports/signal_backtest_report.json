@@ -1,0 +1,63 @@
+{
+  "generated_at": "2026-07-14T18:56:32.812465+00:00",
+  "config_hash": "e8772029f170565a",
+  "lookahead_ok": true,
+  "notes": "Skor\u226565 walk-forward; buy&hold 1Y kar\u015f\u0131la\u015ft\u0131rma referans\u0131",
+  "symbols": [
+    {
+      "sembol": "CSPX.L",
+      "bars": 1260,
+      "signal_count": 16,
+      "avg_ret_1m": 3.9790997420211776,
+      "avg_ret_3m": 6.08536826862319,
+      "avg_ret_6m": 9.70420143379352,
+      "hit_rate_1m": 1.0,
+      "buy_hold_1y": 21.678525805118486,
+      "sharpe_signal": 8.623616471277188
+    },
+    {
+      "sembol": "VWCE.DE",
+      "bars": 1273,
+      "signal_count": 21,
+      "avg_ret_1m": -1.4523387651245963,
+      "avg_ret_3m": -0.512824657733149,
+      "avg_ret_6m": 2.2866336727657064,
+      "hit_rate_1m": 0.47619047619047616,
+      "buy_hold_1y": 26.034693080561855,
+      "sharpe_signal": -0.914262787206757
+    },
+    {
+      "sembol": "VUSA.L",
+      "bars": 1260,
+      "signal_count": 23,
+      "avg_ret_1m": -1.8474929092363486,
+      "avg_ret_3m": -3.0312643184746455,
+      "avg_ret_6m": 1.5613723104494068,
+      "hit_rate_1m": 0.34782608695652173,
+      "buy_hold_1y": 22.16725288495123,
+      "sharpe_signal": -1.422827251545877
+    },
+    {
+      "sembol": "AAPL",
+      "bars": 1255,
+      "signal_count": 49,
+      "avg_ret_1m": -1.6266529858360241,
+      "avg_ret_3m": -3.018107228740515,
+      "avg_ret_6m": 4.2917494623038035,
+      "hit_rate_1m": 0.5306122448979592,
+      "buy_hold_1y": 51.79337491771059,
+      "sharpe_signal": -1.087244860429887
+    },
+    {
+      "sembol": "ASELS.IS",
+      "bars": 1251,
+      "signal_count": 67,
+      "avg_ret_1m": 15.913287846552446,
+      "avg_ret_3m": 36.418868920442435,
+      "avg_ret_6m": 76.28374985267253,
+      "hit_rate_1m": 0.8059701492537313,
+      "buy_hold_1y": 109.95429124775251,
+      "sharpe_signal": 3.0778827099975534
+    }
+  ]
+}

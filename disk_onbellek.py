@@ -27,7 +27,7 @@ ONBELLEK_DIZIN = Path(os.getenv("MAKROFINANS_CACHE_DIR", Path(__file__).resolve(
 # Veri tipi başına önerilen TTL (saniye) — tek yerden yönetilir.
 TTL = {
     "makro": 15 * 60,        # makro snapshot: 15 dk
-    "tarama": 30 * 60,       # hisse/ETF taraması: 30 dk
+    "tarama": 15 * 60,       # hisse/ETF taraması: 15 dk
     "tefas": 6 * 3600,       # TEFAS fon verisi: 6 saat (günde ~2 kez yeter)
     "mevduat": 6 * 3600,     # banka faizleri: 6 saat
     "backtest": 24 * 3600,   # geçmiş veri: 24 saat

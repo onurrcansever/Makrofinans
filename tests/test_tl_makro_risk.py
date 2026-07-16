@@ -67,14 +67,14 @@ class TlMakroRiskTest(unittest.TestCase):
     def test_tarama_sonucu(self, mock_say):
         mock_map = {
             config.TL_MAKRO_FAIZ_SORGULARI[0]: 3,
-            config.TL_MAKRO_FAIZ_SORGULARI[1]: 9,
+            config.TL_MAKRO_FAIZ_SORGULARI[1]: 15,
             config.TL_MAKRO_FAIZ_SORGULARI[2]: 2,
         }
         for s in config.TL_MAKRO_SECIM_SORGULARI:
             mock_map[s] = 5
         mock_say.side_effect = lambda s, saat=48: mock_map.get(s, 0)
         sonuc = tl_makro_risk_tara(saat=48)
-        self.assertEqual(sonuc.faiz_indirim_sayisi, 9)
+        self.assertEqual(sonuc.faiz_indirim_sayisi, 15)
         self.assertEqual(sonuc.erken_secim_sayisi, 5)
         self.assertTrue(sonuc.faiz_indirim_yuksek)
         self.assertFalse(sonuc.erken_secim_anormal)

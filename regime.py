@@ -99,8 +99,8 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
     savas_aktif = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_ESIGI
     jeopolitik_kesinti = savas_aktif  # Kapı 1b ×0.9 jeopolitik çarpanı aktifken risk-on yasak
     # Ham sayılardan anlık config eşikleriyle yeniden hesapla.
-    # Önbellekteki tl_makro_risk_aktif eski eşiklerle hesaplanmış olabilir;
-    # ham sayılar (tl_faiz_indirim_haber, tl_erken_secim_haber) varsa onlara güven.
+    faiz_yuksek = False
+    secim_yuksek = False
     if v.tl_faiz_indirim_haber is not None or v.tl_erken_secim_haber is not None:
         from tl_makro_risk import _anormal, _secim_anormal
         faiz_yuksek = (v.tl_faiz_indirim_haber or 0) >= config.TL_MAKRO_FAIZ_ESIGI or (
@@ -121,6 +121,8 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
         tl_makro_risk = faiz_yuksek or secim_yuksek
     else:
         tl_makro_risk = bool(v.tl_makro_risk_aktif)
+        faiz_yuksek = tl_makro_risk and bool(v.tl_faiz_indirim_haber)
+        secim_yuksek = bool(v.tl_erken_secim_anormal)
     cds_uyari = list(getattr(snap, "cekim_uyarilari", []) or [])
     cds_supheli = any("CDS" in u for u in cds_uyari)
     tl_firsat = (
@@ -143,9 +145,9 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
         )
     if not tl_firsat and tl_makro_risk and cds is not None and cds < 280 and reel_faiz > 0:
         parcalar = []
-        if v.tl_faiz_indirim_haber and v.tl_faiz_indirim_haber >= config.TL_MAKRO_FAIZ_ESIGI:
+        if faiz_yuksek and (v.tl_faiz_indirim_haber or 0) > 0:
             parcalar.append(f"faiz indirimi beklentisi ({v.tl_faiz_indirim_haber} haber)")
-        if v.tl_erken_secim_anormal:
+        if secim_yuksek or v.tl_erken_secim_anormal:
             parcalar.append(f"erken seçim anormal sıklık ({v.tl_erken_secim_haber} haber)")
         neden = "; ".join(parcalar) if parcalar else "TL makro haber riski"
         adimlar.append(

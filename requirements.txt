@@ -7,3 +7,5 @@ pandas>=2.0.0
 fpdf2>=2.7.0
 plotly>=5.18.0
 pytefas>=0.4.1
+PyYAML>=6.0
+anthropic>=0.40.0

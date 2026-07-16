@@ -1,0 +1,15 @@
+# Instrument quote currency — never infer from exchange suffix alone
+EQQQ.L: GBp
+EMIM.L: GBp
+IEMA.L: GBp
+VEUR.L: GBp
+VUKE.L: GBp
+VGER.L: GBp
+VHYL.L: GBp
+VUSA.L: GBp
+VWRL.L: GBp
+IDVY.L: GBp
+VAGP.L: GBp
+CSPX.L: USD
+VUAA.L: USD
+SGLD.L: USD

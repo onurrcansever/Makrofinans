@@ -9,10 +9,10 @@ import time
 from typing import Optional, Tuple
 
 import config
+from db_paths import market_cache_db
 from macro_auto import cds_otomatik, enflasyon_otomatik, tcmb_faizi_otomatik
 
 DEFAULT_SIYASI_RISK = 3
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
 
 
 def _yf_son(ticker: str) -> Optional[float]:
@@ -77,7 +77,7 @@ def cds_al(
 
 def _gdelt_cache_oku(anahtar: str) -> Optional[int]:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS gdelt_cache (key TEXT PRIMARY KEY, ts REAL, count INTEGER)"
         )
@@ -92,7 +92,7 @@ def _gdelt_cache_oku(anahtar: str) -> Optional[int]:
 
 def _gdelt_cache_yaz(anahtar: str, count: int) -> None:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS gdelt_cache (key TEXT PRIMARY KEY, ts REAL, count INTEGER)"
         )

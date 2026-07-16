@@ -73,14 +73,7 @@ def _fmt_tl(x: float) -> str:
     return f"{x:,.0f}".replace(",", ".")
 
 
-def _kisalt(h) -> str:
-    sym = h.sembol or h.ad or "?"
-    sym = sym.replace(".IS", "").split(".")[0]
-    return sym[:12]
-
-
-def _etf_mi(h) -> bool:
-    return getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf"
+from al_bildirim import degisim_al_etiket, guncel_al_satirlar
 
 
 def _tahsis_satir(tahsis) -> str:
@@ -127,18 +120,8 @@ def _varlik_satirlari(snap: MacroSnapshot, onceki_tl: Optional[float]) -> List[s
     return satirlar
 
 
-def _guncel_al_satirlari(hisseler: list, max_hisse: int = 5, max_etf: int = 4) -> List[str]:
-    uygun = [h for h in hisseler if getattr(h, "alim_uygun", "") == "UYGUN" and h.fiyat is not None]
-    al_h = sorted([h for h in uygun if not _etf_mi(h)], key=lambda x: -(x.skor or 0))[:max_hisse]
-    al_e = sorted([h for h in uygun if _etf_mi(h)], key=lambda x: -(x.skor or 0))[:max_etf]
-    satirlar: List[str] = []
-    if al_h:
-        satirlar.append(" Hisse: " + ", ".join(_kisalt(h) for h in al_h))
-    if al_e:
-        satirlar.append(" ETF: " + ", ".join(_kisalt(h) for h in al_e))
-    if not satirlar:
-        satirlar.append(" AL aday yok")
-    return satirlar
+def _guncel_al_satirlari(hisseler: list) -> List[str]:
+    return guncel_al_satirlar(hisseler)
 
 
 def _degisim_satirlari(olaylar: List[Tuple[str, str, Any]]) -> List[str]:
@@ -152,9 +135,9 @@ def _degisim_satirlari(olaylar: List[Tuple[str, str, Any]]) -> List[str]:
     dikkat: List[str] = []
 
     for tip, _sym, h in olaylar:
-        ad = _kisalt(h)
+        ad = degisim_al_etiket(h)
         if tip == "AL":
-            (al_e if _etf_mi(h) else al_h).append(ad)
+            (al_e if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf" else al_h).append(ad)
         elif tip == "AL_KALDIRILDI":
             kaldir.append(ad)
         elif tip == "SAT":
@@ -207,6 +190,16 @@ def ozet_metni_olustur(
 
     satirlar.append("")
     satirlar.extend(_varlik_satirlari(snap, onceki_tl))
+
+    # Portföy durumu — metrikler yerel; 💬 yalnızca cache (API yok)
+    try:
+        from bildirim_ekleri import portfoy_durum_satirlari
+        pd_satir = portfoy_durum_satirlari(snap, tarama)
+        if pd_satir:
+            satirlar.append("")
+            satirlar.extend(pd_satir)
+    except Exception:
+        pass
 
     if vade_satirlari:
         satirlar += ["", "VADE:"]

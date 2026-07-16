@@ -28,12 +28,19 @@ PARA_BIRIMI = {
 }
 
 
+def _norm_fon_ad(fund_name: str) -> str:
+    n = (fund_name or "").upper()
+    for src, dst in (("İ", "I"), ("Ö", "O"), ("Ü", "U"), ("Ş", "S"), ("Ç", "C"), ("Ğ", "G")):
+        n = n.replace(src, dst)
+    return n
+
+
 def yk_fon_mu(fund_name: str) -> bool:
-    return YK_PORTFOY_MARKA in (fund_name or "").upper().replace("İ", "I")
+    return YK_PORTFOY_MARKA in _norm_fon_ad(fund_name)
 
 
 def fon_kategorisi(fund_name: str) -> str:
-    n = (fund_name or "").upper().replace("İ", "I")
+    n = _norm_fon_ad(fund_name)
     if "PARA PIYASASI" in n or "KISA VADELI BORCLANMA" in n:
         return "para_piyasasi"
     if "HISSE SENEDI" in n or "ENDEKS" in n and "HISSE" in n:
@@ -54,7 +61,7 @@ def fon_kategorisi(fund_name: str) -> str:
 
 
 def fon_para_birimi(fund_name: str) -> str:
-    n = (fund_name or "").upper().replace("İ", "I")
+    n = _norm_fon_ad(fund_name)
     if "AVRO" in n or "(EUR" in n:
         return "EUR"
     if "POUND" in n or "GBP" in n:
@@ -66,6 +73,15 @@ def fon_para_birimi(fund_name: str) -> str:
     if "KATILIM" in n and "DOVIZ" not in n:
         return "TL"
     return "KARISIK"
+
+
+TEFAS_FIYAT_PB = frozenset({"TL", "EUR", "USD", "GBP"})
+
+
+def tefas_fiyat_kaynak_pb(para_birimi: str) -> Optional[str]:
+    """Fon adından türetilen fiyat PB — KARISIK portföy karışımı değil, fiyat birimi."""
+    pb = (para_birimi or "").upper()
+    return pb if pb in TEFAS_FIYAT_PB else None
 
 
 def kisa_fon_adi(fund_name: str, max_len: int = 48) -> str:

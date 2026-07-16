@@ -26,8 +26,7 @@ from free_fallbacks import (
     tl_makro_risk_al,
 )
 from yapikredi_rates import yapikredi_tl_faizleri
-
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
+from db_paths import market_cache_db
 
 
 @dataclass
@@ -528,7 +527,7 @@ def canli_snapshot(taze: bool = True, _tick: int = 0) -> MacroSnapshot:
 
 def cache_kaydet(snap: MacroSnapshot) -> None:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS snapshots (
@@ -561,10 +560,11 @@ def cache_kaydet(snap: MacroSnapshot) -> None:
 
 
 def cache_gecmisi(limit: int = 30) -> List[Dict[str, Any]]:
-    if not os.path.exists(CACHE_DB):
+    db = market_cache_db()
+    if not os.path.exists(db):
         return []
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(db)
         rows = conn.execute(
             "SELECT ts, kaynak, payload FROM snapshots ORDER BY id DESC LIMIT ?",
             (limit,),

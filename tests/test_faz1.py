@@ -15,10 +15,9 @@ class Faz1GirdiDogrulamaTest(unittest.TestCase):
         self.db = os.path.join(self.tmp, "test_market.db")
         self.onay = os.path.join(self.tmp, "test_onay.json")
         os.environ["MARKET_CACHE_DB"] = self.db
+        os.environ["GIRDI_ONAY_STATE_PATH"] = self.onay
         import girdi_dogrulama as gd
 
-        gd.CACHE_DB = self.db
-        gd.ONAY_PATH = self.onay
         self.gd = gd
 
     def _seed(self, anahtar: str, deger: float, n: int = 5):

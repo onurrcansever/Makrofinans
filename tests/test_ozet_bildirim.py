@@ -16,6 +16,8 @@ def _h(sembol, ad, skor=80, uygun="UYGUN", piyasa="BIST", tur="hisse", sinyal="B
         varlik_turu=tur,
         sinyal=sinyal,
         fiyat=1.0,
+        signal_v2_decision="AL" if uygun == "UYGUN" else "BEKLE",
+        signal_v2_percentile=85.0,
     )
 
 
@@ -54,8 +56,9 @@ def test_ozet_metni_kisa_format():
     assert "VARLIKLAR:" in metin
     assert "+AL hisse: HALKB" in metin
     assert "GÜNCEL AL:" in metin
-    assert "Hisse: HALKB" in metin
-    assert "ETF: CSPX" in metin
+    assert "HALKB" in metin
+    assert "CSPX" in metin
+    assert "Toplam 2 AL" in metin
     assert "Tahsis:" in metin
     assert "Dashboard" not in metin
     assert len(metin) < 1200

@@ -98,25 +98,7 @@ class PortfoyDeger:
     fiyat_bekleniyor: bool = False
 
 
-def _pb_cevir(tutar: float, kaynak_pb: str, hedef_pb: str, eur_try: float, usd_try: float) -> float:
-    if kaynak_pb == hedef_pb:
-        return tutar
-    if kaynak_pb == "TL":
-        tl = tutar
-    elif kaynak_pb == "EUR":
-        tl = tutar * eur_try
-    elif kaynak_pb == "USD":
-        tl = tutar * (usd_try or eur_try * 1.08)
-    else:
-        tl = tutar
-    if hedef_pb == "TL":
-        return tl
-    if hedef_pb == "EUR":
-        return tl / eur_try if eur_try > 0 else tutar
-    if hedef_pb == "USD":
-        kur = usd_try or eur_try * 1.08
-        return tl / kur if kur > 0 else tutar
-    return tutar
+from fiyat_para import pb_cevir as _pb_cevir
 
 
 def _gun_tutma(alim_tarihi: str, bugun: date) -> int:
@@ -369,7 +351,9 @@ def _yf_sembolleri(pozisyonlar: List[VarlikPozisyon]) -> List[str]:
         elif p.tur == "nakit_usd":
             out.add("USDTRY=X")
         elif p.tur == "nakit_ron":
+            out.add("EURTRY=X")
             out.add("EURRON=X")  # RONTRY=X Yahoo'da yok; çapraz kur: ron_try = eur_try / eur_ron
+    out.update(["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"])
     return sorted(out)
 
 
@@ -432,9 +416,6 @@ def portfoy_degerle(
     aninda: bool = False,
 ) -> PortfoyDeger:
     fiyat_bekleniyor = False
-    piyasa_turleri = {"tefas", "hisse", "etf", "altin", "gumus", "kripto", "nakit_eur"}
-    eur_try = snap.veri.eur_try or 35.0
-    usd_try = snap.veri.usd_try or eur_try * 1.08
     bugun = date.today()
     bugun_alim = _tum_bugun_alim(portfoy.pozisyonlar, bugun)
 
@@ -447,6 +428,21 @@ def portfoy_degerle(
     df = _yf_indir(semboller, period=fx_period, cache_salt=cache_salt, aninda=aninda) if semboller else pd.DataFrame()
     fx_eur = _close_al(df, "EURTRY=X") if not df.empty else pd.Series(dtype=float)
     fx_usd = _close_al(df, "USDTRY=X") if not df.empty else pd.Series(dtype=float)
+    fx_gbp = _close_al(df, "GBPUSD=X") if not df.empty else pd.Series(dtype=float)
+    fx_eurusd = _close_al(df, "EURUSD=X") if not df.empty else pd.Series(dtype=float)
+
+    from fiyat_para_fx import FxUnavailableError, kur_tablo_spot
+
+    fx_spot = None
+    try:
+        fx_spot = kur_tablo_spot(snap, fx_eur, fx_usd, fx_gbp, fx_eurusd, check_plausibility=False)
+    except FxUnavailableError:
+        fiyat_bekleniyor = True
+    eur_try = fx_spot.eur_try if fx_spot else (snap.veri.eur_try or 35.0)
+    usd_try = fx_spot.usd_try if fx_spot else (snap.veri.usd_try or eur_try * 1.08)
+    gbp_usd = fx_spot.gbp_usd if fx_spot else None
+    eur_usd = fx_spot.eur_usd if fx_spot else None
+    _fx_kw = dict(gbp_usd=gbp_usd, eur_usd=eur_usd)
 
     poz_degerler: List[PozisyonDeger] = []
     for p in portfoy.pozisyonlar:
@@ -525,10 +521,15 @@ def portfoy_degerle(
             fx_eur_ron = _close_al(df, "EURRON=X") if not df.empty else pd.Series(dtype=float)
             if not fx_eur_ron.empty:
                 eur_ron_rate = float(fx_eur_ron.iloc[-1])
-                ron_try = eur_try / eur_ron_rate if eur_ron_rate > 0 else 0.0
-                # RON/TL geçmiş serisi: EURRON ile EUR/TL çaprazından türet
-                fx_ron = (fx_eur_ron.apply(lambda x: eur_try / x if x > 0 else 0.0)
-                          if not fx_eur_ron.empty else pd.Series(dtype=float))
+                et_son = float(fx_eur.iloc[-1]) if not fx_eur.empty else eur_try
+                ron_try = et_son / eur_ron_rate if eur_ron_rate > 0 else 0.0
+                if not fx_eur.empty:
+                    idx = fx_eur_ron.index.union(fx_eur.index).sort_values()
+                    er = fx_eur_ron.reindex(idx).ffill()
+                    et = fx_eur.reindex(idx).ffill()
+                    fx_ron = (et / er.replace(0, float("nan"))).dropna()
+                else:
+                    fx_ron = fx_eur_ron.apply(lambda x: eur_try / x if x > 0 else 0.0)
             else:
                 ron_try = 0.0
                 fx_ron = pd.Series(dtype=float)
@@ -694,12 +695,12 @@ def portfoy_degerle(
         # pd_.para döviz pozisyonlarında "TL"'ye override edilmiş olabilir;
         # pd_.pozisyon.para_birimi DEĞİL pd_.para kullan — çift dönüşümü önle.
         pb = pd_.para
-        toplam["TL"] += _pb_cevir(pd_.guncel_deger, pb, "TL", eur_try, usd_try)
-        toplam["EUR"] += _pb_cevir(pd_.guncel_deger, pb, "EUR", eur_try, usd_try)
-        toplam["USD"] += _pb_cevir(pd_.guncel_deger, pb, "USD", eur_try, usd_try)
-        maliyet_toplam["TL"] += _pb_cevir(pd_.maliyet_deger, pb, "TL", eur_try, usd_try)
-        maliyet_toplam["EUR"] += _pb_cevir(pd_.maliyet_deger, pb, "EUR", eur_try, usd_try)
-        maliyet_toplam["USD"] += _pb_cevir(pd_.maliyet_deger, pb, "USD", eur_try, usd_try)
+        toplam["TL"] += _pb_cevir(pd_.guncel_deger, pb, "TL", eur_try, usd_try, **_fx_kw)
+        toplam["EUR"] += _pb_cevir(pd_.guncel_deger, pb, "EUR", eur_try, usd_try, **_fx_kw)
+        toplam["USD"] += _pb_cevir(pd_.guncel_deger, pb, "USD", eur_try, usd_try, **_fx_kw)
+        maliyet_toplam["TL"] += _pb_cevir(pd_.maliyet_deger, pb, "TL", eur_try, usd_try, **_fx_kw)
+        maliyet_toplam["EUR"] += _pb_cevir(pd_.maliyet_deger, pb, "EUR", eur_try, usd_try, **_fx_kw)
+        maliyet_toplam["USD"] += _pb_cevir(pd_.maliyet_deger, pb, "USD", eur_try, usd_try, **_fx_kw)
 
     agirlikli: Dict[str, Optional[float]] = {}
     for et in PERIYOTLAR:

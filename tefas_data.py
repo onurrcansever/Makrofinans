@@ -49,8 +49,15 @@ class FonPerformans:
     dagilim_ozet: str = ""
     etkin_kategori: str = ""
     skor: float = 0.0
+    skor_ham: float = 0.0
     skor_notu: str = ""
-    oneri: str = "IZLE"
+    oneri: str = "BEKLE"
+    skor_pb: str = "EUR"
+    getiri_gosterim_1a: Optional[float] = None
+    getiri_gosterim_3a: Optional[float] = None
+    getiri_gosterim_ybb: Optional[float] = None
+    skor_faktorler: Dict[str, float] = field(default_factory=dict)
+    akran_kucuk: bool = False
 
 
 @dataclass

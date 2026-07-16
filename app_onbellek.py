@@ -34,8 +34,9 @@ SAYFA_TARAMA = frozenset({
     "Portföy Tahsisi",
     "AI Danışman",
     "Hisse & Endeks Taraması",
+    "Favorilerim",
 })
-SAYFA_TEFAS = frozenset({"Portföy Tahsisi", "TEFAS Fonları"})
+SAYFA_TEFAS = frozenset({"Portföy Tahsisi", "TEFAS Fonları", "Favorilerim"})
 SAYFA_BIRLESIK = frozenset({"Portföy Tahsisi"})
 SAYFA_DANISMAN_TAM = frozenset({"AI Danışman"})
 SAYFA_BACKTEST = frozenset({"Backtest"})
@@ -378,6 +379,7 @@ def uygulama_onbellegi_al(
         tick,
         profil_risk=profil.risk,
         profil_vade=profil.vade,
+        zorla=bool(st.session_state.pop("_tarama_zorla", False)),
     )
     ob.tarama = _ob_tarama
 

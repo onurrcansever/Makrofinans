@@ -7,7 +7,6 @@ haberlerinde anormal sıklık TL mevduat kararını etkiler.
 """
 from __future__ import annotations
 
-import os
 import sqlite3
 import statistics
 import time
@@ -17,7 +16,7 @@ from typing import Dict, Optional
 
 import config
 
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
+from db_paths import market_cache_db
 
 
 @dataclass
@@ -32,7 +31,7 @@ class TlMakroRiskSonuc:
 
 
 def _conn():
-    c = sqlite3.connect(CACHE_DB)
+    c = sqlite3.connect(market_cache_db())
     c.execute(
         "CREATE TABLE IF NOT EXISTS tl_makro_baseline "
         "(konu TEXT NOT NULL, gun TEXT NOT NULL, sayi INTEGER NOT NULL, ts REAL NOT NULL, "

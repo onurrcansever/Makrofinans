@@ -16,6 +16,7 @@ from allocation_engine import tahsis_hesapla
 from investor_profile import YatirimProfili
 from macro_data import MacroSnapshot
 from notifier import bildirim_gonder
+from al_bildirim import al_etiket_kisa, guncel_al_satirlar
 from stock_scanner import SINYAL_ETIKET, tam_tarama
 
 STATE_PATH = os.getenv("SIGNAL_STATE_PATH", ".signal_state.json")
@@ -107,6 +108,7 @@ def alarm_metni_olustur(
     olaylar: List[Tuple[str, str, Any]],
     tahsis,
     profil: YatirimProfili,
+    hisseler: Optional[list] = None,
 ) -> str:
     simdi = datetime.now().strftime("%d.%m.%Y %H:%M")
     baslik = {
@@ -123,16 +125,26 @@ def alarm_metni_olustur(
     for tip, _sym, h in olaylar:
         karar = alim_aksiyon_kisa(getattr(h, "alim_uygun", "IZLE"))
         tek = SINYAL_ETIKET.get(h.sinyal, h.sinyal)
-        notu = (getattr(h, "alim_uygun_not", "") or "")[:60]
+        notu = (getattr(h, "alim_uygun_not", "") or "")[:80]
         satirlar.append(
             f"{baslik.get(tip, tip)} · {h.ad} ({h.sembol})"
         )
         satirlar.append(
-            f"  Skor {h.skor:.0f} · RSI {(h.rsi or 0):.0f} · {tek} · Karar: {karar}"
+            f"  {al_etiket_kisa(h)} · RSI {(h.rsi or 0):.0f} · {tek} · {karar}"
         )
         if notu:
             satirlar.append(f"  ↳ {notu}")
+        # Cache-only ekler (API yok; yoksa sessiz atla)
+        try:
+            from bildirim_ekleri import sinyal_ek_satirlari
+            satirlar.extend(sinyal_ek_satirlari(h))
+        except Exception:
+            pass
         satirlar.append("")
+
+    if hisseler:
+        satirlar += ["", "TÜM AL ADAYLARI:"]
+        satirlar.extend(guncel_al_satirlar(hisseler))
 
     satirlar += [
         "—",
@@ -176,6 +188,6 @@ def kontrol_sinyal_ve_bildir(
     if not bildir:
         return False, olaylar
 
-    metin = alarm_metni_olustur(olaylar, tahsis, profil)
+    metin = alarm_metni_olustur(olaylar, tahsis, profil, tarama.hisseler)
     ok = bildirim_gonder(metin)
     return ok, olaylar

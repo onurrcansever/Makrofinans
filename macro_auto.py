@@ -19,15 +19,14 @@ from typing import Optional, Tuple
 import requests
 
 import config
-
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
+from db_paths import market_cache_db
 TIMEOUT = 12
 _CACHE: dict = {"ts": 0.0}
 
 
 def _cache_oku(anahtar: str, max_yas_s: int = 3600) -> Optional[Tuple[float, str, str]]:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS macro_cache "
             "(key TEXT PRIMARY KEY, ts REAL, value REAL, kaynak TEXT, meta TEXT)"
@@ -45,7 +44,7 @@ def _cache_oku(anahtar: str, max_yas_s: int = 3600) -> Optional[Tuple[float, str
 
 def _cache_yaz(anahtar: str, deger: float, kaynak: str, meta: str = "") -> None:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS macro_cache "
             "(key TEXT PRIMARY KEY, ts REAL, value REAL, kaynak TEXT, meta TEXT)"
@@ -180,7 +179,7 @@ def _enflasyon_worldbank() -> Optional[float]:
 
 def enflasyon_cache_temizle() -> None:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute("DELETE FROM macro_cache WHERE key=?", ("enflasyon_tr",))
         conn.commit()
         conn.close()

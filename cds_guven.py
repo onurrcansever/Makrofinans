@@ -13,8 +13,8 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import config
+from db_paths import market_cache_db
 
-CACHE_DB = os.getenv("MARKET_CACHE_DB", "market_cache.db")
 CDS_CACHE_KEY = "cds_5y"
 MANUAL_PATH = os.path.join(os.path.dirname(__file__), "manual_inputs.json")
 
@@ -68,7 +68,7 @@ def _rel_fark(a: float, b: float) -> float:
 
 def _onceki_deger() -> Optional[float]:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS macro_cache "
             "(key TEXT PRIMARY KEY, ts REAL, value REAL, kaynak TEXT, meta TEXT)"
@@ -86,7 +86,7 @@ def _onceki_deger() -> Optional[float]:
 
 def _cache_yaz(deger: float, kaynak: str) -> None:
     try:
-        conn = sqlite3.connect(CACHE_DB)
+        conn = sqlite3.connect(market_cache_db())
         conn.execute(
             "CREATE TABLE IF NOT EXISTS macro_cache "
             "(key TEXT PRIMARY KEY, ts REAL, value REAL, kaynak TEXT, meta TEXT)"
@@ -144,7 +144,7 @@ def cds_guvenli_al(
 
     if not taze:
         try:
-            conn = sqlite3.connect(CACHE_DB)
+            conn = sqlite3.connect(market_cache_db())
             row = conn.execute(
                 "SELECT ts, value, kaynak FROM macro_cache WHERE key=?",
                 (CDS_CACHE_KEY,),

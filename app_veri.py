@@ -62,18 +62,20 @@ def tarama_cek(
     profil_vade: str = "orta",
     *,
     zorla: bool = False,
+    use_signal_v2: bool = True,
 ):
     """Hisse/endeks taraması — disk önbellek; zorla=True senkron çeker (Taramayı yenile)."""
     del snap_veri_kaynak
     from stock_scanner import TaramaSonucu
 
-    anahtar = f"tarama:{canli}:{rejim}:{haber_tara}:{profil_risk}:{profil_vade}"
+    anahtar = f"tarama:{canli}:{rejim}:{haber_tara}:{profil_risk}:{profil_vade}:v2={int(use_signal_v2)}:gbx_v3:live_v1"
 
     def _uret():
         snap = veri_cek(canli, _tick)
         profil = YatirimProfili(risk=profil_risk, vade=profil_vade)
         return tam_tarama(
-            makro_rejim=rejim, demo=not canli, snap=snap, haber_tara=haber_tara, profil=profil,
+            makro_rejim=rejim, demo=not canli, snap=snap, haber_tara=haber_tara,
+            profil=profil, use_signal_v2=use_signal_v2,
         )
 
     def _placeholder():
@@ -162,7 +164,11 @@ def veri_onbellegi_temizle() -> None:
     from cds_guven import cds_tick_onbellegi_temizle
     from macro_auto import enflasyon_cache_temizle
     from varlik_fiyat import fiyat_onbellegi_temizle
+    from signal_engine.data.live_quote import clear_live_quote_cache
+    from signal_engine.data.quote_normalize import fetch_source_quote_currency
 
+    fetch_source_quote_currency.cache_clear()
+    clear_live_quote_cache()
     cds_tick_onbellegi_temizle()
     enflasyon_cache_temizle()
     fiyat_onbellegi_temizle()

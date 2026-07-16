@@ -403,7 +403,7 @@ def birlesik_oneri_olustur(
                                 tutar=s.tutar,
                                 para=s.para,
                                 donem="VADE",
-                                oncelik=1 if s.etiket == "GUCLU" else 2,
+                                oncelik=1 if s.etiket == "AL" else 2,
                                 etiket=s.etiket,
                             )
                         )

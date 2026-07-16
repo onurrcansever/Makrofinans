@@ -615,6 +615,58 @@ div[data-baseweb="input"] > div:focus-within {
   background: #f8fafc !important;
 }
 
+/* ── mc-df-table (render_df_table) ─────────── */
+.mc-df-table table {
+  table-layout: auto !important;
+}
+
+.mc-df-table th,
+.mc-df-table td {
+  vertical-align: middle !important;
+  line-height: 1.25 !important;
+}
+
+.mc-df-table tbody tr {
+  height: 32px !important;
+}
+
+.mc-df-table tbody tr:hover td {
+  background: #f8fafc !important;
+}
+
+.mc-df-table a.fav-star {
+  display: inline-block;
+  min-width: 1.25rem;
+  text-align: center;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.mc-df-table a.fav-star:hover {
+  transform: scale(1.15);
+  opacity: 0.75;
+}
+
+.mc-df-table .mc-fav-hit,
+.mc-df-table .mc-act-hit {
+  cursor: pointer;
+}
+
+.mc-df-table a.row-act-link {
+  display: inline-block;
+  min-width: 1.25rem;
+  text-align: center;
+  text-decoration: none;
+  color: #64748b;
+  font-size: 15px;
+  font-weight: 600;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.mc-df-table a.row-act-link:hover {
+  color: #2563eb;
+  transform: scale(1.1);
+}
+
 /* ── Progress bar ─────────────────────────── */
 .stProgress > div > div {
   background-color: var(--mc-accent) !important;
@@ -764,5 +816,31 @@ footer { visibility: hidden !important; }
   background: #1e3352 !important;
 }
 </style>
+<script>
+(function () {
+  function mcQueryNavigate(key, val, nav) {
+    if (!key) return;
+    try {
+      var u = new URL(window.location.href);
+      u.searchParams.set(key, String(val));
+      if (nav) u.searchParams.set("mc_nav", nav);
+      window.location.assign(u.href);
+    } catch (err) {
+      window.location.href = "?" + encodeURIComponent(key) + "=" + encodeURIComponent(val);
+    }
+  }
+  document.addEventListener("click", function (ev) {
+    var el = ev.target.closest(".mc-query-hit");
+    if (!el) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    mcQueryNavigate(
+      el.getAttribute("data-qkey") || "",
+      el.getAttribute("data-qval") || "",
+      el.getAttribute("data-qnav") || ""
+    );
+  }, true);
+})();
+</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 </div>

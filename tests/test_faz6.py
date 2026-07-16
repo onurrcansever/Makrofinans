@@ -3,7 +3,15 @@
 import unittest
 from types import SimpleNamespace
 
-from report_pdf import _isin_birlestir_gosterim, _kotasyon_notu, _madde_ek_bilgi
+import pandas as pd
+
+from report_pdf import (
+    _html_temiz,
+    _isin_birlestir_gosterim,
+    _kotasyon_notu,
+    _madde_ek_bilgi,
+    hisse_etf_tablo_pdf_olustur,
+)
 
 
 class Faz6RaporTest(unittest.TestCase):
@@ -35,6 +43,50 @@ class Faz6RaporTest(unittest.TestCase):
         self.assertIsNone(_madde_ek_bilgi(h))
         h.haber_notu = "Olumsuz haber akışı"
         self.assertIn("Haber", _madde_ek_bilgi(h))
+
+    def test_hisse_etf_tablo_pdf(self):
+        df = pd.DataFrame([{
+            "⭐": "☆",
+            "Karar": "İZLE",
+            "Sembol": "AAPL",
+            "Hisse/ETF": "Apple Inc.",
+            "Fiyat (USD)": "198.50",
+            "1G % (USD)": float("nan"),
+            "Al": "spot civarı (198.50 USD) / 2: 190.00 USD",
+            "Skor": "59 (73%) 💚14/14 +37%",
+            "Rejim": '<span>↗ Trend ↑</span><div>1 gündür</div>',
+            "Veri": "4/5 · 1 sa",
+            "90g": [1, 2, 3],
+        }])
+        pdf = hisse_etf_tablo_pdf_olustur(
+            df,
+            gosterim_pb="USD",
+            piyasa_filtre=["NASDAQ"],
+            sinyal_filtre=["Bekle"],
+        )
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertNotIn(b"<span>", pdf)
+        from report_pdf import _df_pdf_hazirla
+        cleaned = _df_pdf_hazirla(df)
+        self.assertEqual(cleaned["Skor"].iloc[0], "59 (73%) AL14/14 +37%")
+        self.assertEqual(cleaned["Rejim"].iloc[0], "Trend ↑")
+        self.assertEqual(cleaned["Al"].iloc[0], "≈(198.50 USD)")
+        self.assertEqual(cleaned["1G % (USD)"].iloc[0], "—")
+        self.assertNotIn("Veri", cleaned.columns)
+        # PDF metninde analist sayısı + hedef fark
+        import io
+        from pypdf import PdfReader
+        text = "\n".join(
+            (p.extract_text() or "") for p in PdfReader(io.BytesIO(pdf)).pages
+        )
+        self.assertIn("14/14", text)
+        self.assertIn("+37%", text)
+        self.assertIn("AL14/14", text)
+        self.assertNotIn("gündür", text)
+        self.assertNotIn("4/5", text)
+
+    def test_html_temiz(self):
+        self.assertEqual(_html_temiz('<b>Trend +</b>'), "Trend +")
 
 
 if __name__ == "__main__":

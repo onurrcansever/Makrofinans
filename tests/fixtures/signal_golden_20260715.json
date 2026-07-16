@@ -1,0 +1,117 @@
+{
+  "asof": "2026-07-15",
+  "snap": {
+    "eur_try": 53.7508,
+    "usd_try": 47.0258,
+    "gbp_usd": 1.3397,
+    "fx_asof": "2026-07-15",
+    "fx_source": "Yahoo EURTRY=X / USDTRY=X / GBPUSD=X (fixture close)"
+  },
+  "golden": {
+    "AMAT": {
+      "score": 65,
+      "decision": "İZLE",
+      "code": "WATCH",
+      "factors": {
+        "trend": 97.0,
+        "mean_reversion": 58.0,
+        "volatility": 22.0,
+        "relative_strength": 75.0,
+        "liquidity": 65.0
+      },
+      "quote_currency": "USD"
+    },
+    "CSCO": {
+      "score": 64,
+      "decision": "İZLE",
+      "code": "WATCH",
+      "factors": {
+        "trend": 75.0,
+        "mean_reversion": 68.0,
+        "volatility": 45.0,
+        "relative_strength": 72.3,
+        "liquidity": 55.0
+      },
+      "quote_currency": "USD"
+    },
+    "MSFT": {
+      "score": 40,
+      "decision": "AZALT",
+      "code": "REDUCE",
+      "factors": {
+        "trend": 17.2,
+        "mean_reversion": 46.0,
+        "volatility": 37.0,
+        "relative_strength": 35.7,
+        "liquidity": 65.0
+      },
+      "quote_currency": "USD"
+    },
+    "EQQQ.L": {
+      "score": 64,
+      "decision": "İZLE",
+      "code": "WATCH",
+      "factors": {
+        "trend": 75.0,
+        "mean_reversion": 60.0,
+        "volatility": 65.0,
+        "relative_strength": 53.8,
+        "liquidity": 66.5
+      },
+      "quote_currency": "GBP",
+      "al_price_settlement": 523.9954,
+      "spot_settlement": 533.44,
+      "spot_near": true,
+      "momentum_12_1_gbp_pct": 32.6989,
+      "momentum_12_1_tl_pct": 50.79,
+      "getiri_1y_tl_pct": 48.24,
+      "getiri_1y_usd_pct": 26.8,
+      "try_per_gbp": 63.0,
+      "score_note": "PDF 65 = LSE 16 Tem bar (ABD bench yok); settlement asof 15 Tem = 64",
+      "getiri_1y_note": "1Y = takvim 365g (d0=2025-07-15), 252-bar ofset değil"
+    },
+    "IS3N.DE": {
+      "score": 63.7,
+      "decision": "İZLE",
+      "code": "WATCH",
+      "factors": {
+        "trend": 72.5,
+        "mean_reversion": 68.0,
+        "volatility": 65.0,
+        "relative_strength": 49.5,
+        "liquidity": 64.5
+      },
+      "quote_currency": "EUR",
+      "score_note": "PDF r3/r4=63 (67%); fixture=63.7 → UI .0f=64. Fark ~0.7pt canlı hacim/mikro fiyat, takvim değil"
+    },
+    "VEUR.L": {
+      "score": 63,
+      "decision": "İZLE",
+      "code": "WATCH",
+      "factors": {
+        "trend": 90.7,
+        "mean_reversion": 40.0,
+        "volatility": 65.0,
+        "relative_strength": 45.5,
+        "liquidity": 68.5
+      },
+      "quote_currency": "GBP",
+      "score_note": "66=LSE 16 Tem MR~60; 64=aynı LSE-ahead günü intraday bar revizyonu (~2pt); pin asof 15 Tem=62.56→63"
+    }
+  },
+  "hysteresis": {
+    "EQQQ.L": [
+      {
+        "score": 68,
+        "code": "BUY",
+        "decision": "AL"
+      },
+      {
+        "score": 64,
+        "prev": "BUY",
+        "code": "BUY",
+        "decision": "AL"
+      }
+    ]
+  }
+}

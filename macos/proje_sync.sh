@@ -44,6 +44,7 @@ rsync -a --delete \
   --exclude '.ozet_alarm_state.json' \
   --exclude '.tl_engine_state.json' \
   --exclude '.varliklarim.json' \
+  --exclude '.favoriler.json' \
   --exclude '.env' \
   --exclude 'manual_inputs.json' \
   --exclude 'market_cache.db' \

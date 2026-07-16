@@ -1,0 +1,47 @@
+# Signal Engine v2 — tek kaynak (README_SIGNALS.md ile senkron tutulur)
+version: 2
+
+history:
+  live_period: "2y"       # tarama indirmesi
+  backtest_period: "5y"   # P(fill) ve backtest
+  min_bars: 60
+
+weights:
+  trend: 0.22
+  mean_reversion: 0.18
+  volatility: 0.18
+  relative_strength: 0.22
+  liquidity: 0.20
+
+regime:
+  adx_period: 14
+  adx_trend_min: 22.0
+  high_vol_ratio: 1.45    # vol30 / vol90
+  high_vol_abs_pct: 35.0  # yıllık %
+
+entry:
+  trend_pullback_pct: 0.05      # TRENDING_UP: ~5% geri çekilme
+  trend_sma_prefer: ["sma20", "sma50"]
+  deep_52h_pct: 0.88            # TRENDING_DOWN: 52H'nin %88'i
+  p_fill_horizon_days: 90
+  p_fill_dca_threshold: 0.20
+  p_fill_spot_threshold: 0.95
+  shallow_max_pct: 0.08
+
+decisions:
+  strong_buy: 78
+  buy: 66
+  watch: 52
+  wait: 42
+  reduce: 0
+  hysteresis_margin: 3.0
+
+benchmarks:
+  bist: "XU100.IS"
+  us: "^GSPC"
+  nasdaq: "^IXIC"
+  etf_global: "^GSPC"
+
+asset_classes:
+  etf_broad: ["abd", "dunya", "hisse_global", "temettu", "avrupa", "europa", "esg"]
+  etf_other: ["teknoloji", "gelisen", "tahvil", "altin", "emtia"]

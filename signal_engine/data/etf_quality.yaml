@@ -1,0 +1,25 @@
+# ETF kalite seed — AUM (milyar EUR, yaklaşık) ve TER (% yıllık)
+# Kaynak: justETF / fon sahibi KID — yılda bir güncelleyin
+# ISIN anahtarı
+IE00BK5BQT80: {aum_bn_eur: 25, ter_pct: 0.22, label: VWCE}
+IE00B5BMR087: {aum_bn_eur: 85, ter_pct: 0.07, label: CSPX}
+IE00BFMXXD54: {aum_bn_eur: 12, ter_pct: 0.07, label: VUAA}
+IE00B4L5Y983: {aum_bn_eur: 55, ter_pct: 0.20, label: IWDA}
+IE00BJ0KDR00: {aum_bn_eur: 8, ter_pct: 0.19, label: XDWD}
+IE00BFY0GT14: {aum_bn_eur: 6, ter_pct: 0.12, label: SPPW}
+IE0032077012: {aum_bn_eur: 18, ter_pct: 0.30, label: EQQQ}
+IE00BKM4GZ66: {aum_bn_eur: 22, ter_pct: 0.18, label: EMIM}
+IE00B5L8K969: {aum_bn_eur: 3, ter_pct: 0.18, label: IEMA}
+IE00B945VV12: {aum_bn_eur: 5, ter_pct: 0.10, label: VEUR}
+IE00B810Q511: {aum_bn_eur: 4, ter_pct: 0.09, label: VUKE}
+DE0002635307: {aum_bn_eur: 7, ter_pct: 0.20, label: EXSA}
+IE00B95PGT31: {aum_bn_eur: 2, ter_pct: 0.09, label: VGER}
+IE00B14X4M10: {aum_bn_eur: 9, ter_pct: 0.20, label: EUNA}
+DE0005933931: {aum_bn_eur: 5, ter_pct: 0.16, label: SXR8}
+IE00B8GKDB10: {aum_bn_eur: 4, ter_pct: 0.29, label: VHYL}
+IE00B3XXRP09: {aum_bn_eur: 8, ter_pct: 0.07, label: VUSA}
+IE00B3RBWM25: {aum_bn_eur: 6, ter_pct: 0.22, label: VWRL}
+IE00B652H904: {aum_bn_eur: 1.5, ter_pct: 0.40, label: IDVY}
+IE00B4ND3602: {aum_bn_eur: 12, ter_pct: 0.12, label: SGLD}
+IE00BG47KH54: {aum_bn_eur: 3, ter_pct: 0.10, label: VAGP}
+IE00BYV2GR82: {aum_bn_eur: 4, ter_pct: 0.20, label: IUSQ}

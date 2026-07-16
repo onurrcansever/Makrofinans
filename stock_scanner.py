@@ -56,6 +56,8 @@ class EndeksOzet:
     rsi: Optional[float]
     sinyal: str
     skor: float
+    close_bar_dates: Optional[pd.DatetimeIndex] = None
+    quote_currency: str = ""
 
 
 @dataclass
@@ -104,6 +106,42 @@ class HisseAnaliz:
     alim_uygun: str = "IZLE"
     alim_uygun_etiket: str = "⚪ İzle / bekle"
     alim_uygun_not: str = ""
+    yonetici_aksiyon: str = "BEKLE"
+    yonetici_ozet: str = ""
+    yonetici_detay: str = ""
+    yonetici_destek: Optional[float] = None
+    yonetici_alim: Optional[float] = None
+    yonetici_iptal: Optional[float] = None
+    # Signal Engine v2
+    signal_v2_score: Optional[float] = None
+    signal_v2_percentile: Optional[float] = None
+    signal_v2_regime: str = ""
+    signal_v2_regime_detail: str = ""
+    signal_v2_decision: str = ""
+    signal_v2_code: str = ""
+    signal_v2_why: str = ""
+    signal_v2_decision_gates: list = field(default_factory=list)
+    signal_v2_al_price: Optional[float] = None
+    signal_v2_al_method: str = ""
+    signal_v2_al_p_fill: Optional[float] = None
+    signal_v2_dca: bool = False
+    signal_v2_data: str = ""
+    signal_v2_factors: dict = field(default_factory=dict)
+    signal_v2_factor_details: dict = field(default_factory=dict)
+    signal_v2_sparkline: list = field(default_factory=list)
+    signal_v2_etf_quality: str = ""
+    signal_v2_al_secondary: Optional[float] = None
+    signal_v2_al_secondary_p_fill: Optional[float] = None
+    signal_v2_spot_near: bool = False
+    signal_v2_spot_distance_pct: Optional[float] = None
+    signal_v2_regime_days: int = 0
+    close_bar_dates: Optional[pd.DatetimeIndex] = field(default=None, repr=False)
+    signal_v2_regime_fresh: bool = False
+    quote_currency: str = ""
+    quote_timestamp: str = ""
+    quote_age_min: Optional[float] = None
+    veri_hatasi: str = ""
+    veri_quarantine: bool = False
 
 
 @dataclass
@@ -117,6 +155,15 @@ class TaramaSonucu:
     tarama_ozet: str = ""
     profil_ozet: str = ""
     profil_notlari: List[str] = field(default_factory=list)
+    eurtry_seri: Optional[pd.Series] = None
+    usdtry_seri: Optional[pd.Series] = None
+    gbpusd_seri: Optional[pd.Series] = None
+    eurusd_seri: Optional[pd.Series] = None
+    # Veri bütünlüğü — sessiz düşme yok
+    veri_ozet_log: str = ""
+    veri_ozet_ui: str = ""
+    veri_yok_semboller: List[str] = field(default_factory=list)
+    karantina_semboller: List[str] = field(default_factory=list)
 
 
 def _skaler(val) -> Optional[float]:
@@ -173,7 +220,11 @@ def _sma(seri: pd.Series, n: int) -> Optional[float]:
 
 
 def _degisim(seri: pd.Series, gun: int) -> Optional[float]:
+    """gun >= 252 → 365 takvim günü (1Y); aksi halde trading-bar ofseti."""
     seri = _seri_1d(seri)
+    if gun >= 252:
+        from signal_engine.data.bars import pct_change_calendar
+        return pct_change_calendar(seri, calendar_days=365)
     if len(seri) < gun + 1:
         return None
     eski = _skaler(seri.iloc[-gun - 1])
@@ -183,30 +234,48 @@ def _degisim(seri: pd.Series, gun: int) -> Optional[float]:
     return (yeni - eski) / eski * 100
 
 
-def _close_al(df: pd.DataFrame, sembol: str) -> pd.Series:
+def _extract_close_raw(df: pd.DataFrame, sembol: str) -> pd.Series:
     if df.empty:
         return pd.Series(dtype=float)
+    raw = None
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0)
+        if sembol in lvl0:
+            raw = df[sembol]["Close"]
+        else:
+            for t in lvl0.unique():
+                if str(t).upper() == str(sembol).upper():
+                    raw = df[t]["Close"]
+                    break
+    elif "Close" in df.columns:
+        raw = df["Close"]
+        if isinstance(raw, pd.DataFrame) and sembol in raw.columns:
+            raw = raw[sembol]
+    elif len(df.columns) >= 1:
+        raw = df.iloc[:, 0]
+    return _seri_1d(raw)
+
+
+def _close_al_with_meta(df: pd.DataFrame, sembol: str):
+    from signal_engine.data.quote_normalize import (
+        fetch_source_quote_currency,
+        normalize_close_series,
+        SeriesQuoteMeta,
+    )
+
+    raw = _extract_close_raw(df, sembol)
+    if raw.empty:
+        return raw, SeriesQuoteMeta(sembol, "", "", quarantine=True, quarantine_reason="boş seri")
     try:
-        raw = None
-        if isinstance(df.columns, pd.MultiIndex):
-            lvl0 = df.columns.get_level_values(0)
-            if sembol in lvl0:
-                raw = df[sembol]["Close"]
-            else:
-                for t in lvl0.unique():
-                    if str(t).upper() == str(sembol).upper():
-                        raw = df[t]["Close"]
-                        break
-        elif "Close" in df.columns:
-            raw = df["Close"]
-            if isinstance(raw, pd.DataFrame) and sembol in raw.columns:
-                raw = raw[sembol]
-        elif len(df.columns) >= 1:
-            raw = df.iloc[:, 0]
-        return _seri_1d(raw)
+        src_ccy = fetch_source_quote_currency(sembol) or None
+        return normalize_close_series(sembol, raw, source_currency=src_ccy)
     except Exception:
-        pass
-    return pd.Series(dtype=float)
+        return pd.Series(dtype=float), SeriesQuoteMeta(sembol, "", "", quarantine=True, quarantine_reason="normalizasyon hatası")
+
+
+def _close_al(df: pd.DataFrame, sembol: str) -> pd.Series:
+    close, _ = _close_al_with_meta(df, sembol)
+    return close
 
 
 def _sinyal_uret(
@@ -354,6 +423,8 @@ def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) 
         rsi=rsi,
         sinyal=rh.sinyal,
         skor=skor,
+        close_bar_dates=close.index,
+        quote_currency="TRY" if sym.endswith(".IS") else "USD",
     )
 
 
@@ -371,20 +442,83 @@ def _hisse_analiz(
     profil: Optional[YatirimProfili] = None,
     eurtry_close: Optional[pd.Series] = None,
 ) -> HisseAnaliz:
-    close = _close_al(df, sembol)
+    close, quote_meta = _close_al_with_meta(df, sembol)
     if close.empty or len(close) < 30:
         return HisseAnaliz(
             sembol, ad, piyasa, None, None, None, None, None, None, None, None,
             "VERI_YOK", 0, "Veri yok", sektor=sektor,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
+            quote_currency=getattr(quote_meta, "settlement_currency", ""),
+            veri_hatasi=getattr(quote_meta, "quarantine_reason", "") or "Veri yok",
+            veri_quarantine=True,
+        )
+
+    if quote_meta.quarantine:
+        return HisseAnaliz(
+            sembol, ad, piyasa, None, None, None, None, None, None, None, None,
+            "VERI_YOK", 0, quote_meta.quarantine_reason, sektor=sektor,
+            isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
+            quote_currency=quote_meta.settlement_currency,
+            veri_hatasi=quote_meta.quarantine_reason,
+            veri_quarantine=True,
         )
 
     fiyat = _son_fiyat(close)
+    quote_ts = ""
+    quote_age: Optional[float] = None
+    try:
+        from datetime import timezone
+
+        from signal_engine.data.live_quote import get_live_quote, quote_age_from_bar
+
+        live = get_live_quote(sembol)
+        if live and live.price > 0:
+            target = quote_meta.settlement_currency
+            if live.settlement == target:
+                fiyat = live.price
+            else:
+                from signal_engine.data.bars import _extract_close
+                from signal_engine.data.quote_normalize import convert_settlement
+                from fiyat_para_fx import FxUnavailableError, kur_tablo_spot
+
+                when = close.index.max()
+                ut = _extract_close(df, "USDTRY=X")
+                et = _extract_close(df, "EURTRY=X")
+                gbp_s = _extract_close(df, "GBPUSD=X")
+                eurusd_s = _extract_close(df, "EURUSD=X")
+                try:
+                    fx = kur_tablo_spot(
+                        snap, et, ut, gbp_s, eurusd_s, asof=when, check_plausibility=False,
+                    )
+                    fiyat = convert_settlement(
+                        live.price, live.settlement, target,
+                        eur_try=fx.eur_try, usd_try=fx.usd_try,
+                        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                    )
+                except FxUnavailableError:
+                    # Canlı kotasyon PB'si farklı ve FX yok — bar settlement fiyatında kal
+                    # (yanlış PB ile live fiyat YAZMA)
+                    pass
+            quote_ts = live.timestamp.isoformat()
+            quote_age = live.age_min
+        elif hasattr(close.index, "max"):
+            ts = close.index.max()
+            if hasattr(ts, "to_pydatetime"):
+                dt = ts.to_pydatetime()
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                quote_ts = dt.isoformat()
+                quote_age = quote_age_from_bar(ts, piyasa)
+    except Exception:
+        # Live katmanı tamamen başarısız — settlement bar fiyatı korunur
+        pass
+
     if fiyat is None:
         return HisseAnaliz(
             sembol, ad, piyasa, None, None, None, None, None, None, None, None,
             "VERI_YOK", 0, "Veri yok", sektor=sektor,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik_turu,
+            quote_currency=quote_meta.settlement_currency,
         )
     rsi = _rsi(close)
     sma20, sma50 = _sma(close, 20), _sma(close, 50)
@@ -404,6 +538,7 @@ def _hisse_analiz(
         sinyal=sinyal, skor=skor, gerekce=gerekce, sektor=sektor,
         teknik_skor=teknik_skor, isin=isin, revolut_ticker=revolut_ticker,
         varlik_turu=varlik_turu,
+        quote_currency=quote_meta.settlement_currency,
     )
     trend_filtresi_uygula(_h, close, profil=profil)
     from bist_52h_eur import bist_52h_eur_uygula
@@ -456,6 +591,10 @@ def _hisse_analiz(
         bist_52h_join_uyari=_h.bist_52h_join_uyari,
         bist_52h_kur_yok=_h.bist_52h_kur_yok,
         trend_notu=_h.trend_notu,
+        quote_currency=quote_meta.settlement_currency,
+        quote_timestamp=quote_ts,
+        quote_age_min=quote_age,
+        close_bar_dates=close.index,
     )
 
 
@@ -540,24 +679,37 @@ def tam_tarama(
     snap=None,
     haber_tara: bool = True,
     profil: Optional[YatirimProfili] = None,
+    use_signal_v2: Optional[bool] = None,
 ) -> TaramaSonucu:
     profil = profil or YatirimProfili()
+    v2 = config.USE_SIGNAL_ENGINE_V2 if use_signal_v2 is None else use_signal_v2
     if demo:
         return _demo_tarama(makro_rejim, profil=profil)
 
     evren = tum_evren()
     semboller = list(dict.fromkeys(
         list(ENDEKSLER.values()) + [s for s, _, _, _, _, _ in evren]
+        + ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"]
     ))
-    df = _indir(semboller, period="1y")
+    period = "2y" if v2 else "1y"
+    df = _indir(semboller, period=period)
     if df.empty:
         return TaramaSonucu(
             uyarilar=["Yahoo Finance verisi alınamadı."],
             makro_rejim=makro_rejim,
         )
 
-    eurtry_df = _indir(["EURTRY=X"], period="1y")
-    eurtry_close = _close_al(eurtry_df, "EURTRY=X")
+    try:
+        from signal_engine.data.live_quote import refresh_live_quotes
+
+        refresh_live_quotes(semboller, force=True, min_refresh_sec=0)
+    except Exception:
+        pass
+
+    eurtry_close = _close_al(df, "EURTRY=X")
+    usdtry_close = _close_al(df, "USDTRY=X")
+    gbpusd_close = _close_al(df, "GBPUSD=X")
+    eurusd_close = _close_al(df, "EURUSD=X")
 
     endeksler = [_endeks_analiz(df, ad, sym, makro_rejim, snap) for ad, sym in ENDEKSLER.items()]
     tum: List[HisseAnaliz] = []
@@ -575,6 +727,8 @@ def tam_tarama(
     uyarilar: List[str] = []
     if eurtry_close.empty:
         uyarilar.append("[UYARI] EUR bazlı 52H hesaplanamadı — kur verisi çekilemedi")
+    elif usdtry_close.empty:
+        uyarilar.append("[UYARI] USD/TRY serisi çekilemedi — kur ayarlı getiriler eksik kalabilir")
     elif any(getattr(h, "bist_52h_join_uyari", False) for h in tum if h.sembol.endswith(".IS")):
         dusuk = min(
             (getattr(h, "bist_52h_join_gun", 0) or 0 for h in tum if h.sembol.endswith(".IS")),
@@ -601,13 +755,24 @@ def tam_tarama(
     from temel_skor import temel_skor_katmani_uygula
     temel_skor_katmani_uygula(tum, df, makro_rejim, profil)
 
+    if v2:
+        from signal_engine.pipeline import signal_engine_v2_uygula
+        signal_engine_v2_uygula(tum, df, profil_risk=profil.risk, persist_decision_history=True)
+
     firsatlar = profil_firsat_sinirla(_isin_dedup(_firsatlari_sec(tum, esik)[:20]), profil)
     etfler = [h for h in tum if h.piyasa == "ETF"]
     etf_firsat = _isin_dedup(_etf_sirala(_firsatlari_sec(etfler, esik)[:10], makro_rejim))
 
     aday_sem = {h.sembol for h in firsatlar} | {h.sembol for h in etf_firsat}
     from alim_uygunluk import alim_uygunluk_uygula
-    alim_uygunluk_uygula(tum, aday_sem, esik, profil=profil)
+    if not v2:
+        alim_uygunluk_uygula(tum, aday_sem, esik, profil=profil)
+    else:
+        for h in tum:
+            h.alim_uygun_etiket = getattr(h, "signal_v2_decision", "BEKLE")
+
+    from portfoy_yoneticisi import yonetici_notu_uygula
+    yonetici_notu_uygula(tum, profil=profil)
 
     for h in tum:
         h.hikaye = _hikaye_uret(h)
@@ -620,6 +785,11 @@ def tam_tarama(
         f"{len(firsatlar)} alım adayı (eşik ≥{esik:.0f}, {len(etf_firsat)} ETF)"
     )
 
+    from veri_butunlugu import tarama_butunluk_ozeti
+    vo = tarama_butunluk_ozeti(tum)
+    for bu in vo.bar_uyarilari:
+        uyarilar.append(f"[WARN] {bu}")
+
     return TaramaSonucu(
         endeksler=endeksler,
         hisseler=sorted(tum, key=lambda x: -_bilesik(x)),
@@ -630,6 +800,14 @@ def tam_tarama(
         tarama_ozet=ozet,
         profil_ozet=profil_ozet,
         profil_notlari=profil_notlari,
+        eurtry_seri=eurtry_close,
+        usdtry_seri=usdtry_close,
+        gbpusd_seri=gbpusd_close,
+        eurusd_seri=eurusd_close,
+        veri_ozet_log=vo.log_satiri,
+        veri_ozet_ui=vo.ui_satiri or "",
+        veri_yok_semboller=list(vo.veri_yok),
+        karantina_semboller=list(vo.karantina),
     )
 
 

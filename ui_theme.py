@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Union
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -26,12 +27,38 @@ ACCENT = "#2563eb"
 WARN = "#d97706"
 
 KARAR_STYLES = {
+    # Signal Engine v2
+    "GÜÇLÜ AL": (UP, "rgba(22,163,74,0.16)"),
+    "GUCLU AL": (UP, "rgba(22,163,74,0.16)"),
     "AL": (UP, "rgba(22,163,74,0.10)"),
+    "İZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
+    "IZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
+    "BEKLE": (WARN, "rgba(217,119,6,0.10)"),
+    "AZALT": (DOWN, "rgba(220,38,38,0.10)"),
+    # Eski v1 (v2 kapalı)
     "DİKKAT": (WARN, "rgba(217,119,6,0.10)"),
     "DIKKAT": (WARN, "rgba(217,119,6,0.10)"),
     "ALMA": (DOWN, "rgba(220,38,38,0.10)"),
-    "BEKLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
 }
+
+EMIR_STYLES = {
+    "AL": (UP, "rgba(22,163,74,0.10)"),
+    "KADEMELI": (WARN, "rgba(217,119,6,0.10)"),
+    "BEKLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
+    "TUT": (UP, "rgba(22,163,74,0.10)"),
+    "SAT": (WARN, "rgba(217,119,6,0.10)"),
+    "EKLE": (ACCENT, "rgba(37,99,235,0.10)"),
+    "UZAK": (DOWN, "rgba(220,38,38,0.10)"),
+    "GÜÇLÜ": (UP, "rgba(22,163,74,0.10)"),
+    "GUCLU": (UP, "rgba(22,163,74,0.10)"),
+    "UYGUN": (WARN, "rgba(217,119,6,0.10)"),
+    "İZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
+    "IZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
+    "ZAYIF": (DOWN, "rgba(220,38,38,0.10)"),
+}
+
+_BADGE_COLS = frozenset({"Karar", "Emir", "Plan", "Öneri"})
+_TRUNC_COLS = frozenset({"Fon", "Araç", "ETF", "Hisse", "Ad", "Not", "Kategori", "Sembol", "Teknik sinyal"})
 
 _THEME_HTML = Path(__file__).resolve().parent / "static" / "tv_theme.html"
 _NUM = (
@@ -47,12 +74,13 @@ _CELL = (
 _STRIP = "display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 18px;"
 _TH = (
     f"position:sticky;top:0;background:#f1f5f9;color:{TEXT_MUTED};"
-    "font-size:11px;text-transform:uppercase;letter-spacing:0.45px;font-weight:600;"
-    f"text-align:left;padding:10px 12px;border-bottom:1px solid {BORDER};white-space:nowrap;"
+    "font-size:10px;text-transform:uppercase;letter-spacing:0.4px;font-weight:600;"
+    f"text-align:left;padding:6px 8px;border-bottom:1px solid {BORDER};white-space:nowrap;"
+    "vertical-align:middle;line-height:1.2;"
 )
 _TD = (
-    f"padding:9px 12px;border-bottom:1px solid #f1f5f9;color:{TEXT};"
-    "vertical-align:middle;font-size:13px;"
+    f"padding:5px 8px;border-bottom:1px solid #f1f5f9;color:{TEXT};"
+    "vertical-align:middle;font-size:12px;line-height:1.25;white-space:nowrap;"
 )
 
 
@@ -147,17 +175,77 @@ def _is_pct_col(name: str) -> bool:
     return "%" in name or "reel" in n or "getiri" in n or "fark" in n or n.endswith(" pp")
 
 
+def _badge_html(val: Any, styles: dict) -> str:
+    raw = str(val).strip()
+    key = raw.upper().split()[0].replace("🟢", "").replace("🟡", "").replace("⚪", "").replace("🔴", "").strip()
+    for token in raw.upper().replace("İ", "I").split():
+        if token in styles or token.replace("I", "İ") in styles:
+            key = token
+            break
+    color, bg = styles.get(key, styles.get(key.replace("I", "İ"), (TEXT_MUTED, "rgba(120,123,134,0.12)")))
+    label = raw.split()[-1] if raw.startswith(("🟢", "🟡", "⚪", "🔴")) else raw
+    if len(label) > 14:
+        label = label[:12] + "…"
+    return (
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;'
+        f"font-size:10px;font-weight:700;color:{color};background:{bg};"
+        f'white-space:nowrap;">{_esc(label)}</span>'
+    )
+
+
+def score_sparkline_svg(
+    values: Sequence[float],
+    *,
+    width: int = 64,
+    height: int = 20,
+) -> str:
+    """Mini SVG sparkline — tablo hücresi için."""
+    if not values or len(values) < 2:
+        return "—"
+    lo, hi = min(values), max(values)
+    span = hi - lo or 1.0
+    n = len(values)
+    pts = []
+    for i, v in enumerate(values):
+        x = i * (width - 4) / max(n - 1, 1) + 2
+        y = height - 2 - ((v - lo) / span) * (height - 4)
+        pts.append(f"{x:.1f},{y:.1f}")
+    color = UP if values[-1] >= values[0] else DOWN
+    return (
+        f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'style="vertical-align:middle;display:block;">'
+        f'<polyline fill="none" stroke="{color}" stroke-width="1.5" '
+        f'stroke-linejoin="round" points="{" ".join(pts)}"/></svg>'
+    )
+
+
 def _format_cell(col: str, val: Any) -> str:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return "—"
-    if col == "Karar":
-        key = str(val).strip().upper().replace("DIKKAT", "DİKKAT")
-        color, bg = KARAR_STYLES.get(key, (TEXT_MUTED, "rgba(120,123,134,0.12)"))
-        return (
-            f'<span style="display:inline-block;padding:2px 10px;border-radius:999px;'
-            f"font-size:11px;font-weight:700;color:{color};background:{bg};"
-            f'">{_esc(val)}</span>'
-        )
+    if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
+        return score_sparkline_svg(val)
+    if col in _BADGE_COLS:
+        if col == "Karar":
+            raw = str(val).strip()
+            key = raw.upper().replace("DIKKAT", "DİKKAT").replace("GUCLU", "GÜÇLÜ")
+            # Tam etiket eşleşmesi (GÜÇLÜ AL parçalanmasın)
+            if key in KARAR_STYLES:
+                style_key = key
+            elif raw in KARAR_STYLES:
+                style_key = raw
+            else:
+                style_key = raw
+                for cand in ("GÜÇLÜ AL", "GUCLU AL", "AZALT", "İZLE", "IZLE", "BEKLE", "AL", "DİKKAT", "ALMA"):
+                    if cand.upper().replace("İ", "I") in key.replace("İ", "I") or cand in raw:
+                        style_key = cand if cand in KARAR_STYLES else key
+                        break
+            color, bg = KARAR_STYLES.get(style_key, KARAR_STYLES.get(raw, (TEXT_MUTED, "rgba(120,123,134,0.12)")))
+            return (
+                f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;'
+                f"font-size:10px;font-weight:700;color:{color};background:{bg};"
+                f'">{_esc(raw)}</span>'
+            )
+        return _badge_html(val, EMIR_STYLES)
     if isinstance(val, float):
         if _is_pct_col(col):
             sign = "+" if val > 0 else ""
@@ -171,50 +259,165 @@ def _format_cell(col: str, val: Any) -> str:
     return _esc(val)
 
 
+def format_df_cell_html(
+    col: str,
+    val: Any,
+    *,
+    pct_cols: Optional[Set[str]] = None,
+    badge_col: str = "Karar",
+) -> str:
+    """Tek tablo hücresi HTML içeriği."""
+    pct_cols = pct_cols or set()
+    if col == "⭐":
+        star = "★" if str(val).strip() == "★" else "☆"
+        return (
+            f'<span style="color:#111827;font-size:17px;font-weight:700;" '
+            f'title="Favori">{star}</span>'
+        )
+    if col == "Sinyal":
+        from temel_veri import sinyal_tooltip
+
+        mark = str(val).strip() if val is not None else "⏸"
+        tip = sinyal_tooltip(mark, analist_var=True)
+        return (
+            f'<span style="font-size:15px;line-height:1;" title="{_esc(tip)}">'
+            f"{_esc(mark)}</span>"
+        )
+    if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
+        return score_sparkline_svg(val)
+    if col == "Rejim" and isinstance(val, str) and "<span" in val:
+        return val
+    if col in _BADGE_COLS or col == badge_col:
+        return _format_cell(col, val)
+    if col in pct_cols and isinstance(val, (int, float)) and not pd.isna(val):
+        sign = "+" if val > 0 else ""
+        color = UP if val > 0 else (DOWN if val < 0 else TEXT)
+        return f'<span style="color:{color};">{sign}{val:.2f}%</span>'
+    return _format_cell(col, val)
+
+
+def _df_cell_align(col: str, val: Any, pct_cols: Set[str]) -> str:
+    if isinstance(val, (int, float)) or _is_pct_col(col):
+        return "right"
+    return "left"
+
+
+def build_df_table_html(
+    df: pd.DataFrame,
+    *,
+    pct_cols: Optional[Set[str]] = None,
+    badge_col: str = "Karar",
+    max_height: Optional[int] = 480,
+    truncate_cols: Optional[Set[str]] = None,
+    click_table_id: Optional[str] = None,
+    action_row_ids: Optional[Sequence[str]] = None,
+    nav_page: Optional[str] = None,
+) -> str:
+    """render_df_table ile aynı HTML — isteğe bağlı tıklanabilir yıldız/işlem."""
+    pct_cols = pct_cols or {c for c in df.columns if _is_pct_col(c)}
+    trunc = truncate_cols or (_TRUNC_COLS & set(df.columns))
+    has_action = (
+        click_table_id
+        and action_row_ids is not None
+        and len(action_row_ids) == len(df)
+    )
+    data_cols = [c for c in df.columns if c != "İşlem"]
+    display_cols = list(data_cols)
+    if has_action and "İşlem" not in display_cols:
+        display_cols.append("İşlem")
+    nav_attr = f' data-qnav="{html.escape(nav_page)}"' if nav_page else ""
+
+    head = "".join(
+        f'<th style="{_TH}{"text-align:center;" if c in ("⭐", "İşlem", "Sinyal") else ""}'
+        f'{"width:36px;" if c == "Sinyal" else ""}">{_esc(c)}</th>'
+        for c in display_cols
+    )
+    rows = []
+    for ri, (_, row) in enumerate(df.iterrows()):
+        tds = []
+        for col in display_cols:
+            if col == "İşlem" and has_action:
+                rid = quote(str(action_row_ids[ri]), safe="")
+                act_k = f"act_{click_table_id}"
+                tds.append(
+                    f'<td style="{_TD}text-align:center;width:40px;">'
+                    f'<a href="#" class="row-act-link mc-query-hit" '
+                    f'data-qkey="{html.escape(act_k)}" data-qval="{html.escape(rid)}"{nav_attr} '
+                    f'title="İşlemler">⋯</a></td>'
+                )
+                continue
+            val = row[col]
+            align = _df_cell_align(col, val, pct_cols)
+            td_style = f"{_TD}text-align:{align};"
+            if isinstance(val, (int, float)) or _is_pct_col(col):
+                td_style += _NUM
+            if col in trunc:
+                td_style += "max-width:140px;overflow:hidden;text-overflow:ellipsis;"
+            if col == "⭐" and click_table_id:
+                td_style += "text-align:center;width:40px;"
+                star = "★" if str(val).strip() == "★" else "☆"
+                fav_k = f"fav_{click_table_id}"
+                inner = (
+                    f'<a href="#" class="fav-star mc-query-hit" '
+                    f'data-qkey="{html.escape(fav_k)}" data-qval="{ri}"{nav_attr} '
+                    f'style="text-decoration:none;color:#111827;font-size:17px;font-weight:700;" '
+                    f'title="Favori ekle/çıkar">{star}</a>'
+                )
+                tip = "Favori"
+            elif col == "Sinyal":
+                from temel_veri import sinyal_tooltip
+
+                td_style += "text-align:center;width:36px;"
+                skor_h = row["Skor"] if "Skor" in row.index else ""
+                analist_var = any(
+                    x in str(skor_h) for x in ("💚", "🟡", "🔴", "AL", "TUT", "SAT")
+                )
+                mark = str(val).strip() if val is not None else "⏸"
+                tip = sinyal_tooltip(mark, analist_var=analist_var)
+                inner = (
+                    f'<span style="font-size:15px;line-height:1;" title="{_esc(tip)}">'
+                    f"{_esc(mark)}</span>"
+                )
+            else:
+                inner = format_df_cell_html(col, val, pct_cols=pct_cols, badge_col=badge_col)
+                tip = "" if val is None else str(val)
+            tds.append(f'<td style="{td_style}" title="{_esc(tip)}">{inner}</td>')
+        rows.append(f"<tr>{''.join(tds)}</tr>")
+
+    wrap = (
+        f"overflow-x:auto;margin:6px 0 12px;border:1px solid {BORDER};"
+        f"border-radius:8px;background:{PANEL};box-shadow:0 1px 2px rgba(0,0,0,0.04);"
+    )
+    if max_height:
+        wrap += f"max-height:{max_height}px;overflow-y:auto;"
+    return (
+        f'<div class="mc-df-table" style="{wrap}">'
+        f'<table style="width:100%;border-collapse:collapse;table-layout:auto;font-size:12px;">'
+        f"<thead><tr>{head}</tr></thead>"
+        f'<tbody>{"".join(rows)}</tbody></table></div>'
+    )
+
+
 def render_df_table(
     df: pd.DataFrame,
     *,
     pct_cols: Optional[Set[str]] = None,
     badge_col: str = "Karar",
     max_height: Optional[int] = 480,
+    truncate_cols: Optional[Set[str]] = None,
 ) -> None:
-    """Stilize HTML tablo."""
+    """Kompakt HTML tablo — tek satır, taşan metin kesilir."""
     if df.empty:
         st.caption("Tablo boş.")
         return
-    pct_cols = pct_cols or {c for c in df.columns if _is_pct_col(c)}
-    head = "".join(f'<th style="{_TH}">{_esc(c)}</th>' for c in df.columns)
-    rows = []
-    for _, row in df.iterrows():
-        tds = []
-        for col in df.columns:
-            val = row[col]
-            align = "right" if isinstance(val, (int, float)) or _is_pct_col(col) else "left"
-            td_style = f"{_TD}text-align:{align};"
-            if isinstance(val, (int, float)) or _is_pct_col(col):
-                td_style += _NUM
-            if col == badge_col:
-                inner = _format_cell(col, val)
-            elif col in pct_cols and isinstance(val, (int, float)) and not pd.isna(val):
-                sign = "+" if val > 0 else ""
-                color = UP if val > 0 else (DOWN if val < 0 else TEXT)
-                inner = f'<span style="color:{color};">{sign}{val:.2f}%</span>'
-            else:
-                inner = _format_cell(col, val)
-            tds.append(f'<td style="{td_style}">{inner}</td>')
-        rows.append(f"<tr>{''.join(tds)}</tr>")
-
-    wrap = (
-        f"overflow-x:auto;margin:8px 0 16px;border:1px solid {BORDER};"
-        f"border-radius:8px;background:{PANEL};box-shadow:0 1px 3px rgba(0,0,0,0.05);"
-    )
-    if max_height:
-        wrap += f"max-height:{max_height}px;overflow-y:auto;"
     st.markdown(
-        f'<div style="{wrap}">'
-        f'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
-        f"<thead><tr>{head}</tr></thead>"
-        f'<tbody>{"".join(rows)}</tbody></table></div>',
+        build_df_table_html(
+            df,
+            pct_cols=pct_cols,
+            badge_col=badge_col,
+            max_height=max_height,
+            truncate_cols=truncate_cols,
+        ),
         unsafe_allow_html=True,
     )
 
