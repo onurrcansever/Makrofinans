@@ -126,13 +126,18 @@ def alarm_metni_olustur(
         karar = alim_aksiyon_kisa(getattr(h, "alim_uygun", "IZLE"))
         tek = SINYAL_ETIKET.get(h.sinyal, h.sinyal)
         notu = (getattr(h, "alim_uygun_not", "") or "")[:80]
-        satirlar.append(
-            f"{baslik.get(tip, tip)} · {h.ad} ({h.sembol})"
-        )
-        satirlar.append(
-            f"  {al_etiket_kisa(h)} · RSI {(h.rsi or 0):.0f} · {tek} · {karar}"
-        )
-        if notu:
+        emtia = getattr(h, "piyasa", "") == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia"
+        if emtia:
+            from al_bildirim import emtia_sinyal_satiri
+            satirlar.append(emtia_sinyal_satiri(h))
+        else:
+            satirlar.append(
+                f"{baslik.get(tip, tip)} · {h.ad} ({h.sembol})"
+            )
+            satirlar.append(
+                f"  {al_etiket_kisa(h)} · RSI {(h.rsi or 0):.0f} · {tek} · {karar}"
+            )
+        if notu and not emtia:
             satirlar.append(f"  ↳ {notu}")
         # Cache-only ekler (API yok; yoksa sessiz atla)
         try:

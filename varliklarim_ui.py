@@ -17,13 +17,23 @@ from fiyat_para import (
     tablo_fx_hazirla,
     tablo_getiri,
 )
-from portfoy_yoneticisi import yonetici_pozisyon_kolonlari
+from portfoy_yoneticisi import (
+    POZ_COL_ONERI,
+    POZ_COL_SINYAL,
+    pozisyon_oneri_etiket,
+    yonetici_pozisyon_kolonlari,
+    yonetici_pozisyon_plani,
+    pozisyon_emir_hesapla,
+    pozisyon_kar_uyarisi,
+    pozisyon_sinyal_bilgisi,
+)
 from macro_data import MacroSnapshot
 from ui_theme import plotly_base_layout, render_metric_strip
 from favoriler_widgets import render_df_table_interactive
-from varlik_fiyat import PERIYOTLAR, portfoy_degerle
+from varlik_fiyat import PERIYOTLAR, portfoy_degerle, pozisyon_tutma_gun
 from varliklarim import (
     ALIM_FIYAT_ETIKET,
+    HISSE_TURLER,
     MIKTAR_ETIKET,
     TUR_SECENEKLERI,
     VarlikPozisyon,
@@ -32,8 +42,12 @@ from varliklarim import (
     gunluk_snapshot_kaydet,
     kaydet_store,
     oneri_portfoye_aktar,
+    pozisyon_canli_fiyat,
     pozisyon_ekle,
+    pozisyon_emtia_fiyat,
+    pozisyon_evren_listesi,
     pozisyon_guncelle,
+    pozisyon_sembol_normalize,
     pozisyon_sil,
     portfoy_sil,
     yeni_portfoy,
@@ -62,7 +76,7 @@ def _portfoy_fingerprint(portfoy: VarlikPortfoy) -> str:
 
 def _piyasa_pozisyon_var(portfoy) -> bool:
     return any(
-        p.tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
+        p.tur in ("tefas", "hisse", "hisse_us", "etf", "altin", "gumus", "kripto")
         for p in portfoy.pozisyonlar
     )
 
@@ -92,37 +106,90 @@ def _degerle_portfoy(portfoy: VarlikPortfoy, snap: MacroSnapshot, *, veri_tick: 
 
 
 @st.dialog("Pozisyon düzenle", width="large")
-def _pozisyon_duzenle_dialog(poz_id: str, store: VarlikStore, aktif: VarlikPortfoy) -> None:
+def _pozisyon_duzenle_dialog(
+    poz_id: str,
+    store: VarlikStore,
+    aktif: VarlikPortfoy,
+    *,
+    snap: MacroSnapshot,
+    tarama=None,
+    tefas_ham=None,
+) -> None:
     mevcut = next((p for p in aktif.pozisyonlar if p.id == poz_id), None)
     if not mevcut:
         st.warning("Pozisyon bulunamadı.")
+        st.session_state.pop("poz_edit_id", None)
         return
     st.markdown(f"**{mevcut.etiket()}** · {mevcut.sembol or '—'}")
     guncellendi = _poz_form_icerigi(
         f"varlik_poz_dlg_{poz_id}",
         "Değişiklikleri kaydet",
         poz=mevcut,
+        snap=snap,
+        tarama=tarama,
+        tefas_ham=tefas_ham,
+        form_err_key=f"varlik_poz_dlg_{poz_id}_form_err",
     )
     if guncellendi is not None:
         pozisyon_guncelle(store, aktif.id, guncellendi)
         st.session_state.varlik_store = store
+        st.session_state.pop("poz_edit_id", None)
         _onbellek_yenile()
+        st.toast("Pozisyon güncellendi", icon="✅")
         st.rerun()
     st.markdown("---")
-    if st.button("Bu pozisyonu sil", type="primary", key=f"poz_dlg_sil_{poz_id}"):
-        pozisyon_sil(store, aktif.id, poz_id)
-        st.session_state.varlik_store = store
-        _onbellek_yenile()
-        st.rerun()
+    c_iptal, c_sil = st.columns(2)
+    with c_iptal:
+        if st.button("Kapat", key=f"poz_dlg_kapat_{poz_id}", use_container_width=True):
+            st.session_state.pop("poz_edit_id", None)
+            st.rerun()
+    with c_sil:
+        if st.button("Bu pozisyonu sil", type="primary", key=f"poz_dlg_sil_{poz_id}", use_container_width=True):
+            pozisyon_sil(store, aktif.id, poz_id)
+            st.session_state.varlik_store = store
+            st.session_state.pop("poz_edit_id", None)
+            _onbellek_yenile()
+            st.rerun()
 
 
 @st.dialog("Yeni pozisyon ekle", width="large")
-def _pozisyon_ekle_dialog(store: VarlikStore, aktif: VarlikPortfoy) -> None:
-    yeni = _poz_form_icerigi("varlik_poz_ekle_dlg", "Pozisyon ekle")
+def _pozisyon_ekle_dialog(
+    store: VarlikStore,
+    aktif: VarlikPortfoy,
+    *,
+    snap: MacroSnapshot,
+    tarama=None,
+    tefas_ham=None,
+) -> None:
+    err_key = "varlik_poz_ekle_dlg_form_err"
+    if st.session_state.get(err_key):
+        st.error(st.session_state.pop(err_key))
+
+    yeni = _poz_form_icerigi(
+        "varlik_poz_ekle_dlg",
+        "Pozisyon ekle",
+        tur_baslangic="hisse",
+        snap=snap,
+        tarama=tarama,
+        tefas_ham=tefas_ham,
+        form_err_key=err_key,
+    )
     if yeni is not None:
         pozisyon_ekle(store, aktif.id, yeni)
         st.session_state.varlik_store = store
+        st.session_state.pop("poz_ekle_acik", None)
+        for k in list(st.session_state.keys()):
+            if k.startswith("varlik_poz_ekle_dlg_"):
+                st.session_state.pop(k, None)
         _onbellek_yenile()
+        st.session_state["_poz_eklendi_toast"] = True
+        st.rerun()
+
+    if st.button("İptal", key="poz_ekle_iptal", use_container_width=True):
+        st.session_state.pop("poz_ekle_acik", None)
+        for k in list(st.session_state.keys()):
+            if k.startswith("varlik_poz_ekle_dlg_"):
+                st.session_state.pop(k, None)
         st.rerun()
 
 
@@ -156,7 +223,10 @@ def _vade_etiket(p) -> str:
     return f"{vb.kalan_gun} gün ({vb.vade_tarihi.strftime('%d %b')})"
 
 
-def _pozisyon_tablo(deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None, tarama=None) -> pd.DataFrame:
+def _pozisyon_tablo(
+    deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None,
+    tarama=None, tefas_ham=None, tefas_skorlu=None,
+) -> pd.DataFrame:
     from varlik_fiyat import PERIYOTLAR
 
     periyot_gun = {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180}
@@ -167,7 +237,7 @@ def _pozisyon_tablo(deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None, taram
         birim_pb = kaynak_para_birimi(
             p.sembol or "", pozisyon_turu=p.tur, varlik_turu=p.tur,
         )
-        if p.tur in ("hisse", "etf") and p.sembol:
+        if p.tur in (*HISSE_TURLER, "etf") and p.sembol:
             birim_pb = kaynak_para_birimi(p.sembol, varlik_turu=p.tur)
         alis = pb_cevir(
             pd_.alim_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
@@ -197,24 +267,161 @@ def _pozisyon_tablo(deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None, taram
             f"Değer": f"{deger_v:,.0f}",
             "K/Z": f"{kz:+,.0f} ({kz_pct:+.1f}%)",
             **yonetici_pozisyon_kolonlari(
-                p, pd_, tarama=tarama, gosterim_pb=gosterim_pb, fx=fx,
+                p, pd_, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+                gosterim_pb=gosterim_pb, fx=fx,
             ),
             "Vade": _vade_etiket(p),
         }
+        tutma = pozisyon_tutma_gun(p.alim_tarihi or "", date.today())
         for et in PERIYOTLAR:
             raw = pd_.getiriler.get(et)
             if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
                 row[getiri_etiket[et]] = _fmt_getiri(raw)
             else:
                 row[getiri_etiket[et]] = _fmt_getiri(
-                    tablo_getiri(
+                    _pozisyon_tablo_getiri(
                         raw, gosterim_pb, periyot_gun.get(et, 30), eur_s, usd_s,
-                        gbp_seri=gbp_s,
+                        gbp_s=gbp_s,
                         sembol=p.sembol or "", varlik_turu=p.tur, asset_pb=birim_pb,
+                        bar_dates=getattr(pd_, "bar_dates", None),
+                        tutma_gun=tutma,
                     )
                 )
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _pozisyon_pdf_satirlari(
+    deger,
+    gosterim_pb: str,
+    fx,
+    eur_s,
+    usd_s,
+    gbp_s=None,
+    *,
+    tarama=None,
+    tefas_ham=None,
+    tefas_skorlu=None,
+) -> list:
+    """PDF raporu için pozisyon detay listesi."""
+    from varlik_fiyat import PERIYOTLAR
+
+    periyot_gun = {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180}
+    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in PERIYOTLAR}
+    out = []
+    for pd_ in deger.pozisyonlar:
+        p = pd_.pozisyon
+        birim_pb = kaynak_para_birimi(
+            p.sembol or "", pozisyon_turu=p.tur, varlik_turu=p.tur,
+        )
+        if p.tur in (*HISSE_TURLER, "etf") and p.sembol:
+            birim_pb = kaynak_para_birimi(p.sembol, varlik_turu=p.tur)
+        alis = pb_cevir(
+            pd_.alim_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        ) if pd_.alim_birim > 0 else 0
+        guncel = pb_cevir(
+            pd_.guncel_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        ) if pd_.guncel_birim > 0 else 0
+        maliyet = pb_cevir(
+            pd_.maliyet_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        )
+        deger_v = pb_cevir(
+            pd_.guncel_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        )
+        kz = deger_v - maliyet
+        kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
+        kol = yonetici_pozisyon_kolonlari(
+            p, pd_, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+            gosterim_pb=gosterim_pb, fx=fx,
+        )
+        oneri_h = kol.get(POZ_COL_ONERI)
+        sinyal = pozisyon_sinyal_bilgisi(
+            p.tur, p.sembol or "", tarama=tarama,
+            tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+        )
+        emir = pozisyon_emir_hesapla(
+            pd_.kar_zarar_pct, sinyal["karar"], tur=p.tur,
+        )
+        uyari = pozisyon_kar_uyarisi(
+            p.etiket(), emir, sinyal["karar"], pd_.kar_zarar_pct,
+        )
+        tutma = pozisyon_tutma_gun(p.alim_tarihi or "", date.today())
+        getiriler = {}
+        for et in PERIYOTLAR:
+            raw = pd_.getiriler.get(et)
+            if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
+                getiriler[getiri_etiket[et]] = _fmt_getiri(raw)
+            else:
+                getiriler[getiri_etiket[et]] = _fmt_getiri(
+                    _pozisyon_tablo_getiri(
+                        raw, gosterim_pb, periyot_gun.get(et, 30), eur_s, usd_s,
+                        gbp_s=gbp_s,
+                        sembol=p.sembol or "", varlik_turu=p.tur, asset_pb=birim_pb,
+                        bar_dates=getattr(pd_, "bar_dates", None),
+                        tutma_gun=tutma,
+                    )
+                )
+        out.append({
+            "id": p.id,
+            "arac": p.etiket(),
+            "sembol": p.sembol or "—",
+            "miktar": pd_.miktar_goster,
+            "alis": _fmt_birim(alis, p.tur) if alis > 0 else "—",
+            "guncel": _fmt_birim(guncel, p.tur) if guncel > 0 else "—",
+            "maliyet": f"{maliyet:,.0f} {gosterim_pb}",
+            "deger": f"{deger_v:,.0f} {gosterim_pb}",
+            "kz": f"{kz:+,.0f} ({kz_pct:+.1f}%)",
+            "sinyal": kol.get(POZ_COL_SINYAL, "—"),
+            "oneri": pozisyon_oneri_etiket(oneri_h),
+            "oneri_aciklama": (oneri_h.get("tip") if isinstance(oneri_h, dict) else ""),
+            "ekle": kol.get("Ekle", "—"),
+            "stop": kol.get("Stop", "—"),
+            "skor": sinyal.get("skor"),
+            "getiriler": getiriler,
+            "plan": yonetici_pozisyon_plani(
+                p, pd_, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+                gosterim_pb=gosterim_pb, fx=fx,
+            ),
+            "uyari": uyari or "",
+        })
+    return out
+
+
+def _render_pozisyon_kar_uyarilari(
+    deger, *, tarama=None, tefas_ham=None, tefas_skorlu=None,
+) -> None:
+    """Kâr realizasyonu / AZALT uyarıları — Signal v2 + pozisyon önerisi."""
+    from portfoy_yoneticisi import (
+        pozisyon_emir_hesapla,
+        pozisyon_kar_uyarisi,
+        pozisyon_sinyal_bilgisi,
+    )
+
+    uyarilar = []
+    for pd_ in deger.pozisyonlar:
+        p = pd_.pozisyon
+        if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
+            continue
+        sinyal = pozisyon_sinyal_bilgisi(
+            p.tur, p.sembol or "", tarama=tarama,
+            tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+        )
+        karar = sinyal["karar"]
+        emir = pozisyon_emir_hesapla(pd_.kar_zarar_pct, karar, tur=p.tur)
+        msg = pozisyon_kar_uyarisi(p.etiket(), emir, karar, pd_.kar_zarar_pct)
+        if msg:
+            uyarilar.append(msg)
+    if not uyarilar:
+        return
+    st.markdown("#### ⚠ Kâr / çıkış uyarıları")
+    for msg in uyarilar[:6]:
+        st.warning(msg)
+    if len(uyarilar) > 6:
+        st.caption(f"+ {len(uyarilar) - 6} pozisyon daha")
 
 
 def _doviz_turler():
@@ -225,16 +432,64 @@ def _varsayilan_pb(tur: str) -> str:
     return {"nakit_eur": "EUR", "nakit_usd": "USD", "nakit_ron": "RON"}.get(tur, "TL")
 
 
+def _pozisyon_tablo_getiri(
+    r_native,
+    gosterim_pb,
+    gun,
+    eur_s,
+    usd_s,
+    *,
+    gbp_s=None,
+    sembol: str = "",
+    varlik_turu: str = "",
+    asset_pb: str = "",
+    bar_dates=None,
+    tutma_gun: int = 0,
+):
+    """Kur ayarlı getiri — portföy tutma süresine göre; bugün alındıysa 0."""
+    from fiyat_para_fx import FxUnavailableError
+
+    if r_native is None:
+        return None
+    if tutma_gun <= 0:
+        return 0.0
+    if abs(float(r_native)) < 1e-12:
+        return 0.0
+    # Native getiri zaten tutma süresine göre; FX penceresi de aynı olmalı (30g etiket ≠ 30g FX)
+    fx_gun = min(int(gun), int(tutma_gun)) if tutma_gun > 0 else int(gun)
+    try:
+        return tablo_getiri(
+            r_native,
+            gosterim_pb,
+            fx_gun,
+            eur_s,
+            usd_s,
+            gbp_seri=gbp_s,
+            sembol=sembol,
+            varlik_turu=varlik_turu,
+            asset_pb=asset_pb,
+            bar_dates=bar_dates,
+        )
+    except FxUnavailableError:
+        return None
+
+
 def _poz_form_icerigi(
     form_key: str,
     submit_etiket: str,
     *,
     tur_baslangic: str = "nakit_tl",
     poz: "VarlikPozisyon | None" = None,
+    snap: MacroSnapshot | None = None,
+    tarama=None,
+    tefas_ham=None,
+    form_err_key: str = "",
 ) -> "VarlikPozisyon | None":
-    """Ortak pozisyon form içeriği. Yeni ekleme veya düzenleme için kullanılır.
-    Düzenlemede poz!=None; form alanları mevcut değerlerle doldurulur.
-    Başarılı submit'te VarlikPozisyon döndürür, yoksa None."""
+    """Ortak pozisyon form içeriği. Yeni ekleme veya düzenleme için kullanılır."""
+    err_key = form_err_key or f"{form_key}_form_err"
+    if st.session_state.get(err_key):
+        st.error(st.session_state.pop(err_key))
+
     tur_listesi = list(TUR_SECENEKLERI.keys())
     tur_idx = tur_listesi.index(poz.tur) if poz and poz.tur in tur_listesi else tur_listesi.index(tur_baslangic)
 
@@ -244,31 +499,139 @@ def _poz_form_icerigi(
         index=tur_idx,
         format_func=lambda k: TUR_SECENEKLERI[k],
         key=f"{form_key}_tur",
-        disabled=poz is not None,  # düzenlemede tür değiştirilemez
+        disabled=poz is not None,
     )
-    birimli = tur in ("tefas", "hisse", "etf", "altin", "gumus", "kripto")
+    birimli = tur in ("tefas", *HISSE_TURLER, "etf", "altin", "gumus", "kripto")
+    sembol_secimli = tur in (*HISSE_TURLER, "etf", "tefas") and poz is None
+    emtia_otom = tur in ("altin", "gumus") and poz is None and snap is not None
     varsayilan_pb = _varsayilan_pb(tur)
+    tefas_fonlar = getattr(tefas_ham, "fonlar", None) if tefas_ham else None
+
+    sembol = (poz.sembol if poz else "") or ""
+    ad_oneri = poz.ad if poz else ""
+    sec_para = varsayilan_pb
 
     if not poz:
-        st.caption(
-            "**Nasıl girilir?** "
-            + (
-                f"{MIKTAR_ETIKET.get(tur, 'Miktar')} ve {ALIM_FIYAT_ETIKET.get(tur, 'alış fiyatı')} — "
-                "maliyet otomatik hesaplanır."
-                if birimli
-                else f"{MIKTAR_ETIKET.get(tur, 'Tutar')} — nakit/mevduat için toplam tutar."
+        if sembol_secimli:
+            st.caption(
+                f"**{MIKTAR_ETIKET.get(tur, 'Miktar')}** girin — sembol listeden seçilir, "
+                "alış fiyatı güncel piyasadan otomatik dolar."
             )
+        elif emtia_otom:
+            st.caption(
+                f"**{MIKTAR_ETIKET.get(tur, 'Miktar')}** girin — "
+                f"{TUR_SECENEKLERI.get(tur, tur)} alış fiyatı (TL/gram) otomatik dolar."
+            )
+        else:
+            st.caption(
+                "**Nasıl girilir?** "
+                + (
+                    f"{MIKTAR_ETIKET.get(tur, 'Miktar')} ve {ALIM_FIYAT_ETIKET.get(tur, 'alış fiyatı')} — "
+                    "maliyet otomatik hesaplanır."
+                    if birimli
+                    else f"{MIKTAR_ETIKET.get(tur, 'Tutar')} — nakit/mevduat için toplam tutar."
+                )
+            )
+
+    if sembol_secimli:
+        if tur == "tefas" and not tefas_fonlar:
+            st.info("TEFAS fon listesi henüz yüklenmedi — bir süre bekleyin veya **TEFAS Fonları** sayfasını açın.")
+        ara = st.text_input(
+            "Sembol ara",
+            value="",
+            placeholder="THYAO, NVDA, CSPX, YIV…",
+            key=f"{form_key}_ara",
         )
+        liste = pozisyon_evren_listesi(tur, tefas_fonlar=tefas_fonlar, ara=ara)
+        if not liste:
+            st.warning("Eşleşen sembol bulunamadı — arama metnini kısaltın veya türü kontrol edin.")
+        else:
+            semboller = [x.sembol for x in liste]
+            prev_sym_key = f"{form_key}_secili_sembol"
+            prev_tur_key = f"{form_key}_secili_tur"
+            if st.session_state.get(prev_tur_key) != tur:
+                st.session_state.pop(prev_sym_key, None)
+                st.session_state.pop(f"{form_key}_alim_fiyati", None)
+                st.session_state[prev_tur_key] = tur
+
+            idx = 0
+            prev = st.session_state.get(prev_sym_key)
+            if prev in semboller:
+                idx = semboller.index(prev)
+
+            sec_idx = st.selectbox(
+                "Sembol",
+                range(len(liste)),
+                index=idx,
+                format_func=lambda i: liste[i].label,
+                key=f"{form_key}_sym_pick",
+            )
+            sec = liste[sec_idx]
+            sembol = sec.sembol
+            ad_oneri = sec.ad
+            sec_para = sec.para_birimi
+
+            fiyat_key = f"{form_key}_alim_fiyati"
+            para_key = f"{form_key}_para_otom"
+            if st.session_state.get(prev_sym_key) != sembol:
+                fiyat, pb = pozisyon_canli_fiyat(
+                    sembol, tur, tarama, tefas_fonlar=tefas_fonlar,
+                )
+                if fiyat and fiyat > 0:
+                    st.session_state[fiyat_key] = float(fiyat)
+                st.session_state[para_key] = pb or sec_para
+                st.session_state[prev_sym_key] = sembol
+
+            otom_fiyat = st.session_state.get(fiyat_key, 0.0)
+            otom_pb = st.session_state.get(para_key, sec_para)
+            if otom_fiyat and float(otom_fiyat) > 0:
+                st.caption(
+                    f"Güncel fiyat: **{float(otom_fiyat):,.4f} {otom_pb}** — alış fiyatına otomatik yazıldı "
+                    "(isterseniz düzenleyebilirsiniz)."
+                )
+            else:
+                st.caption("Canlı fiyat alınamadı — alış fiyatını elle girin.")
+
+    if emtia_otom:
+        ad_oneri = "Altın" if tur == "altin" else "Gümüş"
+        prev_tur_key = f"{form_key}_secili_tur"
+        fiyat_key = f"{form_key}_alim_fiyati"
+        para_key = f"{form_key}_para_otom"
+        if st.session_state.get(prev_tur_key) != tur:
+            fiyat, pb = pozisyon_emtia_fiyat(tur, snap)
+            if fiyat and fiyat > 0:
+                st.session_state[fiyat_key] = float(fiyat)
+            st.session_state[para_key] = pb
+            st.session_state[prev_tur_key] = tur
+        otom_fiyat = st.session_state.get(fiyat_key, 0.0)
+        if otom_fiyat and float(otom_fiyat) > 0:
+            st.caption(
+                f"Güncel gram fiyat: **{float(otom_fiyat):,.2f} TL** — alış fiyatına otomatik yazıldı."
+            )
+        else:
+            st.warning("Gram altın/gümüş fiyatı alınamadı — alış fiyatını elle girin.")
 
     with st.form(form_key, clear_on_submit=not poz):
         fc1, fc2, fc3 = st.columns(3)
-        sembol_disabled = tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat", "altin", "gumus")
-        sembol = fc1.text_input(
-            "Sembol (THYAO, YIV, CSPX…)",
-            value=poz.sembol if poz else "",
-            disabled=sembol_disabled,
-        )
-        ad = fc2.text_input("Açıklama", value=poz.ad if poz else "")
+        if sembol_secimli:
+            fc1.text_input("Seçilen sembol", value=sembol, disabled=True)
+            sembol_form = sembol
+        elif poz:
+            fc1.text_input("Sembol", value=poz.sembol or "", disabled=True)
+            sembol_form = poz.sembol or ""
+        elif tur in ("altin", "gumus"):
+            fc1.text_input("Tür", value=TUR_SECENEKLERI.get(tur, tur), disabled=True)
+            sembol_form = ""
+        else:
+            sembol_disabled = tur in (
+                "nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat",
+            )
+            sembol_form = fc1.text_input(
+                "Sembol (THYAO, YIV, CSPX…)",
+                value="",
+                disabled=sembol_disabled,
+            )
+        ad = fc2.text_input("Açıklama", value=poz.ad if poz else ad_oneri)
 
         alim_val = date.today()
         if poz and poz.alim_tarihi:
@@ -289,7 +652,12 @@ def _poz_form_icerigi(
             format="%.4f" if birimli else "%.2f",
         )
         alim_fiyat_et = ALIM_FIYAT_ETIKET.get(tur, "Alış fiyatı (birim)")
-        alim_fiyati_default = float(poz.alim_fiyati) if poz else 0.0
+        if poz:
+            alim_fiyati_default = float(poz.alim_fiyati)
+        elif sembol_secimli or emtia_otom:
+            alim_fiyati_default = float(st.session_state.get(f"{form_key}_alim_fiyati", 0.0) or 0.0)
+        else:
+            alim_fiyati_default = 0.0
         alim_fiyati = fc5.number_input(
             alim_fiyat_et,
             min_value=0.0,
@@ -298,10 +666,15 @@ def _poz_form_icerigi(
             disabled=not birimli and tur not in _doviz_turler(),
         )
         pb_secenekler = ["TL", "EUR", "USD", "RON"]
-        pb_baslangic = (poz.para_birimi if poz and poz.para_birimi in pb_secenekler
-                        else varsayilan_pb)
+        if poz:
+            pb_baslangic = poz.para_birimi if poz.para_birimi in pb_secenekler else varsayilan_pb
+        elif sembol_secimli or emtia_otom:
+            pb_baslangic = st.session_state.get(f"{form_key}_para_otom", sec_para if sembol_secimli else varsayilan_pb)
+            if pb_baslangic not in pb_secenekler:
+                pb_baslangic = varsayilan_pb
+        else:
+            pb_baslangic = varsayilan_pb
         pb_idx = pb_secenekler.index(pb_baslangic) if pb_baslangic in pb_secenekler else 0
-        # key içinde tur dahil: tür değişince widget sıfırlanır, yeni varsayılan geçerli olur
         para = fc6.selectbox(
             "Para birimi", pb_secenekler, index=pb_idx,
             key=f"{form_key}_para_{tur}",
@@ -331,11 +704,20 @@ def _poz_form_icerigi(
         )
 
         if st.form_submit_button(submit_etiket, type="primary"):
+            if sembol_secimli:
+                sembol_kayit = pozisyon_sembol_normalize(tur, sembol_form)
+            else:
+                sembol_kayit = (sembol_form or "").strip().upper()
+            if sembol_secimli and not sembol_kayit:
+                st.session_state[err_key] = "Sembol seçin."
+                return None
             if miktar <= 0:
-                st.warning("Miktar / tutar girin.")
+                st.session_state[err_key] = f"{miktar_et} girin (0'dan büyük olmalı)."
                 return None
             if birimli and alim_fiyati <= 0:
-                st.warning(f"{alim_fiyat_et} zorunlu — K/Z için birim alış fiyatı gerekli.")
+                st.session_state[err_key] = (
+                    f"{alim_fiyat_et} zorunlu — sembol seçtiyseniz fiyat yüklenmemiş olabilir, elle girin."
+                )
                 return None
             if tur in _doviz_turler():
                 maliyet = float(miktar * alim_fiyati) if alim_fiyati > 0 else 0.0
@@ -346,8 +728,8 @@ def _poz_form_icerigi(
             return VarlikPozisyon(
                 id=poz.id if poz else _uid(),
                 tur=tur,
-                sembol=sembol.strip().upper(),
-                ad=ad.strip(),
+                sembol=sembol_kayit,
+                ad=(ad or ad_oneri).strip(),
                 miktar=float(miktar),
                 maliyet=float(maliyet),
                 alim_fiyati=float(alim_fiyati),
@@ -523,11 +905,16 @@ def varliklarim_paneli(
     onbellek_portfoy_id: str = "",
     veri_tick: int = 0,
     yukleme_zamani: str = "",
+    tarama=None,
+    tefas_ham=None,
+    profil=None,
+    rejim: str = "NOTR",
+    mevduat_ozet=None,
 ) -> None:
     st.header("Varlıklarım")
     st.caption(
         "BES platformu gibi portföy takibi — **miktar × birim fiyat** ile canlı K/Z. "
-        "Altın/hisse/fon için gram veya adet + alış fiyatı girin. "
+        "Hisse/ETF/fon eklerken sembol listeden seçilir; alış fiyatı otomatik dolar. "
         "Veriler `.varliklarim.json` dosyasına kaydedilir."
     )
 
@@ -536,6 +923,13 @@ def varliklarim_paneli(
     store: VarlikStore = st.session_state.varlik_store
     pb = session_gosterim_pb()
     store.goruntuleme_pb = pb
+    ob_ctx = st.session_state.get("app_onbellek")
+    if tarama is None and ob_ctx is not None:
+        tarama = getattr(ob_ctx, "tarama", None)
+    if tefas_ham is None and ob_ctx is not None:
+        tefas_ham = getattr(ob_ctx, "tefas_ham", None)
+    if st.session_state.pop("_poz_eklendi_toast", False):
+        st.toast("Pozisyon eklendi", icon="✅")
 
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -637,10 +1031,43 @@ def varliklarim_paneli(
 
     pb = session_gosterim_pb()
     store.goruntuleme_pb = pb
-    ob = st.session_state.get("app_onbellek")
-    tarama = getattr(ob, "tarama", None) if ob else None
+    if tarama is None:
+        ob = st.session_state.get("app_onbellek")
+        tarama = getattr(ob, "tarama", None) if ob else None
     fx, eur_s, usd_s, gbp_s, _ = tablo_fx_hazirla(snap, tarama)
     eur_try, usd_try = fx.eur_try, fx.usd_try
+
+    tefas_skorlu = None
+    if any(p.tur == "tefas" for p in aktif.pozisyonlar):
+        if tefas_ham is None and ob_ctx is not None:
+            tefas_ham = getattr(ob_ctx, "tefas_ham", None)
+        if tefas_ham is None:
+            try:
+                from app_veri import tefas_ham_cek
+                tick = int(st.session_state.get("son_yenileme_sayaci", 0))
+                tefas_ham = tefas_ham_cek(120, tick)
+            except Exception:
+                pass
+        try:
+            from app_veri import tefas_yukleniyor
+            from tefas_skor import tefas_skorlu_kopya
+            from investor_profile import YatirimProfili
+
+            if tefas_ham and not tefas_yukleniyor(tefas_ham) and not getattr(tefas_ham, "hata", ""):
+                _profil = profil or YatirimProfili()
+                _mev_reel = (
+                    getattr(mevduat_ozet, "profil_vade_reel", None) if mevduat_ozet else None
+                )
+                tefas_skorlu = tefas_skorlu_kopya(
+                    tefas_ham, _profil, rejim,
+                    mevduat_reel=_mev_reel,
+                    gosterim_pb=pb,
+                    eur_seri=eur_s, usd_seri=usd_s, gbp_seri=gbp_s,
+                    mevduat_ozet=mevduat_ozet,
+                )
+        except Exception:
+            pass
+
     toplam = deger.toplam.get(pb, 0)
     maliyet = deger.maliyet_toplam.get(pb, 0)
     kz = toplam - maliyet
@@ -689,31 +1116,103 @@ def varliklarim_paneli(
         fig.update_layout(**plotly_base_layout(title=f"Dağılım ({pb})", height=280))
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Pozisyonlar + Ekle/Düzenle/Sil ───────────────────────────────────────
-    ob = st.session_state.get("app_onbellek")
-    tarama = getattr(ob, "tarama", None) if ob else None
-
-    h1c, h2c = st.columns([5, 1])
+    h1c, h2c, h3c = st.columns([4, 1.2, 1])
     with h1c:
         st.subheader("Pozisyonlar")
     with h2c:
+        if deger.pozisyonlar:
+            pdf_secenekler = {"__all__": "Tüm pozisyonlar"}
+            for pd_ in deger.pozisyonlar:
+                p = pd_.pozisyon
+                pdf_secenekler[p.id] = f"{p.etiket()[:18]}"
+            pdf_kapsam = st.selectbox(
+                "PDF kapsam",
+                options=list(pdf_secenekler.keys()),
+                format_func=lambda k: pdf_secenekler[k],
+                label_visibility="collapsed",
+                key=f"poz_pdf_kapsam_{aktif.id}",
+            )
+            try:
+                from report_pdf import pozisyonlar_pdf_olustur
+
+                pdf_satirlar = _pozisyon_pdf_satirlari(
+                    deger, pb, fx, eur_s, usd_s, gbp_s=gbp_s,
+                    tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+                )
+                pdf_bytes = pozisyonlar_pdf_olustur(
+                    portfoy_ad=aktif.ad,
+                    gosterim_pb=pb,
+                    pozisyonlar=pdf_satirlar,
+                    ozet={
+                        "toplam": toplam,
+                        "maliyet": maliyet,
+                        "kz": kz,
+                        "kz_pct": kz_pct,
+                    },
+                    veri_zamani=veri_z,
+                    pozisyon_id=None if pdf_kapsam == "__all__" else pdf_kapsam,
+                )
+                sembol_ek = ""
+                if pdf_kapsam != "__all__":
+                    p_one = next(
+                        (pd_.pozisyon for pd_ in deger.pozisyonlar if pd_.pozisyon.id == pdf_kapsam),
+                        None,
+                    )
+                    if p_one:
+                        raw = (p_one.sembol or p_one.etiket() or "poz").replace(".", "_")
+                        sembol_ek = f"_{raw[:14]}"
+                st.download_button(
+                    "📄 PDF",
+                    data=pdf_bytes,
+                    file_name=f"pozisyonlar_{aktif.ad}_{date.today():%Y-%m-%d}{sembol_ek}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"poz_pdf_indir_{aktif.id}_{pdf_kapsam}",
+                )
+            except Exception as ex:
+                st.caption(f"PDF: {ex}")
+    with h3c:
         if st.button("➕ Ekle", use_container_width=True, type="primary", key="poz_ekle_btn"):
-            _pozisyon_ekle_dialog(store, aktif)
+            st.session_state.poz_ekle_acik = True
+            st.rerun()
+
+    if st.session_state.get("poz_ekle_acik"):
+        if tefas_ham is None:
+            try:
+                from app_veri import tefas_ham_cek
+                tick = int(st.session_state.get("son_yenileme_sayaci", 0))
+                tefas_ham = tefas_ham_cek(120, tick)
+            except Exception:
+                pass
+        _pozisyon_ekle_dialog(store, aktif, snap=snap, tarama=tarama, tefas_ham=tefas_ham)
 
     if deger.pozisyonlar:
         poz_ids = [pd_.pozisyon.id for pd_ in deger.pozisyonlar]
 
-        pending_poz = st.session_state.pop("poz_edit_id", None)
+        pending_poz = st.session_state.get("poz_edit_id")
         if pending_poz:
-            _pozisyon_duzenle_dialog(pending_poz, store, aktif)
+            _pozisyon_duzenle_dialog(
+                pending_poz, store, aktif, snap=snap, tarama=tarama, tefas_ham=tefas_ham,
+            )
 
         render_df_table_interactive(
-            _pozisyon_tablo(deger, pb, fx, eur_s, usd_s, gbp_s=gbp_s, tarama=tarama),
+            _pozisyon_tablo(
+                deger, pb, fx, eur_s, usd_s, gbp_s=gbp_s,
+                tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+            ),
             key_prefix="poz_tablo",
             max_height=420,
             row_ids=poz_ids,
             action_col=True,
-            on_action=lambda pid: st.session_state.update(poz_edit_id=pid),
+            on_action=lambda pid: st.session_state.update(poz_edit_id=pid) or st.rerun(),
+        )
+        _render_pozisyon_kar_uyarilari(
+            deger, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+        )
+        st.caption(
+            "**Alım/Satış Sinyali** = motor (hisse/ETF/emtia v2 veya TEFAS skoru) · "
+            "**Pozisyon Önerisi** = ne yapmalı? · rozetin üzerine gelin → kısa açıklama · "
+            "Yatırım tavsiyesi değildir."
         )
         st.caption("Satır sonundaki **⋯** ile düzenle veya sil")
     else:

@@ -5,6 +5,7 @@ Karar (AL/BEKLE) ile birlikte "ne zaman, hangi fiyatta" rehberi üretir.
 """
 from __future__ import annotations
 
+import logging
 from typing import List, Optional, TYPE_CHECKING
 
 import config
@@ -15,6 +16,31 @@ from investor_profile import vade_kisa_mi
 if TYPE_CHECKING:
     from investor_profile import YatirimProfili
     from stock_scanner import HisseAnaliz
+
+# Varlıklarım tablo sütun adları (tarama Karar/Emir'den ayrı)
+POZ_COL_SINYAL = "Alım/Satış Sinyali"
+POZ_COL_ONERI = "Pozisyon Önerisi"
+
+_log = logging.getLogger(__name__)
+
+_TL_KUR_RISK_TURLER = ("hisse", "tefas", "tl_mevduat", "nakit_tl")
+
+POZ_ONERI_ETIKET = {
+    "Tut": "Elde tut",
+    "Bekle": "Pasif bekle",
+    "Ekle": "Ekleme düşün",
+    "Kâr Al": "Kâr al",
+    "Sat": "Çıkış değerlendir",
+    "Azalt": "Küçült",
+}
+
+
+def pozisyon_oneri_etiket(hucre) -> str:
+    """Tablo hücresinden görünen etiket."""
+    if isinstance(hucre, dict):
+        return str(hucre.get("label") or "—")
+    return str(hucre or "—")
+
 
 AKSIYON_ETIKET = {
     "AL": "🟢 AL",
@@ -28,6 +54,10 @@ AKSIYON_ETIKET = {
 
 def _is_etf(h: "HisseAnaliz") -> bool:
     return h.piyasa == "ETF" or getattr(h, "varlik_turu", "") == "etf"
+
+
+def _is_emtia(h: "HisseAnaliz") -> bool:
+    return h.piyasa == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia"
 
 
 def _core_etf(h: "HisseAnaliz") -> bool:
@@ -90,18 +120,43 @@ def _pct_asagi(hedef: Optional[float], fiyat: Optional[float]) -> Optional[float
 
 
 def _veri_hucre(h: "HisseAnaliz") -> str:
+    """Veri kalitesi + önbellek tazeliği (SLA: ≤15 dk).
+
+    Yaş = bizim live-quote / disk önbelleğinin yaşı — Yahoo last-trade
+    timestamp'i değil (BIST açıkken bile last-trade 1 sa eski görünebilir).
+    """
     if getattr(h, "veri_quarantine", False):
         return getattr(h, "veri_hatasi", "VERİ HATASI")[:40]
     base = getattr(h, "signal_v2_data", "—")
-    age = getattr(h, "quote_age_min", None)
-    if age is None:
+
+    age_min: Optional[float] = None
+    try:
+        import time
+
+        from signal_engine.data.live_quote import DISK_TTL_SEC, get_live_quote
+
+        live = get_live_quote(getattr(h, "sembol", "") or "")
+        if live is not None:
+            if live.cached_at is not None:
+                age_min = max(0.0, (time.time() - float(live.cached_at)) / 60.0)
+            elif live.age_min is not None:
+                age_min = float(live.age_min)
+        if age_min is None:
+            age_min = getattr(h, "quote_age_min", None)
+        ttl_dk = DISK_TTL_SEC / 60.0
+    except Exception:
+        age_min = getattr(h, "quote_age_min", None)
+        ttl_dk = 15.0
+
+    if age_min is None:
         return base
-    if age > 24 * 60:
+    if age_min > 24 * 60:
         return f"{base} 🔴 bayat"
-    if age > 60:
-        return f"{base} ⚠ {int(age // 60)} sa"
-    if age > 15:
-        return f"{base} · {int(age)} dk"
+    # SLA: 15 dk — aşılınca uyarı (önceden 60 dk eşiği BIST'te yanıltıcıydı)
+    if age_min > ttl_dk:
+        if age_min >= 60:
+            return f"{base} ⚠ {int(age_min // 60)} sa"
+        return f"{base} ⚠ {int(age_min)} dk"
     return f"{base} ✓"
 
 
@@ -330,13 +385,302 @@ def yonetici_oncelikli(
 
 
 def tarama_hisse_bul(tarama, sembol: str):
+    """Tarama evreninde sembol eşleşmesi (.IS / kok uyumlu)."""
     if not tarama or not sembol:
         return None
-    sym = sembol.upper()
+    from portfoy_yorum import sembol_kok
+
+    sym_u = sembol.upper()
+    kok = sembol_kok(sym_u)
     for h in getattr(tarama, "hisseler", None) or []:
-        if (h.sembol or "").upper() == sym:
+        hs = (h.sembol or "").upper()
+        if hs == sym_u or sembol_kok(hs) == kok:
             return h
     return None
+
+
+_EMTIA_TARAMA = {"altin": "GC=F", "gumus": "SI=F"}
+_KZ_SAT = 25.0
+_KZ_KAR_AL = 15.0
+_KZ_ZARAR_BEKLE = -12.0
+_KZ_EKLE = -8.0
+_TEFAS_ONERI_KARAR = {
+    "AL": "AL",
+    "IZLE": "İZLE",
+    "BEKLE": "BEKLE",
+    "ZAYIF": "AZALT",
+}
+
+
+def tefas_pozisyon_bul(tefas_kaynak, kod: str):
+    if not tefas_kaynak or not kod:
+        return None
+    hedef = kod.upper()
+    for f in getattr(tefas_kaynak, "fonlar", None) or []:
+        if (getattr(f, "kod", "") or "").upper() == hedef:
+            return f
+    return None
+
+
+def pozisyon_sinyal_bilgisi(
+    tur: str,
+    sembol: str,
+    *,
+    tarama=None,
+    tefas_ham=None,
+    tefas_skorlu=None,
+) -> dict:
+    """
+    Signal Engine v2 (hisse/ETF/emtia) veya TEFAS skor → karar + skor.
+    Dönüş: {karar, skor, kaynak, sinyal_obj}
+    """
+    tur_l = (tur or "").lower()
+    bos = {"karar": "—", "skor": None, "kaynak": "", "sinyal_obj": None}
+
+    if tur_l in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
+        return {**bos, "karar": "—", "kaynak": "nakit"}
+
+    if tur_l == "tefas":
+        tefas_k = tefas_skorlu or tefas_ham
+        f = tefas_pozisyon_bul(tefas_k, sembol)
+        if not f:
+            return bos
+        oneri = (getattr(f, "oneri", "") or "").upper()
+        return {
+            "karar": _TEFAS_ONERI_KARAR.get(oneri, "—"),
+            "skor": getattr(f, "skor", None),
+            "kaynak": "tefas",
+            "sinyal_obj": f,
+        }
+
+    if tur_l in ("hisse", "hisse_us", "etf", "altin", "gumus", "kripto"):
+        lookup = _EMTIA_TARAMA.get(tur_l) or sembol
+        h = tarama_hisse_bul(tarama, lookup)
+        if not h:
+            return bos
+        karar = (
+            getattr(h, "signal_v2_decision", None)
+            or getattr(h, "karar", None)
+            or "—"
+        )
+        skor = getattr(h, "signal_v2_score", None) or getattr(h, "skor", None)
+        return {
+            "karar": str(karar).strip() or "—",
+            "skor": skor,
+            "kaynak": "signal_v2",
+            "sinyal_obj": h,
+        }
+
+    return bos
+
+
+def _pozisyon_karar_normalize(karar: str) -> str:
+    from portfoy_yorum import _karar_normalize
+    return _karar_normalize(karar)
+
+
+def pozisyon_emir_hesapla(kz: float, karar: str, *, tur: str = "") -> str:
+    """
+    Eldeki pozisyon için Emir — Signal v2 kararı + K/Z bantları.
+    Kâr realizasyonu: AZALT / zayıf sinyal + kârda → Kâr Al.
+    """
+    k = _pozisyon_karar_normalize(karar)
+    if k == "—" or not k:
+        # Sinyal yok — eski K/Z kuralları
+        if kz >= _KZ_SAT:
+            return "Sat"
+        if kz <= _KZ_ZARAR_BEKLE:
+            return "Bekle"
+        if kz <= _KZ_EKLE and (tur or "").lower() == "tefas":
+            return "Ekle"
+        return "Tut"
+
+    if kz >= _KZ_SAT:
+        return "Sat"
+
+    if k == "AZALT":
+        if kz >= _KZ_KAR_AL:
+            return "Kâr Al"
+        if kz > 0:
+            return "Azalt"
+        return "Sat" if kz <= _KZ_ZARAR_BEKLE else "Azalt"
+
+    if kz >= _KZ_KAR_AL and k in ("BEKLE", "İZLE"):
+        return "Kâr Al"
+
+    if k == "BEKLE":
+        if kz <= _KZ_ZARAR_BEKLE:
+            return "Bekle"
+        if kz > 0 and kz >= _KZ_KAR_AL:
+            return "Kâr Al"
+        return "Bekle"
+
+    if k in ("AL",):
+        if kz <= _KZ_EKLE:
+            return "Ekle"
+        return "Tut"
+
+    if k == "İZLE":
+        if kz <= _KZ_ZARAR_BEKLE:
+            return "Bekle"
+        return "Tut"
+
+    return "Tut"
+
+
+def _kur_risk_notu(tur: str, gosterim_pb: str) -> str:
+    if gosterim_pb == "EUR" and tur in _TL_KUR_RISK_TURLER:
+        return " TL/EUR kuru getiriyi etkiler."
+    return ""
+
+
+def pozisyon_oneri_hucre(
+    emir: str,
+    karar: str,
+    kz: float,
+    *,
+    tur: str = "",
+    gosterim_pb: str = "",
+) -> dict:
+    """Pozisyon önerisi — görünen etiket + hover açıklaması."""
+    kod = emir or "—"
+    label = POZ_ONERI_ETIKET.get(kod, kod)
+    k = _pozisyon_karar_normalize(karar) if karar and karar != "—" else "—"
+    kz_s = f"{kz:+.1f}%"
+    sinyal_p = f" Motor sinyali: {karar}." if karar and karar != "—" else ""
+    kur_n = _kur_risk_notu(tur, gosterim_pb)
+
+    if kod == "Tut":
+        if tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
+            tip = "Nakit veya mevduat — pozisyonu koruyun, ek işlem gerekmez."
+        elif k in ("AL", "İZLE"):
+            tip = (
+                f"Elde tutun — motor hâlâ olumlu ({karar}). K/Z {kz_s}. "
+                "Yeni ekleme zorunlu değil; Stop sütununu izleyin."
+            )
+        else:
+            tip = (
+                f"Elde tutun — K/Z {kz_s}, acil çıkış veya ekleme sinyali yok.{sinyal_p} "
+                "Rutin takip yeterli."
+            )
+    elif kod == "Bekle":
+        if k == "BEKLE":
+            tip = (
+                f"Pasif bekleyin — motor zayıf ({karar}). K/Z {kz_s}. "
+                "Pozisyonu tutabilirsiniz ama yeni para eklemeyin; sinyal güçlenene kadar bekleyin."
+            )
+        elif kz <= _KZ_ZARAR_BEKLE:
+            tip = (
+                f"Pasif bekleyin — K/Z {kz_s} (derin zarar bandı).{sinyal_p} "
+                "Panik satış yerine toparlanma veya net sinyal bekleyin; Ekle sütununa bakın."
+            )
+        else:
+            tip = (
+                f"Pasif bekleyin — K/Z {kz_s}.{sinyal_p} "
+                "Ekleme yapmayın; motor veya fiyat netleşene kadar bekleyin."
+            )
+    elif kod == "Ekle":
+        tip = (
+            f"Ekleme düşünün — motor {karar} diyor, K/Z {kz_s}. "
+            "Ekle sütunundaki fiyattan kademeli ortalama düşürme değerlendirilebilir."
+        )
+    elif kod == "Kâr Al":
+        tip = (
+            f"Kâr almayı düşünün — K/Z {kz_s}, motor {karar}.{sinyal_p} "
+            "Kademeli satış ile kâr kilitlemeyi değerlendirin. "
+            "Kademeli realizasyon — tam kapatma zorunlu değil."
+        )
+    elif kod == "Sat":
+        tip = (
+            f"Çıkış değerlendirin — K/Z {kz_s} (güçlü kâr veya ciddi zarar).{sinyal_p} "
+            "Tam veya kısmi satış düşünülebilir. "
+            "Kademeli realizasyon — tam kapatma zorunlu değil."
+        )
+    elif kod == "Azalt":
+        tip = (
+            f"Pozisyonu küçültün — motor AZALT, K/Z {kz_s}. "
+            "Tam çıkış yerine kademeli azaltma da mümkün."
+        )
+    else:
+        tip = "Pozisyon önerisi — yatırım tavsiyesi değildir."
+
+    return {"code": kod, "label": label, "tip": tip + kur_n}
+
+
+def pozisyon_kar_uyarisi(
+    etiket: str,
+    emir: str,
+    karar: str,
+    kz: float,
+) -> Optional[str]:
+    """Kâr realizasyonu / çıkış uyarı metni (None = uyarı yok)."""
+    if emir == "Kâr Al":
+        return (
+            f"**{etiket}** — K/Z **{kz:+.1f}%** · motor **{karar}** → "
+            "kâr realizasyonu düşünün (kademeli satış)."
+        )
+    if emir == "Sat":
+        return (
+            f"**{etiket}** — K/Z **{kz:+.1f}%** · "
+            + (f"motor **{karar}** → " if karar and karar != "—" else "")
+            + "tam/parsiyel çıkış değerlendirin."
+        )
+    if emir == "Azalt":
+        return (
+            f"**{etiket}** — motor **AZALT** · K/Z **{kz:+.1f}%** → "
+            "pozisyon küçültmeyi değerlendirin."
+        )
+    return None
+
+
+def _pozisyon_ekle_karantina(
+    ekle: float,
+    guncel: float,
+    *,
+    tur: str = "",
+    sembol: str = "",
+) -> bool:
+    """|ekle/güncel − 1| > ENTRY_SANITY_PCT ise Ekle gösterme (tarama guard ile aynı)."""
+    from signal_engine.entry.levels import ENTRY_SANITY_PCT
+
+    if guncel <= 0 or ekle <= 0:
+        return False
+    sapma = abs(ekle / guncel - 1.0)
+    if sapma > ENTRY_SANITY_PCT:
+        _log.warning(
+            "pozisyon_ekle_karantina tur=%s sembol=%s ekle=%.4f guncel=%.4f sapma=%.1f%%",
+            tur, sembol, ekle, guncel, sapma * 100,
+        )
+        return True
+    return False
+
+
+def _pozisyon_ekle_fiyat(
+    tur: str,
+    sym: str,
+    alis: float,
+    guncel: float,
+    tarama,
+    sinyal_obj,
+    *,
+    usd_try: float = 0.0,
+) -> Optional[float]:
+    ekle = alis * 0.95
+    h = sinyal_obj if getattr(sinyal_obj, "sembol", None) else None
+    if not h and tur in ("hisse", "hisse_us", "etf", "altin", "gumus"):
+        h = tarama_hisse_bul(tarama, _EMTIA_TARAMA.get(tur, sym) or sym)
+    alim = getattr(h, "signal_v2_al_price", None) if h else None
+    if alim is None and h:
+        alim = getattr(h, "yonetici_alim", None)
+    if alim and alim < guncel * 0.995:
+        alim_f = float(alim)
+        if tur in ("altin", "gumus") and usd_try > 0:
+            from emtia_universe import gram_tl_from_oz
+            alim_f = gram_tl_from_oz(alim_f, usd_try)
+        ekle = alim_f
+    if _pozisyon_ekle_karantina(ekle, guncel, tur=tur, sembol=sym):
+        return None
+    return ekle
 
 
 def _fmt_poz_birim(
@@ -360,19 +704,22 @@ def _fmt_poz_birim(
         )
         if v is None:
             return "—"
-        if gosterim_pb == "TL":
-            return f"{v:,.0f} {gosterim_pb}"
-        return f"{v:,.2f} {gosterim_pb}"
+        return f"{v:,.4f} {gosterim_pb}"
     kaynak = kaynak_pb or kaynak_para_birimi(
         sembol or "", pozisyon_turu=tur, varlik_turu=tur,
         quote_currency=quote_currency,
     )
-    use_sym = sembol if tur in ("hisse", "etf") else ""
+    use_sym = sembol if tur in ("hisse", "hisse_us", "etf", "kripto") else ""
+    # BIST / TL — fiyat zaten yerel para; Yahoo settlement dönüşümü gereksiz
+    if kaynak in ("TL", "TRY"):
+        use_sym = ""
+    qc_use = quote_currency if use_sym else ""
     v = tablo_fiyat(
         fiyat, gosterim_pb, fx.eur_try, fx.usd_try,
         sembol=use_sym, varlik_turu=tur,
-        kaynak_pb=kaynak, quote_currency=quote_currency if use_sym else "",
+        kaynak_pb=kaynak, quote_currency=qc_use,
         gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        allow_currency_guess=bool(use_sym and not qc_use),
     )
     if v is None:
         return "—"
@@ -394,49 +741,77 @@ def yonetici_pozisyon_kolonlari(
     pd_,
     *,
     tarama=None,
+    tefas_ham=None,
+    tefas_skorlu=None,
     gosterim_pb: str = "EUR",
     fx=None,
 ) -> dict:
-    """Varlıklarım tablo sütunları — Emir, Ekle, Stop."""
+    """Varlıklarım tablo sütunları — sinyal (v2/TEFAS), pozisyon önerisi, Ekle, Stop."""
     p = pozisyon
     tur = p.tur
     sym = p.sembol or ""
-    bos = {"Emir": "—", "Ekle": "—", "Stop": "—"}
+    bos = {POZ_COL_SINYAL: "—", POZ_COL_ONERI: "—", "Ekle": "—", "Stop": "—"}
 
     if tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
-        return {"Emir": "Tut", "Ekle": "—", "Stop": "—"}
+        return {
+            POZ_COL_SINYAL: "—",
+            POZ_COL_ONERI: pozisyon_oneri_hucre("Tut", "—", 0, tur=tur, gosterim_pb=gosterim_pb),
+            "Ekle": "—", "Stop": "—",
+        }
     if pd_.guncel_birim <= 0 or pd_.alim_birim <= 0:
-        return {"Emir": "Bekle", "Ekle": "—", "Stop": "—"}
+        return {
+            POZ_COL_SINYAL: "—",
+            POZ_COL_ONERI: pozisyon_oneri_hucre(
+                "Bekle", "—", pd_.kar_zarar_pct, tur=tur, gosterim_pb=gosterim_pb,
+            ),
+            "Ekle": "—", "Stop": "—",
+        }
 
     kz = pd_.kar_zarar_pct
     alis = pd_.alim_birim
     guncel = pd_.guncel_birim
     stop = _pozisyon_stop(alis, guncel)
-    ekle = alis * 0.95
 
-    h = tarama_hisse_bul(tarama, sym)
-    alim = getattr(h, "yonetici_alim", None) if h else None
-    if alim and alim < guncel * 0.995:
-        ekle = alim
+    sinyal = pozisyon_sinyal_bilgisi(
+        tur, sym, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+    )
+    karar = sinyal["karar"]
+    emir = pozisyon_emir_hesapla(kz, karar, tur=tur)
+    s_obj = sinyal.get("sinyal_obj")
+    usd_try = float(getattr(fx, "usd_try", 0) or 0) if fx else 0.0
+    ekle = _pozisyon_ekle_fiyat(
+        tur, sym, alis, guncel, tarama, s_obj, usd_try=usd_try,
+    )
 
+    h = s_obj if getattr(s_obj, "sembol", None) else tarama_hisse_bul(
+        tarama, _EMTIA_TARAMA.get(tur, sym) or sym,
+    )
     qc = getattr(h, "quote_currency", "") if h else ""
-    src_pb = (pd_.para or p.para_birimi or "TL") if tur == "tefas" else ""
+    src_pb = pd_.para or p.para_birimi or ""
+    if tur == "tefas" and not src_pb:
+        src_pb = "TL"
 
     def _f(x):
         return _fmt_poz_birim(
             x, tur, sym, gosterim_pb, fx, quote_currency=qc, kaynak_pb=src_pb,
         )
 
-    ekle_s = _f(ekle) if ekle < guncel * 0.995 else "—"
+    ekle_s = (
+        _f(ekle)
+        if ekle is not None and ekle < guncel * 0.995
+        and emir in ("Ekle", "Bekle", "Tut", "Azalt")
+        else "—"
+    )
     stop_s = _f(stop)
 
-    if kz >= 25:
-        return {"Emir": "Sat", "Ekle": "—", "Stop": stop_s}
-    if kz <= -12:
-        return {"Emir": "Bekle", "Ekle": ekle_s, "Stop": stop_s}
-    if kz <= -8 and tur == "tefas":
-        return {"Emir": "Ekle", "Ekle": ekle_s, "Stop": stop_s}
-    return {"Emir": "Tut", "Ekle": ekle_s, "Stop": stop_s}
+    return {
+        POZ_COL_SINYAL: karar,
+        POZ_COL_ONERI: pozisyon_oneri_hucre(
+            emir, karar, kz, tur=tur, gosterim_pb=gosterim_pb,
+        ),
+        "Ekle": ekle_s,
+        "Stop": stop_s,
+    }
 
 
 def yonetici_pozisyon_plani(
@@ -444,47 +819,83 @@ def yonetici_pozisyon_plani(
     pd_,
     *,
     tarama=None,
+    tefas_ham=None,
+    tefas_skorlu=None,
     gosterim_pb: str = "EUR",
     fx=None,
 ) -> str:
-    """Varlıklarım — elindeki pozisyon: Tut / ekle / stop."""
+    """Varlıklarım — elindeki pozisyon: sinyal v2 + K/Z rehberi."""
     p = pozisyon
     tur = p.tur
     sym = p.sembol or ""
 
     if tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
-        return "🟢 Tut"
+        return f"🟢 {POZ_ONERI_ETIKET['Tut']}"
 
     if pd_.guncel_birim <= 0 or pd_.alim_birim <= 0:
-        return "⚪ Bekle"
+        return f"⚪ {POZ_ONERI_ETIKET['Bekle']}"
 
     kz = pd_.kar_zarar_pct
     alis = pd_.alim_birim
     guncel = pd_.guncel_birim
     stop = _pozisyon_stop(alis, guncel)
 
-    h = tarama_hisse_bul(tarama, sym)
-    alim = getattr(h, "yonetici_alim", None) if h else None
-    ekle = alim if (alim and alim < guncel * 0.995) else alis * 0.95
+    sinyal = pozisyon_sinyal_bilgisi(
+        tur, sym, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
+    )
+    karar = sinyal["karar"]
+    emir = pozisyon_emir_hesapla(kz, karar, tur=tur)
+    s_obj = sinyal.get("sinyal_obj")
+    usd_try = float(getattr(fx, "usd_try", 0) or 0) if fx else 0.0
+    ekle = _pozisyon_ekle_fiyat(
+        tur, sym, alis, guncel, tarama, s_obj, usd_try=usd_try,
+    )
 
+    h = s_obj if getattr(s_obj, "sembol", None) else tarama_hisse_bul(
+        tarama, _EMTIA_TARAMA.get(tur, sym) or sym,
+    )
     qc = getattr(h, "quote_currency", "") if h else ""
-    src_pb = (pd_.para or p.para_birimi or "TL") if tur == "tefas" else ""
+    src_pb = pd_.para or p.para_birimi or ""
+    if tur == "tefas" and not src_pb:
+        src_pb = "TL"
 
     def _f(x):
         return _fmt_poz_birim(
             x, tur, sym, gosterim_pb, fx, quote_currency=qc, kaynak_pb=src_pb,
         )
 
-    if kz >= 25:
-        return f"🟢 Tut · Kârda · Stop: {_f(stop)} altı"
-    if kz >= 15 and tur == "tefas":
-        return f"🟢 Tut · Stop: {_f(stop)} altı"
-    if kz <= -12:
-        return f"⚪ Bekle · Ekle: {_f(ekle)} · Stop: {_f(stop)} altı"
-    if kz <= -8 and tur == "tefas":
-        return f"🟡 Ekle · {_f(ekle)} · Stop: {_f(stop)} altı"
+    skor = sinyal.get("skor")
+    skor_p = f" · Skor {int(round(float(skor)))}" if skor is not None else ""
+    karar_p = f" · {karar}" if karar and karar != "—" else ""
 
-    parcalar = ["🟢 Tut", f"Stop: {_f(stop)} altı"]
-    if ekle < guncel * 0.995:
+    emir_l = POZ_ONERI_ETIKET.get(emir, emir)
+
+    if emir == "Kâr Al":
+        return (
+            f"🟡 {emir_l}{karar_p}{skor_p} · K/Z {kz:+.1f}% · "
+            f"kademeli realizasyon · Stop: {_f(stop)} altı"
+        )
+    if emir == "Sat":
+        return (
+            f"🟡 {emir_l}{karar_p}{skor_p} · K/Z {kz:+.1f}% · "
+            f"Stop: {_f(stop)} altı"
+        )
+    if emir == "Azalt":
+        return (
+            f"🟡 {emir_l}{karar_p}{skor_p} · K/Z {kz:+.1f}% · "
+            f"pozisyon küçült · Stop: {_f(stop)} altı"
+        )
+    if emir == "Ekle":
+        ekle_p = _f(ekle) if ekle is not None else "—"
+        return f"🟡 {emir_l}{karar_p}{skor_p} · {ekle_p} · Stop: {_f(stop)} altı"
+    if emir == "Bekle":
+        parca = f"⚪ {emir_l}{karar_p}{skor_p}"
+        if ekle is not None and ekle < guncel * 0.995:
+            parca += f" · dip Ekle: {_f(ekle)}"
+        parca += f" · Stop: {_f(stop)} altı"
+        return parca
+
+    parcalar = [f"🟢 {emir_l}{karar_p}{skor_p}", f"Stop: {_f(stop)} altı"]
+    if ekle is not None and ekle < guncel * 0.995:
         parcalar.insert(1, f"Ekle: {_f(ekle)}")
     return " · ".join(parcalar)

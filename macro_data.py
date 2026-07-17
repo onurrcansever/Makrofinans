@@ -91,17 +91,31 @@ def _fred_son_deger(api_key: str, series_id: str) -> Optional[float]:
 
 
 def _yf_gunluk_degisim(ticker: str) -> Optional[float]:
-    """Son kapanış vs bir önceki işlem günü — yüzde."""
+    """Resmi previousClose varsa onu kullan; yoksa history son iki mum."""
     try:
         import yfinance as yf
-        hist = yf.Ticker(ticker).history(period="5d", auto_adjust=True)
+        t = yf.Ticker(ticker)
+        fi = getattr(t, "fast_info", None) or {}
+        last = fi.get("lastPrice") or fi.get("regularMarketPrice")
+        prev = fi.get("previousClose") or fi.get("regularMarketPreviousClose")
+        if last is None or prev is None:
+            info = t.info or {}
+            last = last or info.get("regularMarketPrice") or info.get("currentPrice")
+            prev = prev or info.get("regularMarketPreviousClose") or info.get("previousClose")
+        if last is not None and prev is not None and float(prev) > 0:
+            return (float(last) - float(prev)) / float(prev) * 100
+        hist = t.history(period="5d", auto_adjust=True)
         if hist.empty or len(hist) < 2:
             return None
-        son = float(hist["Close"].iloc[-1])
-        onceki = float(hist["Close"].iloc[-2])
-        return (son - onceki) / onceki * 100 if onceki else None
+        close = hist["Close"].dropna()
+        if len(close) < 2:
+            return None
+        onceki, son = float(close.iloc[-2]), float(close.iloc[-1])
+        if onceki <= 0:
+            return None
+        return (son - onceki) / onceki * 100
     except Exception as e:
-        print(f"[UYARI] yfinance günlük {ticker}: {e}")
+        print(f"[UYARI] yfinance {ticker} günlük: {e}")
         return None
 
 
@@ -160,21 +174,36 @@ def _yf_analiz(
     }
     try:
         import yfinance as yf
-        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
+        t = yf.Ticker(ticker)
+        hist = t.history(period=period, auto_adjust=True)
         if hist.empty or len(hist) < 2:
             return sonuc
         close = hist["Close"].dropna()
         fiyat = float(close.iloc[-1])
         sonuc["fiyat"] = fiyat
 
-        onceki_gun = float(close.iloc[-2])
-        if onceki_gun:
-            sonuc["degisim_1g"] = (fiyat - onceki_gun) / onceki_gun * 100
+        fi = getattr(t, "fast_info", None) or {}
+        last = fi.get("lastPrice") or fi.get("regularMarketPrice") or fiyat
+        prev = fi.get("previousClose") or fi.get("regularMarketPreviousClose")
+        if prev is None:
+            try:
+                info = t.info or {}
+                prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+                last = last or info.get("regularMarketPrice") or info.get("currentPrice") or fiyat
+            except Exception:
+                pass
+        if last is not None and prev is not None and float(prev) > 0:
+            sonuc["fiyat"] = float(last)
+            sonuc["degisim_1g"] = (float(last) - float(prev)) / float(prev) * 100
+        else:
+            onceki_gun = float(close.iloc[-2])
+            if onceki_gun:
+                sonuc["degisim_1g"] = (fiyat - onceki_gun) / onceki_gun * 100
 
         hedef = max(0, len(close) - momentum_gun)
         baz = float(close.iloc[hedef]) if len(close) > momentum_gun else float(close.iloc[0])
         if baz:
-            sonuc["degisim_pct"] = (fiyat - baz) / baz * 100
+            sonuc["degisim_pct"] = (float(sonuc["fiyat"]) - baz) / baz * 100
 
         if vol_pencere and len(close) >= vol_pencere + 3:
             ret = close.pct_change().dropna()

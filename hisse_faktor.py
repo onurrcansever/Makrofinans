@@ -49,7 +49,7 @@ def faktor_katmani_uygula(hisseler: List["HisseAnaliz"], df: pd.DataFrame) -> No
 
     gruplar: Dict[Tuple[str, str], list] = {}
     for h in hisseler:
-        if h.piyasa == "ETF" or h.fiyat is None:
+        if h.piyasa in ("ETF", "EMTIA") or h.fiyat is None:
             continue
         key = (h.piyasa, h.sektor or "genel")
         gruplar.setdefault(key, []).append(h)

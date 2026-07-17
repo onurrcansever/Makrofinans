@@ -8,6 +8,7 @@
 .varliklarim.json
 .favoriler.json
 .temel_veri_cache.json
+.live_quotes_cache.json
 .llm_aciklama_cache.json
 .portfoy_yorum_cache.json
 cds_history.jsonl

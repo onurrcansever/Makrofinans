@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+import os
 
 MAX_EK_KARAKTER = 200
 
@@ -252,3 +253,134 @@ def portfoy_durum_satirlari(
         if yorum:
             satirlar.append(_kisalt(f"💬 {yorum}"))
     return satirlar
+
+
+def _bildirim_gosterim_pb() -> str:
+    import config
+    from fiyat_para import GOSTERIM_PB_LIST
+
+    pb = (getattr(config, "OZET_GOSTERIM_PB", None) or os.getenv("OZET_GOSTERIM_PB", "EUR")).upper()
+    return pb if pb in GOSTERIM_PB_LIST else "EUR"
+
+
+def _fmt_kz_pct(pct: float) -> str:
+    return f"{pct:+.1f}".replace(".", ",") + "%"
+
+
+def _tablo_kisalt(metin: str, max_len: int) -> str:
+    s = (metin or "—").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1].rstrip() + "…"
+
+
+def _tefas_bildirim_yukle(snap, tarama, profil, gosterim_pb: str, pozisyonlar) -> tuple:
+    """TEFAS fon skoru — portföyde fon varsa (API, tarama ile aynı tur)."""
+    if not any(getattr(p, "tur", "") == "tefas" for p in pozisyonlar):
+        return None, None
+    try:
+        from allocation_engine import tahsis_hesapla
+        from app_veri import tefas_ham_cek, tefas_yukleniyor
+        from fiyat_para import tablo_fx_hazirla
+        from investor_profile import YatirimProfili
+        from tefas_skor import tefas_skorlu_kopya
+
+        tefas_ham = tefas_ham_cek(120, 0)
+        if not tefas_ham or tefas_yukleniyor(tefas_ham) or getattr(tefas_ham, "hata", ""):
+            return tefas_ham, None
+        prof = profil or YatirimProfili()
+        tahsis = tahsis_hesapla(snap, prof)
+        fx, eur_s, usd_s, gbp_s, _ = tablo_fx_hazirla(snap, tarama)
+        tefas_skorlu = tefas_skorlu_kopya(
+            tefas_ham, prof, tahsis.rejim.rejim,
+            gosterim_pb=gosterim_pb,
+            eur_seri=eur_s, usd_seri=usd_s, gbp_seri=gbp_s,
+        )
+        return tefas_ham, tefas_skorlu
+    except Exception:
+        return None, None
+
+
+def portfoy_pozisyon_tablo_satirlari(
+    snap=None,
+    tarama=None,
+    profil=None,
+    *,
+    gosterim_pb: Optional[str] = None,
+) -> List[str]:
+    """
+    WhatsApp düz metin pozisyon tablosu — Varlıklarım ile aynı sinyal/öneri mantığı.
+    """
+    import config
+
+    if not getattr(config, "OZET_POZISYON_TABLO", True):
+        return []
+    if snap is None:
+        return []
+
+    gpb = (gosterim_pb or _bildirim_gosterim_pb()).upper()
+    try:
+        from portfoy_yoneticisi import (
+            POZ_COL_ONERI,
+            POZ_COL_SINYAL,
+            pozisyon_oneri_etiket,
+            yonetici_pozisyon_kolonlari,
+        )
+        from varlik_fiyat import portfoy_degerle
+        from varliklarim import yukle_store
+
+        store = yukle_store()
+        portfoy = store.aktif()
+        if not portfoy or not portfoy.pozisyonlar:
+            return []
+
+        deger = portfoy_degerle(portfoy, snap, cache_salt="bildirim_poz_tab")
+        tefas_ham, tefas_skorlu = _tefas_bildirim_yukle(
+            snap, tarama, profil, gpb, portfoy.pozisyonlar,
+        )
+        from fiyat_para import tablo_fx_hazirla
+        fx, *_ = tablo_fx_hazirla(snap, tarama)
+
+        rows: List[tuple] = []
+        for pd_ in deger.pozisyonlar:
+            p = pd_.pozisyon
+            kol = yonetici_pozisyon_kolonlari(
+                p, pd_,
+                tarama=tarama,
+                tefas_ham=tefas_ham,
+                tefas_skorlu=tefas_skorlu,
+                gosterim_pb=gpb,
+                fx=fx,
+            )
+            ad = _tablo_kisalt(p.etiket(), 12)
+            sinyal = _tablo_kisalt(str(kol.get(POZ_COL_SINYAL) or "—"), 8)
+            oneri = _tablo_kisalt(pozisyon_oneri_etiket(kol.get(POZ_COL_ONERI)), 16)
+            kz = _fmt_kz_pct(float(pd_.kar_zarar_pct or 0))
+            emir_kod = ""
+            oneri_h = kol.get(POZ_COL_ONERI)
+            if isinstance(oneri_h, dict):
+                emir_kod = str(oneri_h.get("code") or "")
+            oncelik = 0
+            if emir_kod in ("Sat", "Kâr Al", "Azalt"):
+                oncelik = 2
+            elif emir_kod in ("Ekle", "Bekle"):
+                oncelik = 1
+            rows.append((oncelik, abs(pd_.kar_zarar_pct or 0), ad, sinyal, oneri, kz, emir_kod))
+
+        if not rows:
+            return []
+
+        rows.sort(key=lambda r: (-r[0], -r[1], r[2]))
+        cap = int(getattr(config, "OZET_POZ_MAX", 0) or 0)
+        if cap > 0:
+            rows = rows[:cap]
+
+        satirlar = [f"📊 POZİSYONLAR ({gpb})", "Araç · Sinyal · Öneri · K/Z"]
+        for _, __, ad, sinyal, oneri, kz, emir_kod in rows:
+            isaret = ""
+            if emir_kod in ("Kâr Al", "Sat", "Azalt"):
+                isaret = "⚠ "
+            satirlar.append(f"{isaret}{ad} · {sinyal} · {oneri} · {kz}")
+        return satirlar
+    except Exception:
+        return []

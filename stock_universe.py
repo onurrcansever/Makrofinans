@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
+from emtia_universe import EMTIA_ETIKET, tum_emtalar
 from etf_universe import ETF_ETIKET, REVOLUT_ETFLER
 
 # (sembol, ad, sektör)
@@ -134,6 +135,7 @@ SEKTOR_ETIKET = {
     "hava": "Havacılık",
     "holding": "Holding",
     **ETF_ETIKET,
+    **EMTIA_ETIKET,
 }
 
 
@@ -161,11 +163,12 @@ def tum_etflar() -> List[Tuple[str, str, str, str, str, str]]:
 
 
 def tum_evren() -> List[Tuple[str, str, str, str, str, str]]:
-    """Hisse + ETF birleşik evren."""
+    """Hisse + ETF + spot emtia birleşik evren."""
     out: List[Tuple[str, str, str, str, str, str]] = [
         (s, a, p, k, "", "") for s, a, p, k in tum_hisseler()
     ]
     out.extend(tum_etflar())
+    out.extend(tum_emtalar())
     return out
 
 

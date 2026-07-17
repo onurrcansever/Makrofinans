@@ -79,6 +79,9 @@ def fx_window_dates(
 ) -> Optional[Tuple[pd.Timestamp, pd.Timestamp]]:
     """Getiri penceresi uç tarihleri.
 
+    gun == 1: son iki varlık barı yalnızca takvim boşluğu ≤2 gün ise;
+      aksi halde None → çağıran FX serisinin son iki işlem gününü kullanır
+      (eksik mumda 14→17 gibi çok günlük pencereyi engeller).
     gun >= 252 (1Y): d1 − 365 takvim günü, en yakın mevcut bar.
     Daha kısa pencereler: bar ofseti (gun trading bar).
     """
@@ -87,7 +90,10 @@ def fx_window_dates(
     if bar_dates is None or len(bar_dates) < gun + 1:
         return None
     idx = pd.DatetimeIndex(bar_dates)
-    return pd.Timestamp(idx[-gun - 1]), pd.Timestamp(idx[-1])
+    d0, d1 = pd.Timestamp(idx[-gun - 1]), pd.Timestamp(idx[-1])
+    if gun == 1 and abs((d1.normalize() - d0.normalize()).days) > 2:
+        return None
+    return d0, d1
 
 
 def eur_usd_at(

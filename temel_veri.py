@@ -706,8 +706,8 @@ _ANALIST_HOLD_SELL = frozenset({"hold", "neutral", "sell", "strong_sell"})
 
 
 def _analist_mevcut(temel: Optional[dict]) -> bool:
-    """ETF veya recommendationKey yok → motor-only kural."""
-    if not temel or temel.get("tur") == "etf":
+    """ETF/emtia veya recommendationKey yok → motor-only kural."""
+    if not temel or temel.get("tur") in ("etf", "emtia"):
         return False
     a = str(temel.get("analist") or "").lower()
     return a in _ANALIST_BUY or a in _ANALIST_HOLD_SELL
@@ -718,7 +718,7 @@ def sinyal_isaret(skor, temel: Optional[dict] = None) -> str:
     1) Motor + analist:
        🔼 skor≥60 ∧ buy ∧ hedef>+15%
        🔽 skor<42 ∧ hold/sell ∧ hedef≤+10%
-    2) Sadece motor (ETF / analist yok):
+    2) Sadece motor (ETF / emtia / analist yok):
        🔼 skor≥66 · 🔽 skor<42 · ⏸ aksi
     """
     try:
@@ -759,20 +759,24 @@ def sinyal_pdf_safe(isaret: str) -> str:
     return _SINYAL_PDF.get(isaret, isaret)
 
 
+def _varlik_tur_label(h) -> str:
+    if getattr(h, "piyasa", "") == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia":
+        return "emtia"
+    if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf":
+        return "etf"
+    return "hisse"
+
+
 def sinyal_isaret_hisse(h, *, fx=None) -> str:
-    """Hisse/ETF nesnesinden 🔼/⏸/🔽 (temel cache; analist yoksa motor)."""
+    """Hisse/ETF/emtia nesnesinden 🔼/⏸/🔽 (temel cache; analist yoksa motor)."""
     if getattr(h, "signal_v2_score", None) is not None:
         skor = h.signal_v2_score
     else:
         skor = getattr(h, "skor", None)
 
-    tur = (
-        "etf"
-        if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf"
-        else "hisse"
-    )
-    if tur == "etf":
-        return sinyal_isaret(skor, {"tur": "etf"})
+    tur = _varlik_tur_label(h)
+    if tur in ("etf", "emtia"):
+        return sinyal_isaret(skor, {"tur": tur})
 
     cache = yukle_cache()
     sym = (getattr(h, "sembol", "") or "").strip().upper()
@@ -867,7 +871,7 @@ def skor_label(
         except (TypeError, ValueError):
             pass
 
-    if not temel or temel.get("tur") == "etf":
+    if not temel or temel.get("tur") in ("etf", "emtia"):
         return base
 
     yon_map = _SKOR_YON_PDF if pdf_safe else _SKOR_YON_UI
@@ -903,13 +907,9 @@ def skor_etiket_hisse(h, *, fx=None, pdf_safe: bool = False) -> Any:
     else:
         return round(getattr(h, "skor", 0) or 0, 0)
 
-    tur = (
-        "etf"
-        if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf"
-        else "hisse"
-    )
-    if tur == "etf":
-        return skor_label(s, p, {"tur": "etf"}, pdf_safe=pdf_safe)
+    tur = _varlik_tur_label(h)
+    if tur in ("etf", "emtia"):
+        return skor_label(s, p, {"tur": tur}, pdf_safe=pdf_safe)
 
     cache = yukle_cache()
     sym = (getattr(h, "sembol", "") or "").strip().upper()

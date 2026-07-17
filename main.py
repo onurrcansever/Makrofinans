@@ -13,6 +13,7 @@ Kullanım:
     python main.py --evds-test          -> EVDS API key doğrulama
     python main.py --cds-durum          -> CDS kaynaklarını listele
     python main.py --cds-guncelle       -> Bloomberg + Investing CDS çek
+    python main.py --cache-yenile       -> sessiz fiyat+analist+tarama önbellek (15 dk)
     python backtest.py --months 12      -> geçmiş simülasyon
 """
 import argparse
@@ -91,7 +92,23 @@ def main():
         action="store_true",
         help="--cds-guncelle ile birlikte: çelişki/sıçrama varsa Telegram/WhatsApp bildir",
     )
+    parser.add_argument(
+        "--cache-yenile",
+        action="store_true",
+        help="Sessiz arka plan: canlı fiyat + bayat tarama + analist cache",
+    )
     args = parser.parse_args()
+
+    if args.cache_yenile:
+        from background_cache import run_background_refresh
+
+        out = run_background_refresh(
+            quotes=True, tarama=True, analist=True, max_workers=3,
+        )
+        notifier.konsola_yazdir(
+            f"Cache yenileme: ok={out.get('ok')} · {out.get('elapsed_sec', 0):.1f}s"
+        )
+        raise SystemExit(0 if out.get("ok") else 1)
 
     if args.cds_durum:
         from cds_sync import cds_durum_metni

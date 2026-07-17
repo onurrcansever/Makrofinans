@@ -45,3 +45,4 @@ benchmarks:
 asset_classes:
   etf_broad: ["abd", "dunya", "hisse_global", "temettu", "avrupa", "europa", "esg"]
   etf_other: ["teknoloji", "gelisen", "tahvil", "altin", "emtia"]
+  # Spot GC=F/SI=F → asset_class_for="emtia" (benchmark yok, rel=50)

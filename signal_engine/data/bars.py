@@ -312,6 +312,8 @@ def settlement_asof(
 
 def asset_class_for(h, cfg) -> str:
     sym = (h.sembol or "").upper()
+    if h.piyasa == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia":
+        return "emtia"
     if h.piyasa == "ETF" or getattr(h, "varlik_turu", "") == "etf":
         broad = set(cfg.asset_classes.get("etf_broad") or [])
         if h.sektor in broad:
@@ -325,6 +327,9 @@ def asset_class_for(h, cfg) -> str:
 def benchmark_symbol(h, cfg) -> str:
     ac = asset_class_for(h, cfg)
     bm = cfg.benchmarks
+    if ac == "emtia":
+        # Spot emtia: hisse benchmark alfası anlamsız — pipeline rel=50 nötr
+        return ""
     if ac == "bist":
         return bm.get("bist", "XU100.IS")
     if ac == "etf_broad" or ac == "etf_other":

@@ -177,6 +177,10 @@ OZET_ALARM_HER_ZAMAN = os.getenv("OZET_ALARM_HER_ZAMAN", "1").lower() in ("1", "
 # WhatsApp özetinde AL listesi — 0 = tüm adaylar (varsayılan)
 OZET_AL_MAX_HISSE = int(os.getenv("OZET_AL_MAX_HISSE", "0"))
 OZET_AL_MAX_ETF = int(os.getenv("OZET_AL_MAX_ETF", "0"))
+# WhatsApp özetinde pozisyon tablosu (Sinyal · Öneri · K/Z)
+OZET_POZISYON_TABLO = os.getenv("OZET_POZISYON_TABLO", "1").lower() in ("1", "true", "yes")
+OZET_GOSTERIM_PB = os.getenv("OZET_GOSTERIM_PB", "EUR").upper()
+OZET_POZ_MAX = int(os.getenv("OZET_POZ_MAX", "0"))  # 0 = tüm pozisyonlar
 INVESTOR_RISK = os.getenv("INVESTOR_RISK", "orta")
 INVESTOR_VADE = os.getenv("INVESTOR_VADE", "kisa_6")
 

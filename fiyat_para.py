@@ -229,10 +229,14 @@ def kaynak_para_birimi(
         return "TL"
     if pozisyon_turu in ("nakit_tl", "tl_mevduat", "tefas", "altin", "gumus"):
         return "TL"
+    if varlik_turu == "hisse_us" or pozisyon_turu == "hisse_us":
+        return "USD"
     sym = (sembol or "").upper()
     if sym.endswith(".IS") or piyasa == "BIST":
         return "TL"
-    if piyasa in ("SP500", "NASDAQ"):
+    if piyasa in ("SP500", "NASDAQ", "EMTIA"):
+        return "USD"
+    if varlik_turu == "emtia":
         return "USD"
     from signal_engine.data.quote_normalize import normalize_price, resolve_quote_currency
     raw = resolve_quote_currency(sym)
@@ -383,10 +387,11 @@ def _fx_endpoints_for_window(
     from fiyat_para_fx import fx_value_at, fx_window_dates
 
     gbp_s = gbp_s.dropna() if gbp_s is not None and not gbp_s.empty else pd.Series(dtype=float)
-    if bar_dates is not None:
-        pair = fx_window_dates(bar_dates, gun)
-        if pair is None:
-            return None
+    pair = fx_window_dates(bar_dates, gun) if bar_dates is not None else None
+    use_fx_series = pair is None and (bar_dates is None or gun == 1)
+    if pair is None and not use_fx_series:
+        return None
+    if pair is not None:
         d0, d1 = pair
         usd_start = fx_value_at(usd_s, d0)
         usd_end = fx_value_at(usd_s, d1)
@@ -395,7 +400,8 @@ def _fx_endpoints_for_window(
         gbp_start = fx_value_at(gbp_s, d0) if not gbp_s.empty else None
         gbp_end = fx_value_at(gbp_s, d1) if not gbp_s.empty else None
     else:
-        if len(eur_s.dropna()) < gun + 1:
+        # gun==1 + varlık bar boşluğu, veya bar_dates yok: FX son iki işlem günü
+        if len(eur_s.dropna()) < gun + 1 or len(usd_s.dropna()) < gun + 1:
             return None
         eur_end = float(eur_s.iloc[-1])
         eur_start = _seri_son_indis(eur_s, gun)

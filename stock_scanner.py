@@ -20,6 +20,7 @@ from profil_hisse import (
 )
 from investor_profile import YatirimProfili
 from etf_universe import ETF_ETIKET, REVOLUT_ETFLER, etf_oncelik
+from emtia_universe import EMTIA_SEMBOLLER
 from stock_universe import (
     ENDEKSLER,
     SEKTOR_ETIKET,
@@ -91,7 +92,7 @@ class HisseAnaliz:
     hikaye: str = ""
     isin: str = ""
     revolut_ticker: str = ""
-    varlik_turu: str = "hisse"  # hisse | etf
+    varlik_turu: str = "hisse"  # hisse | etf | emtia
     peer_yuzdelik: Optional[float] = None
     endeks_gore: Optional[float] = None
     faktor_notu: str = ""
@@ -232,6 +233,53 @@ def _degisim(seri: pd.Series, gun: int) -> Optional[float]:
     if eski is None or yeni is None or eski == 0:
         return None
     return (yeni - eski) / eski * 100
+
+
+def _degisim_1g(
+    fiyat: Optional[float],
+    close: pd.Series,
+    previous_close: Optional[float] = None,
+    *,
+    sembol: str = "",
+) -> Optional[float]:
+    """1G % — resmi önceki seans kapanışı (Yahoo/Google previousClose).
+
+    History'deki son iki mum, eksik bar / tatil boşluğunda yanlış 'önceki
+    kapanış' verebilir (ör. MGROS 608 vs resmi 627). previousClose varsa onu kullan.
+    """
+    prev = previous_close
+    px = fiyat
+    if (prev is None or px is None) and sembol:
+        try:
+            from signal_engine.data.live_quote import get_live_quote
+
+            live = get_live_quote(sembol)
+            if live:
+                if prev is None and live.previous_close is not None:
+                    prev = live.previous_close
+                if px is None and live.price is not None:
+                    px = live.price
+        except Exception:
+            pass
+    if (
+        prev is not None
+        and px is not None
+        and float(prev) > 0
+        and float(px) > 0
+    ):
+        return (float(px) - float(prev)) / float(prev) * 100.0
+
+    # Bar fallback yalnızca bitişik seanslarda — çok günlük boşlukta yanlış % üretme
+    close = _seri_1d(close)
+    if len(close) >= 2:
+        try:
+            d0 = pd.Timestamp(close.index[-2]).tz_localize(None).normalize()
+            d1 = pd.Timestamp(close.index[-1]).tz_localize(None).normalize()
+            if abs((d1 - d0).days) > 2:
+                return None
+        except Exception:
+            pass
+    return _degisim(close, 1)
 
 
 def _extract_close_raw(df: pd.DataFrame, sembol: str) -> pd.Series:
@@ -402,6 +450,16 @@ def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) 
         return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
 
     fiyat = _son_fiyat(close)
+    prev_close = None
+    try:
+        from signal_engine.data.live_quote import get_live_quote
+
+        live = get_live_quote(sym)
+        if live and live.price > 0:
+            fiyat = live.price
+            prev_close = live.previous_close
+    except Exception:
+        pass
     if fiyat is None:
         return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
     rsi = _rsi(close)
@@ -417,7 +475,7 @@ def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) 
         ad=ad,
         sembol=sym,
         fiyat=fiyat,
-        degisim_1g=_degisim(close, 1),
+        degisim_1g=_degisim_1g(fiyat, close, prev_close, sembol=sym),
         degisim_1ay=_degisim(close, 21),
         degisim_3ay=_degisim(close, 63),
         rsi=rsi,
@@ -466,6 +524,7 @@ def _hisse_analiz(
     fiyat = _son_fiyat(close)
     quote_ts = ""
     quote_age: Optional[float] = None
+    prev_close: Optional[float] = None
     try:
         from datetime import timezone
 
@@ -473,6 +532,7 @@ def _hisse_analiz(
 
         live = get_live_quote(sembol)
         if live and live.price > 0:
+            prev_close = live.previous_close
             target = quote_meta.settlement_currency
             if live.settlement == target:
                 fiyat = live.price
@@ -495,6 +555,15 @@ def _hisse_analiz(
                         eur_try=fx.eur_try, usd_try=fx.usd_try,
                         gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
                     )
+                    if live.previous_close is not None:
+                        try:
+                            prev_close = convert_settlement(
+                                live.previous_close, live.settlement, target,
+                                eur_try=fx.eur_try, usd_try=fx.usd_try,
+                                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                            )
+                        except FxUnavailableError:
+                            prev_close = live.previous_close
                 except FxUnavailableError:
                     # Canlı kotasyon PB'si farklı ve FX yok — bar settlement fiyatında kal
                     # (yanlış PB ile live fiyat YAZMA)
@@ -530,7 +599,7 @@ def _hisse_analiz(
     teknik_skor = skor
 
     from hisse_trend_filtresi import trend_filtresi_uygula
-    d1g = _degisim(close, 1)
+    d1g = _degisim_1g(fiyat, close, prev_close, sembol=sembol)
     _h = HisseAnaliz(
         sembol=sembol, ad=ad, piyasa=piyasa, fiyat=fiyat,
         degisim_1g=d1g, degisim_1ay=d1ay,
@@ -599,10 +668,17 @@ def _hisse_analiz(
 
 
 def _hikaye_uret(h: HisseAnaliz) -> str:
-    """Büyük şirket / Revolut ETF için kısa yatırım hikayesi."""
+    """Büyük şirket / Revolut ETF / spot emtia için kısa yatırım hikayesi."""
     sek = SEKTOR_ETIKET.get(h.sektor, h.sektor)
 
-    if h.varlik_turu == "etf" or h.piyasa == "ETF":
+    if h.varlik_turu == "emtia" or h.piyasa == "EMTIA":
+        if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
+            hik = f"Spot {sek} (ons) — teknik alım bölgesi"
+        elif h.sinyal in ("ASIRI_ALIM", "UZAK_DUR"):
+            hik = f"Spot {sek} (ons) — zirveye yakın, temkin"
+        else:
+            hik = f"Spot {sek} (ons) — fiziksel alım/satım izleme"
+    elif h.varlik_turu == "etf" or h.piyasa == "ETF":
         rt = h.revolut_ticker or h.sembol.split(".")[0]
         if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
             hik = f"Revolut {rt} · {sek} ETF — kademeli DCA / alım adayı"
@@ -714,7 +790,12 @@ def tam_tarama(
     endeksler = [_endeks_analiz(df, ad, sym, makro_rejim, snap) for ad, sym in ENDEKSLER.items()]
     tum: List[HisseAnaliz] = []
     for sembol, ad, piyasa, sektor, isin, revolut_ticker in evren:
-        varlik = "etf" if piyasa == "ETF" else "hisse"
+        if piyasa == "ETF":
+            varlik = "etf"
+        elif piyasa == "EMTIA":
+            varlik = "emtia"
+        else:
+            varlik = "hisse"
         tum.append(_hisse_analiz(
             df, sembol, ad, piyasa, sektor, makro_rejim, snap,
             isin=isin, revolut_ticker=revolut_ticker, varlik_turu=varlik, profil=profil,
@@ -780,7 +861,7 @@ def tam_tarama(
     ozet = (
         f"{len(evren)} varlık tarandı (BIST {len(BIST_HISSELER)}, "
         f"SP500 {len(SP500_HISSELER)}, NASDAQ {len(NASDAQ_HISSELER)}, "
-        f"Revolut ETF {len(REVOLUT_ETFLER)}) · "
+        f"Revolut ETF {len(REVOLUT_ETFLER)}, Emtia {len(EMTIA_SEMBOLLER)}) · "
         f"Rejim: {makro_rejim} · Profil: {profil_ozet} · "
         f"{len(firsatlar)} alım adayı (eşik ≥{esik:.0f}, {len(etf_firsat)} ETF)"
     )

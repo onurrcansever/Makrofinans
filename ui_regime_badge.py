@@ -5,33 +5,34 @@ from __future__ import annotations
 import html
 from typing import Optional
 
+# Google Finance pastel (~%10 opaklık)
 REGIME_SPEC = {
     "TRENDING_UP": {
         "icon": "↗",
         "short": "Trend ↑",
-        "color": "#166534",
-        "bg": "rgba(22,101,52,0.12)",
+        "color": "#137333",
+        "bg": "#e6f4ea",
         "desc": "Yükselen trend — geri çekilmede alım mantığı aktif",
     },
     "TRENDING_DOWN": {
         "icon": "↘",
         "short": "Trend ↓",
-        "color": "#b91c1c",
-        "bg": "rgba(185,28,28,0.12)",
+        "color": "#a50e0e",
+        "bg": "#fce8e6",
         "desc": "Düşen trend — yeni alım sinyali üretilmez, sadece izleme",
     },
     "RANGE_BOUND": {
         "icon": "↔",
         "short": "Yatay",
-        "color": "#475569",
-        "bg": "rgba(71,85,105,0.12)",
+        "color": "#5f6368",
+        "bg": "#e8eaed",
         "desc": "Yatay bant — bant altı alım / bant üstü kâr alma mantığı",
     },
     "HIGH_VOL": {
         "icon": "⚡",
         "short": "Volatil",
-        "color": "#b45309",
-        "bg": "rgba(180,83,9,0.14)",
+        "color": "#b06000",
+        "bg": "#fef7e0",
         "desc": "Yüksek volatilite — pozisyon boyutu küçültülür, seviyeler genişletilir",
     },
 }
@@ -47,8 +48,8 @@ def regime_badge_html(
     spec = REGIME_SPEC.get(regime, {
         "icon": "?",
         "short": regime or "—",
-        "color": "#64748b",
-        "bg": "rgba(100,116,139,0.12)",
+        "color": "#5f6368",
+        "bg": "#e8eaed",
         "desc": regime or "—",
     })
     tip_parts = [spec["desc"]]
@@ -61,19 +62,20 @@ def regime_badge_html(
     tip = html.escape(" · ".join(tip_parts))
     aria = html.escape(f"{spec['short']}: {spec['desc']}")
     dot = (
-        '<span style="width:5px;height:5px;border-radius:50%;background:#2563eb;'
+        '<span style="width:5px;height:5px;border-radius:50%;background:#1a73e8;'
         'display:inline-block;margin-left:3px;" title="Yeni rejim"></span>'
         if fresh_change else ""
     )
     dur = (
-        f'<div style="font-size:9px;color:#64748b;margin-top:1px;">{duration_days} gündür</div>'
+        f'<div style="font-size:9px;color:#5f6368;margin-top:1px;">{duration_days} gündür</div>'
         if duration_days and duration_days > 0 else ""
     )
     return (
         f'<span aria-label="{aria}" title="{tip}" style="display:inline-flex;flex-direction:column;'
-        f'align-items:flex-start;line-height:1.2;">'
-        f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;'
-        f'border-radius:999px;font-size:10px;font-weight:700;color:{spec["color"]};'
+        f'align-items:flex-start;line-height:1.2;'
+        f'font-family:\'Google Sans\',Roboto,-apple-system,sans-serif;">'
+        f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;'
+        f'border-radius:999px;font-size:11px;font-weight:500;color:{spec["color"]};'
         f'background:{spec["bg"]};white-space:nowrap;">'
         f'<span aria-hidden="true">{spec["icon"]}</span> {html.escape(spec["short"])}{dot}</span>'
         f'{dur}</span>'

@@ -87,6 +87,7 @@ class PozisyonDeger:
     kar_zarar_pct: float
     para: str
     getiriler: Dict[str, Optional[float]] = field(default_factory=dict)
+    bar_dates: Optional[pd.DatetimeIndex] = None
 
 
 @dataclass
@@ -109,6 +110,11 @@ def _gun_tutma(alim_tarihi: str, bugun: date) -> int:
     except ValueError:
         return 0
     return max(0, (bugun - alim).days)
+
+
+def pozisyon_tutma_gun(alim_tarihi: str, bugun: Optional[date] = None) -> int:
+    """Alım tarihinden bugüne geçen gün (Varlıklarım getiri sütunları)."""
+    return _gun_tutma(alim_tarihi, bugun or date.today())
 
 
 def _seri_fiyat(seri: pd.Series, hedef: date) -> Optional[float]:
@@ -278,7 +284,7 @@ def _miktar_etiket(p: VarlikPozisyon, qty: float) -> str:
         return f"{qty:,.2f} gr"
     if p.tur == "kripto":
         return f"{qty:.6f} BTC"
-    if p.tur in ("tefas", "hisse", "etf"):
+    if p.tur in ("tefas", "hisse", "hisse_us", "etf"):
         return f"{qty:,.2f} adet"
     if p.tur == "nakit_eur":
         return f"{qty:,.2f} EUR"
@@ -342,7 +348,7 @@ def _mevduat_getiriler(p: VarlikPozisyon, bugun: date) -> Dict[str, Optional[flo
 def _yf_sembolleri(pozisyonlar: List[VarlikPozisyon]) -> List[str]:
     out = set()
     for p in pozisyonlar:
-        if p.tur in ("hisse", "etf") and p.sembol:
+        if p.tur in ("hisse", "hisse_us", "etf") and p.sembol:
             out.add(p.sembol)
         elif p.tur in YF_SEMBOL:
             out.add(YF_SEMBOL[p.tur])
@@ -622,10 +628,10 @@ def portfoy_degerle(
                 ret = _getiri_alimden(seri, p.alim_tarihi, bugun) if not seri.empty else None
                 deger = _deger_tutar_bazli(maliyet_d, ret)
             getiriler = _getiriler_portfoy(seri, p.alim_tarihi, bugun) if not seri.empty else {et: 0.0 for et in PERIYOTLAR}
-        elif p.tur in ("hisse", "etf", "kripto"):
+        elif p.tur in ("hisse", "hisse_us", "etf", "kripto"):
             sym = p.sembol or YF_SEMBOL.get(p.tur, "")
             seri_raw = _close_al(df, sym) if sym else pd.Series(dtype=float)
-            if p.tur == "hisse":
+            if p.tur in ("hisse", "hisse_us"):
                 seri = seri_raw
                 birim_guncel = float(seri.iloc[-1]) if not seri.empty else 0.0
             elif p.tur == "etf" and p.para_birimi == "TL" and not seri_raw.empty:
@@ -671,6 +677,7 @@ def portfoy_degerle(
 
         kz = deger - maliyet_d
         kz_pct = (kz / maliyet_d * 100) if maliyet_d > 0 else 0.0
+        bar_dates = pd.DatetimeIndex(seri.index) if not seri.empty else None
         # poz_para_override: döviz pozisyonlarında deger TL'de; çift dönüşümü önle
         _para = poz_para_override if poz_para_override else (p.para_birimi or "TL")
         poz_degerler.append(
@@ -685,6 +692,7 @@ def portfoy_degerle(
                 kar_zarar_pct=kz_pct,
                 para=_para,
                 getiriler=getiriler,
+                bar_dates=bar_dates,
             )
         )
         poz_para_override = None  # sıfırla

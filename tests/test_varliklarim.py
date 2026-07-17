@@ -26,6 +26,10 @@ from varliklarim import (
     _hedef_aktarim_tutar,
     kaydet_store,
     oneri_portfoye_aktar,
+    pozisyon_canli_fiyat,
+    pozisyon_emtia_fiyat,
+    pozisyon_evren_listesi,
+    pozisyon_sembol_normalize,
     yukle_store,
     yeni_portfoy,
 )
@@ -274,6 +278,81 @@ class VarliklarimTest(unittest.TestCase):
         toplam = sum(p.maliyet for p in store.portfoyler[0].pozisyonlar)
         self.assertAlmostEqual(toplam, 1_000_000.0, delta=1.0)
         self.assertEqual(store.portfoyler[0].ad, "Deneme")
+
+
+class PozisyonEklemeHelperTest(unittest.TestCase):
+    def test_bist_sembol_normalize(self):
+        self.assertEqual(pozisyon_sembol_normalize("hisse", "thyao"), "THYAO.IS")
+        self.assertEqual(pozisyon_sembol_normalize("hisse", "THYAO.IS"), "THYAO.IS")
+
+    def test_etf_sembol_normalize(self):
+        sym = pozisyon_sembol_normalize("etf", "CSPX")
+        self.assertTrue(sym.endswith(".L") or "CSPX" in sym.upper())
+
+    def test_evren_listesi_hisse_filtre(self):
+        liste = pozisyon_evren_listesi("hisse", ara="THYAO")
+        self.assertTrue(any("THYAO" in x.sembol for x in liste))
+        self.assertTrue(all(".IS" in x.sembol for x in liste))
+
+    def test_evren_listesi_etf(self):
+        liste = pozisyon_evren_listesi("etf", ara="CSPX")
+        self.assertTrue(len(liste) >= 1)
+        self.assertIn("CSPX", liste[0].label.upper())
+
+    def test_canli_fiyat_tarama_oncelik(self):
+        class _H:
+            sembol = "THYAO.IS"
+            fiyat = 312.5
+
+        class _T:
+            hisseler = [_H()]
+
+        px, pb = pozisyon_canli_fiyat("THYAO", "hisse", _T())
+        self.assertAlmostEqual(px, 312.5)
+        self.assertEqual(pb, "TL")
+
+    def test_evren_listesi_hisse_us(self):
+        liste = pozisyon_evren_listesi("hisse_us", ara="NVDA")
+        self.assertTrue(len(liste) >= 1)
+        self.assertTrue(all("NASDAQ" in x.label or "SP500" in x.label for x in liste))
+
+    def test_emtia_fiyat(self):
+        snap = _snap()
+        px, pb = pozisyon_emtia_fiyat("altin", snap)
+        self.assertIsNotNone(px)
+        self.assertGreater(px, 0)
+        self.assertEqual(pb, "TL")
+
+    def test_hisse_us_normalize(self):
+        self.assertEqual(pozisyon_sembol_normalize("hisse_us", "NVDA"), "NVDA")
+
+    def test_pozisyon_tutma_gun_bugun(self):
+        from varlik_fiyat import pozisyon_tutma_gun
+        from datetime import date
+
+        self.assertEqual(pozisyon_tutma_gun(date.today().isoformat(), date.today()), 0)
+
+    def test_tablo_getiri_sifir_tutma(self):
+        from varliklarim_ui import _pozisyon_tablo_getiri
+        import pandas as pd
+
+        idx = pd.date_range("2026-01-01", periods=40, freq="D")
+        usd = pd.Series([35.0 + i * 0.01 for i in range(40)], index=idx)
+        eur = pd.Series([38.0 + i * 0.01 for i in range(40)], index=idx)
+        out = _pozisyon_tablo_getiri(
+            0.0, "TL", 30, eur, usd,
+            asset_pb="USD", varlik_turu="hisse_us", tutma_gun=0,
+        )
+        self.assertEqual(out, 0.0)
+
+        class _F:
+            kod = "YIV"
+            fiyat = 12.34
+            para_birimi = "TL"
+
+        px, pb = pozisyon_canli_fiyat("YIV", "tefas", None, tefas_fonlar=[_F()])
+        self.assertAlmostEqual(px, 12.34)
+        self.assertEqual(pb, "TL")
 
 
 if __name__ == "__main__":

@@ -15,72 +15,104 @@ try:
 except ImportError:  # pragma: no cover
     go = None
 
-BG = "#eef1f5"
+BG = "#ffffff"
 PANEL = "#ffffff"
-PANEL_HOVER = "#f8fafc"
-BORDER = "#e2e8f0"
-TEXT = "#1e293b"
-TEXT_MUTED = "#64748b"
-UP = "#16a34a"
-DOWN = "#dc2626"
-ACCENT = "#2563eb"
-WARN = "#d97706"
+PANEL_HOVER = "#f8f9fa"
+BORDER = "#e8eaed"
+TEXT = "#202124"
+TEXT_MUTED = "#5f6368"
+UP = "#137333"
+UP_BG = "#e6f4ea"
+DOWN = "#a50e0e"
+DOWN_BG = "#fce8e6"
+ACCENT = "#1a73e8"
+WARN = "#b06000"
+WARN_BG = "#fef7e0"
+MUTED_BG = "#e8eaed"
+
+_FONT = "'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 KARAR_STYLES = {
-    # Signal Engine v2
-    "GÜÇLÜ AL": (UP, "rgba(22,163,74,0.16)"),
-    "GUCLU AL": (UP, "rgba(22,163,74,0.16)"),
-    "AL": (UP, "rgba(22,163,74,0.10)"),
-    "İZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
-    "IZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
-    "BEKLE": (WARN, "rgba(217,119,6,0.10)"),
-    "AZALT": (DOWN, "rgba(220,38,38,0.10)"),
+    # Signal Engine v2 — Google Finance pastel pills
+    "GÜÇLÜ AL": (UP, UP_BG),
+    "GUCLU AL": (UP, UP_BG),
+    "AL": (UP, UP_BG),
+    "İZLE": (TEXT_MUTED, MUTED_BG),
+    "IZLE": (TEXT_MUTED, MUTED_BG),
+    "BEKLE": (WARN, WARN_BG),
+    "AZALT": (DOWN, DOWN_BG),
     # Eski v1 (v2 kapalı)
-    "DİKKAT": (WARN, "rgba(217,119,6,0.10)"),
-    "DIKKAT": (WARN, "rgba(217,119,6,0.10)"),
-    "ALMA": (DOWN, "rgba(220,38,38,0.10)"),
+    "DİKKAT": (WARN, WARN_BG),
+    "DIKKAT": (WARN, WARN_BG),
+    "ALMA": (DOWN, DOWN_BG),
 }
 
 EMIR_STYLES = {
-    "AL": (UP, "rgba(22,163,74,0.10)"),
-    "KADEMELI": (WARN, "rgba(217,119,6,0.10)"),
-    "BEKLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
-    "TUT": (UP, "rgba(22,163,74,0.10)"),
-    "SAT": (WARN, "rgba(217,119,6,0.10)"),
-    "EKLE": (ACCENT, "rgba(37,99,235,0.10)"),
-    "UZAK": (DOWN, "rgba(220,38,38,0.10)"),
-    "GÜÇLÜ": (UP, "rgba(22,163,74,0.10)"),
-    "GUCLU": (UP, "rgba(22,163,74,0.10)"),
-    "UYGUN": (WARN, "rgba(217,119,6,0.10)"),
-    "İZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
-    "IZLE": (TEXT_MUTED, "rgba(100,116,139,0.10)"),
-    "ZAYIF": (DOWN, "rgba(220,38,38,0.10)"),
+    "AL": (UP, UP_BG),
+    "KADEMELI": (WARN, WARN_BG),
+    "BEKLE": (TEXT_MUTED, MUTED_BG),
+    "TUT": (UP, UP_BG),
+    "SAT": (WARN, WARN_BG),
+    "KÂR": (WARN, WARN_BG),
+    "KAR": (WARN, WARN_BG),
+    "ÇIKIŞ": (WARN, WARN_BG),
+    "CIKIS": (WARN, WARN_BG),
+    "ELDE": (UP, UP_BG),
+    "PASIF": (TEXT_MUTED, MUTED_BG),
+    "EKLEME": (ACCENT, "rgba(26,115,232,0.10)"),
+    "KÜÇÜLT": (DOWN, DOWN_BG),
+    "KUCULT": (DOWN, DOWN_BG),
+    "AZALT": (DOWN, DOWN_BG),
+    "EKLE": (ACCENT, "rgba(26,115,232,0.10)"),
+    "UZAK": (DOWN, DOWN_BG),
+    "GÜÇLÜ": (UP, UP_BG),
+    "GUCLU": (UP, UP_BG),
+    "UYGUN": (WARN, WARN_BG),
+    "İZLE": (TEXT_MUTED, MUTED_BG),
+    "IZLE": (TEXT_MUTED, MUTED_BG),
+    "ZAYIF": (DOWN, DOWN_BG),
 }
 
-_BADGE_COLS = frozenset({"Karar", "Emir", "Plan", "Öneri"})
+_BADGE_COLS = frozenset({
+    "Karar", "Emir", "Plan", "Öneri",
+    "Alım/Satış Sinyali", "Pozisyon Önerisi",
+})
 _TRUNC_COLS = frozenset({"Fon", "Araç", "ETF", "Hisse", "Ad", "Not", "Kategori", "Sembol", "Teknik sinyal"})
+
+# UI sinyal — emoji → zarif glyph (mantık temel_veri'de)
+_SINYAL_GLYPH = {
+    "🔼": ("▲", UP),
+    "🔽": ("▼", DOWN),
+    "⏸": ("—", TEXT_MUTED),
+    "↑": ("▲", UP),
+    "↓": ("▼", DOWN),
+    "=": ("—", TEXT_MUTED),
+}
 
 _THEME_HTML = Path(__file__).resolve().parent / "static" / "tv_theme.html"
 _NUM = (
-    "font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+    f"font-family:{_FONT};"
     "font-variant-numeric:tabular-nums;font-feature-settings:'tnum';"
 )
 _CELL = (
     f"flex:1 1 145px;min-width:135px;max-width:220px;background:{PANEL};"
-    f"border:1px solid {BORDER};border-radius:10px;padding:14px 16px;"
-    f"box-shadow:0 1px 2px rgba(15,23,42,0.06);"
+    f"border:1px solid {BORDER};border-radius:12px;padding:14px 16px;"
+    f"box-shadow:none;"
     f"display:flex;flex-direction:column;gap:6px;min-height:88px;"
 )
-_STRIP = "display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 18px;"
+_STRIP = "display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 18px;"
 _TH = (
-    f"position:sticky;top:0;background:#f1f5f9;color:{TEXT_MUTED};"
-    "font-size:10px;text-transform:uppercase;letter-spacing:0.4px;font-weight:600;"
-    f"text-align:left;padding:6px 8px;border-bottom:1px solid {BORDER};white-space:nowrap;"
+    f"position:sticky;top:0;background:{PANEL};color:{TEXT_MUTED};"
+    f"font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;"
+    f"font-family:{_FONT};"
+    f"text-align:left;padding:12px 16px;border-bottom:1px solid {BORDER};white-space:nowrap;"
     "vertical-align:middle;line-height:1.2;"
 )
 _TD = (
-    f"padding:5px 8px;border-bottom:1px solid #f1f5f9;color:{TEXT};"
-    "vertical-align:middle;font-size:12px;line-height:1.25;white-space:nowrap;"
+    f"padding:12px 16px;height:48px;box-sizing:border-box;"
+    f"border-bottom:1px solid {BORDER};color:{TEXT};"
+    f"vertical-align:middle;font-size:14px;font-weight:400;line-height:1.35;"
+    f"white-space:nowrap;font-family:{_FONT};"
 )
 
 
@@ -97,8 +129,32 @@ def _esc(val: Any) -> str:
 
 def _delta_style(pos: bool) -> str:
     if pos:
-        return f"color:{UP};background:rgba(22,163,74,0.09);"
-    return f"color:{DOWN};background:rgba(220,38,38,0.09);"
+        return f"color:{UP};background:{UP_BG};"
+    return f"color:{DOWN};background:{DOWN_BG};"
+
+
+def _pct_pill(val: float, *, with_pct: bool = True) -> str:
+    """Google Finance tarzı ▲/▼ yüzde rozeti — sayı formatı aynı."""
+    sign = "+" if val > 0 else ""
+    suffix = "%" if with_pct else ""
+    txt = f"{sign}{val:.2f}{suffix}"
+    base = (
+        f"display:inline-block;font-family:{_FONT};font-size:13px;font-weight:500;"
+        "padding:2px 8px;border-radius:8px;line-height:1.3;white-space:nowrap;"
+    )
+    if val > 0:
+        return f'<span style="{base}color:{UP};background:{UP_BG};">▲ {_esc(txt)}</span>'
+    if val < 0:
+        return f'<span style="{base}color:{DOWN};background:{DOWN_BG};">▼ {_esc(txt)}</span>'
+    return f'<span style="{base}color:{TEXT};background:{MUTED_BG};">{_esc(txt)}</span>'
+
+
+def _sinyal_cell_html(mark: str, tip: str) -> str:
+    glyph, color = _SINYAL_GLYPH.get(mark, (mark or "—", TEXT_MUTED))
+    return (
+        f'<span style="font-size:12px;font-weight:500;line-height:1;color:{color};'
+        f'font-family:{_FONT};" title="{_esc(tip)}">{_esc(glyph)}</span>'
+    )
 
 
 def _fmt_delta(
@@ -110,8 +166,8 @@ def _fmt_delta(
     if delta is None:
         return ""
     base = (
-        "display:inline-block;font-family:Inter,sans-serif;"
-        "font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;"
+        f"display:inline-block;font-family:{_FONT};"
+        "font-size:12px;font-weight:500;padding:2px 8px;border-radius:8px;"
         "line-height:1.3;"
     )
     if isinstance(delta, str):
@@ -137,7 +193,7 @@ def _fmt_delta(
 
 
 def render_metric_strip(metrics: Sequence[Dict[str, Any]]) -> None:
-    """Watchlist tarzı yatay metrik şeridi — inline style (CSS bağımsız)."""
+    """Google Finance kart şeridi — flat, gölgesiz."""
     cells = []
     for m in metrics:
         label = _esc(m.get("label", ""))
@@ -149,9 +205,9 @@ def render_metric_strip(metrics: Sequence[Dict[str, Any]]) -> None:
         )
         cells.append(
             f'<div style="{_CELL}">'
-            f'<div style="font-size:10px;color:{TEXT_MUTED};text-transform:uppercase;'
-            f'letter-spacing:0.5px;font-weight:600;font-family:Inter,sans-serif;">{label}</div>'
-            f'<div style="{_NUM}font-size:20px;font-weight:700;color:{TEXT};line-height:1.25;">{value}</div>'
+            f'<div style="font-size:12px;color:{TEXT_MUTED};font-weight:400;'
+            f'font-family:{_FONT};">{label}</div>'
+            f'<div style="{_NUM}font-size:22px;font-weight:400;color:{TEXT};line-height:1.25;">{value}</div>'
             f'<div style="min-height:20px;line-height:1.3;">{delta_html}</div>'
             f"</div>"
         )
@@ -175,21 +231,24 @@ def _is_pct_col(name: str) -> bool:
     return "%" in name or "reel" in n or "getiri" in n or "fark" in n or n.endswith(" pp")
 
 
-def _badge_html(val: Any, styles: dict) -> str:
+def _badge_html(val: Any, styles: dict, *, title: str = "", style_key: str = "") -> str:
     raw = str(val).strip()
-    key = raw.upper().split()[0].replace("🟢", "").replace("🟡", "").replace("⚪", "").replace("🔴", "").strip()
-    for token in raw.upper().replace("İ", "I").split():
+    key_src = (style_key or raw).upper()
+    key = key_src.split()[0].replace("🟢", "").replace("🟡", "").replace("⚪", "").replace("🔴", "").strip()
+    for token in key_src.replace("İ", "I").split():
         if token in styles or token.replace("I", "İ") in styles:
             key = token
             break
-    color, bg = styles.get(key, styles.get(key.replace("I", "İ"), (TEXT_MUTED, "rgba(120,123,134,0.12)")))
+    color, bg = styles.get(key, styles.get(key.replace("I", "İ"), (TEXT_MUTED, MUTED_BG)))
     label = raw.split()[-1] if raw.startswith(("🟢", "🟡", "⚪", "🔴")) else raw
-    if len(label) > 14:
-        label = label[:12] + "…"
+    if len(label) > 18:
+        label = label[:16] + "…"
+    tip_attr = f' title="{_esc(title)}"' if title else ""
+    cursor = " cursor:help;" if title else ""
     return (
-        f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;'
-        f"font-size:10px;font-weight:700;color:{color};background:{bg};"
-        f'white-space:nowrap;">{_esc(label)}</span>'
+        f'<span style="display:inline-block;padding:2px 10px;border-radius:999px;'
+        f"font-size:12px;font-weight:500;font-family:{_FONT};color:{color};background:{bg};"
+        f'white-space:nowrap;{cursor}"{tip_attr}>{_esc(label)}</span>'
     )
 
 
@@ -222,10 +281,15 @@ def score_sparkline_svg(
 def _format_cell(col: str, val: Any) -> str:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return "—"
+    if isinstance(val, dict) and col == "Pozisyon Önerisi":
+        label = str(val.get("label") or "—")
+        code = str(val.get("code") or label)
+        tip = str(val.get("tip") or "")
+        return _badge_html(label, EMIR_STYLES, title=tip, style_key=code)
     if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
         return score_sparkline_svg(val)
     if col in _BADGE_COLS:
-        if col == "Karar":
+        if col in ("Karar", "Alım/Satış Sinyali"):
             raw = str(val).strip()
             key = raw.upper().replace("DIKKAT", "DİKKAT").replace("GUCLU", "GÜÇLÜ")
             # Tam etiket eşleşmesi (GÜÇLÜ AL parçalanmasın)
@@ -239,19 +303,17 @@ def _format_cell(col: str, val: Any) -> str:
                     if cand.upper().replace("İ", "I") in key.replace("İ", "I") or cand in raw:
                         style_key = cand if cand in KARAR_STYLES else key
                         break
-            color, bg = KARAR_STYLES.get(style_key, KARAR_STYLES.get(raw, (TEXT_MUTED, "rgba(120,123,134,0.12)")))
+            color, bg = KARAR_STYLES.get(style_key, KARAR_STYLES.get(raw, (TEXT_MUTED, MUTED_BG)))
             return (
-                f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;'
-                f"font-size:10px;font-weight:700;color:{color};background:{bg};"
+                f'<span style="display:inline-block;padding:2px 10px;border-radius:999px;'
+                f"font-size:12px;font-weight:500;font-family:{_FONT};color:{color};background:{bg};"
                 f'">{_esc(raw)}</span>'
             )
         return _badge_html(val, EMIR_STYLES)
     if isinstance(val, float):
         if _is_pct_col(col):
-            sign = "+" if val > 0 else ""
-            color = UP if val > 0 else (DOWN if val < 0 else TEXT)
-            suffix = "%" if "%" in col or "reel" in col.lower() else ""
-            return f'<span style="color:{color};">{sign}{val:.2f}{suffix}</span>'
+            with_pct = "%" in col or "reel" in col.lower()
+            return _pct_pill(val, with_pct=with_pct)
         if col in ("Fiyat", "EUR/TRY"):
             return f"{val:,.2f}"
         if col in ("Skor", "RSI", "Peer %"):
@@ -279,10 +341,7 @@ def format_df_cell_html(
 
         mark = str(val).strip() if val is not None else "⏸"
         tip = sinyal_tooltip(mark, analist_var=True)
-        return (
-            f'<span style="font-size:15px;line-height:1;" title="{_esc(tip)}">'
-            f"{_esc(mark)}</span>"
-        )
+        return _sinyal_cell_html(mark, tip)
     if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
         return score_sparkline_svg(val)
     if col == "Rejim" and isinstance(val, str) and "<span" in val:
@@ -290,9 +349,7 @@ def format_df_cell_html(
     if col in _BADGE_COLS or col == badge_col:
         return _format_cell(col, val)
     if col in pct_cols and isinstance(val, (int, float)) and not pd.isna(val):
-        sign = "+" if val > 0 else ""
-        color = UP if val > 0 else (DOWN if val < 0 else TEXT)
-        return f'<span style="color:{color};">{sign}{val:.2f}%</span>'
+        return _pct_pill(float(val), with_pct=True)
     return _format_cell(col, val)
 
 
@@ -374,25 +431,29 @@ def build_df_table_html(
                 )
                 mark = str(val).strip() if val is not None else "⏸"
                 tip = sinyal_tooltip(mark, analist_var=analist_var)
-                inner = (
-                    f'<span style="font-size:15px;line-height:1;" title="{_esc(tip)}">'
-                    f"{_esc(mark)}</span>"
-                )
+                inner = _sinyal_cell_html(mark, tip)
             else:
                 inner = format_df_cell_html(col, val, pct_cols=pct_cols, badge_col=badge_col)
-                tip = "" if val is None else str(val)
-            tds.append(f'<td style="{td_style}" title="{_esc(tip)}">{inner}</td>')
+                if isinstance(val, dict) and val.get("tip"):
+                    tip = str(val["tip"])
+                elif isinstance(val, dict):
+                    tip = str(val.get("label") or "")
+                else:
+                    tip = "" if val is None else str(val)
+            td_title = "" if (col == "Pozisyon Önerisi" and isinstance(val, dict)) else _esc(tip)
+            tds.append(f'<td style="{td_style}" title="{td_title}">{inner}</td>')
         rows.append(f"<tr>{''.join(tds)}</tr>")
 
     wrap = (
         f"overflow-x:auto;margin:6px 0 12px;border:1px solid {BORDER};"
-        f"border-radius:8px;background:{PANEL};box-shadow:0 1px 2px rgba(0,0,0,0.04);"
+        f"border-radius:12px;background:{PANEL};box-shadow:none;"
     )
     if max_height:
         wrap += f"max-height:{max_height}px;overflow-y:auto;"
     return (
         f'<div class="mc-df-table" style="{wrap}">'
-        f'<table style="width:100%;border-collapse:collapse;table-layout:auto;font-size:12px;">'
+        f'<table style="width:100%;border-collapse:collapse;table-layout:auto;'
+        f'font-size:14px;font-family:{_FONT};">'
         f"<thead><tr>{head}</tr></thead>"
         f'<tbody>{"".join(rows)}</tbody></table></div>'
     )

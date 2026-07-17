@@ -205,5 +205,79 @@ class BildirimEkleriTest(unittest.TestCase):
         self.assertIn("💬", metin)
 
 
+    def test_portfoy_pozisyon_tablo_satirlari(self):
+        from varliklarim import VarlikPozisyon, VarlikPortfoy, VarlikStore
+        from varlik_fiyat import PozisyonDeger
+
+        h = _hisse(signal_v2_decision="İZLE", signal_v2_score=59.0)
+        tarama = SimpleNamespace(hisseler=[h])
+        p = VarlikPozisyon(id="1", tur="hisse", sembol="HALKB.IS", miktar=100, maliyet=3500)
+        portfoy = VarlikPortfoy(id="a", ad="Ana", pozisyonlar=[p])
+        pd_ = PozisyonDeger(
+            pozisyon=p, miktar_goster="100", alim_birim=35.0, guncel_birim=32.5,
+            maliyet_deger=3500, guncel_deger=3250, kar_zarar=-250, kar_zarar_pct=-7.1,
+            para="TL", getiriler={},
+        )
+        snap = SimpleNamespace(veri=SimpleNamespace(eur_try=35.5, usd_try=35.0))
+
+        with patch("varliklarim.yukle_store") as mock_store, \
+             patch("varlik_fiyat.portfoy_degerle") as mock_deger, \
+             patch("fiyat_para.tablo_fx_hazirla") as mock_fx, \
+             patch("portfoy_yoneticisi.yonetici_pozisyon_kolonlari") as mock_kol, \
+             patch.object(be, "_tefas_bildirim_yukle", return_value=(None, None)):
+            mock_store.return_value = VarlikStore(portfoyler=[portfoy], aktif_id="a")
+            mock_deger.return_value = SimpleNamespace(pozisyonlar=[pd_])
+            mock_fx.return_value = (
+                SimpleNamespace(eur_try=35.5, usd_try=35.0, gbp_usd=1.34, eur_usd=35 / 35.5),
+                None, None, None, None,
+            )
+            from portfoy_yoneticisi import POZ_COL_ONERI, POZ_COL_SINYAL
+            mock_kol.return_value = {
+                POZ_COL_SINYAL: "İZLE",
+                POZ_COL_ONERI: {"code": "Tut", "label": "Elde tut", "tip": ""},
+                "Ekle": "—", "Stop": "30 EUR",
+            }
+            satirlar = be.portfoy_pozisyon_tablo_satirlari(snap, tarama)
+
+        metin = "\n".join(satirlar)
+        self.assertIn("POZİSYONLAR", metin)
+        self.assertIn("HALKB", metin.upper())
+        self.assertIn("İZLE", metin)
+        self.assertIn("Elde tut", metin)
+        self.assertIn("-7,1%", metin)
+
+    def test_ozet_metni_pozisyon_tablosu(self):
+        py.kaydet_cache({
+            "x": {
+                "metin": "Konsantrasyon yüksek.",
+                "guncelleme": __import__("datetime").datetime.now(
+                    __import__("datetime").timezone.utc
+                ).isoformat(),
+                "ozet": {"ortalama_skor": 63, "azalt_agirlik_pct": 0, "portfoy_kz_pct": -1.1},
+            },
+        })
+        tahsis = SimpleNamespace(
+            rejim=SimpleNamespace(etiket="TL mevduat fırsatı"),
+            agirliklar={"tl_deposit": 0.4},
+            tl_tavan_oran=0.45,
+        )
+        profil = SimpleNamespace(ozet=lambda: "Orta risk · 0–6 ay")
+        tarama = SimpleNamespace(hisseler=[])
+        poz_sat = ["📊 POZİSYONLAR (EUR)", "HALKB · İZLE · Elde tut · -7,1%"]
+        with patch(
+            "ozet_bildirim._varlik_satirlari",
+            return_value=["VARLIKLAR: 1.184.101 TL", " K/Z: -13.430 TL (-1,1%)"],
+        ), patch(
+            "bildirim_ekleri.portfoy_pozisyon_tablo_satirlari", return_value=poz_sat,
+        ):
+            with patch("varliklarim.yukle_store", side_effect=RuntimeError("x")):
+                metin = ozet_metni_olustur(
+                    tahsis, profil, tarama, [], False, None, None,
+                    snap=SimpleNamespace(),
+                )
+        self.assertIn("POZİSYONLAR", metin)
+        self.assertIn("HALKB", metin)
+
+
 if __name__ == "__main__":
     unittest.main()

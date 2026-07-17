@@ -367,6 +367,26 @@ def fonlari_skorla(
     return sonuc
 
 
+def tefas_skorlu_kopya(
+    ham,
+    profil,
+    rejim: str = "NOTR",
+    mevduat_reel: Optional[float] = None,
+    **kwargs,
+):
+    """Ham TEFAS verisini skorla (önbelleği bozmamak için deepcopy)."""
+    from copy import deepcopy
+
+    from app_veri import tefas_yukleniyor
+
+    if not ham or tefas_yukleniyor(ham) or getattr(ham, "hata", ""):
+        return None
+    sonuc = deepcopy(ham)
+    return fonlari_skorla(
+        sonuc, profil, rejim=rejim, mevduat_reel=mevduat_reel, **kwargs,
+    )
+
+
 def top_oneri(
     sonuc: TefasTaramaSonuc,
     n: int = 5,

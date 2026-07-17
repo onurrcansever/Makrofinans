@@ -73,6 +73,8 @@ def favori_yildiz_sutunu(tur: str, sembol: str) -> dict:
 
 
 def favori_hisse_turu(h) -> str:
+    if getattr(h, "piyasa", "") == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia":
+        return "emtia"
     if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf":
         return "etf"
     return "hisse"

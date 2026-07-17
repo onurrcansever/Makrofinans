@@ -88,6 +88,17 @@ crontab -e
 0 9 * * * cd /tam/yol/tl-yatirim-asistani && /usr/bin/python3 main.py --telegram
 ```
 
+### Mac — sessiz fiyat + analist önbellek (15 dk)
+
+Uygulama kapalıyken bile fiyat (≤15 dk) ve analist cache’i sıcak tutar; Streamlit
+açılınca kasılmaz:
+
+```bash
+bash macos/cache_refresh_kurulum.sh
+# Log: ~/Library/Application Support/TLYatirimAsistani/cache_refresh.log
+# Manuel: python main.py --cache-yenile
+```
+
 ## Dosya yapısı
 
 ```

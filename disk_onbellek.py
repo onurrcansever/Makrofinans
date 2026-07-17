@@ -77,6 +77,15 @@ def disk_yaz(anahtar: str, veri: Any) -> None:
         pass  # disk yazılamazsa sessizce geç — önbellek zorunlu değil
 
 
+def disk_mtime(anahtar: str) -> float:
+    """Disk önbellek dosyasının mtime (yoksa 0)."""
+    yol = _dosya(anahtar)
+    try:
+        return float(yol.stat().st_mtime) if yol.exists() else 0.0
+    except OSError:
+        return 0.0
+
+
 # Arka planda tazeleme — aynı anahtar için tek iş parçacığı
 _yenileme_kilidi = threading.Lock()
 _yenilenenler: set = set()

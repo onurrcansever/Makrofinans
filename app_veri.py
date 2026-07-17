@@ -168,7 +168,8 @@ def veri_onbellegi_temizle() -> None:
     from signal_engine.data.quote_normalize import fetch_source_quote_currency
 
     fetch_source_quote_currency.cache_clear()
-    clear_live_quote_cache()
+    # Son kotasyonlar diskte kalsın — yenile bitene / yeni yazılana kadar 1G SWR
+    clear_live_quote_cache(keep_disk=True)
     cds_tick_onbellegi_temizle()
     enflasyon_cache_temizle()
     fiyat_onbellegi_temizle()

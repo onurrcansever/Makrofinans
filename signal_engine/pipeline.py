@@ -72,23 +72,32 @@ def signal_engine_v2_uygula(
         bars_raw = BarSeries.from_df(df, h.sembol)
         h._signal_asset_class = asset_class_for(h, cfg)
         bm_sym = benchmark_symbol(h, cfg)
-        if bm_sym not in bench_cache:
-            bench_cache[bm_sym] = BarSeries.from_df(df, bm_sym)
-        bench = bench_cache[bm_sym]
-        # Ortak asof: LSE günü açıkken ABD bench/FX yoksa skor kaymasın
-        asof = settlement_asof(bars_raw, bench, df)
-        bars = truncate_bars_to_asof(bars_raw, asof) if asof is not None else bars_raw
-        if asof is not None:
-            bench = truncate_bars_to_asof(bench, asof)
+        if bm_sym:
+            if bm_sym not in bench_cache:
+                bench_cache[bm_sym] = BarSeries.from_df(df, bm_sym)
+            bench = bench_cache[bm_sym]
+            asof = settlement_asof(bars_raw, bench, df)
+            bars = truncate_bars_to_asof(bars_raw, asof) if asof is not None else bars_raw
+            if asof is not None:
+                bench = truncate_bars_to_asof(bench, asof)
+        else:
+            # Emtia: benchmark yok — asof yalnızca varlık barı
+            bench = bars_raw
+            bars = bars_raw
 
         meta = etf_meta(getattr(h, "isin", "") or "")
+        if getattr(h, "_signal_asset_class", "") == "emtia" or not bm_sym:
+            from signal_engine.factors.compute import FactorResult
+            rel = FactorResult(50.0, True, "emtia: rel nötr (benchmark yok)")
+        else:
+            rel = relative_strength_factor(
+                bars, bench, df=df, bench_symbol=bm_sym,
+            )
         factors = {
             "trend": trend_factor(bars),
             "mean_reversion": mean_reversion_factor(bars),
             "volatility": volatility_factor(bars, risk_limit=risk_limit),
-            "relative_strength": relative_strength_factor(
-                bars, bench, df=df, bench_symbol=bm_sym,
-            ),
+            "relative_strength": rel,
             "liquidity": liquidity_factor(bars, isin=getattr(h, "isin", "") or "", etf_meta=meta),
         }
         score, used, total = composite_score(factors, cfg)

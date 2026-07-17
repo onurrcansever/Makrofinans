@@ -130,14 +130,22 @@ def _degisim_satirlari(olaylar: List[Tuple[str, str, Any]]) -> List[str]:
 
     al_h: List[str] = []
     al_e: List[str] = []
+    al_m: List[str] = []
     kaldir: List[str] = []
     sat: List[str] = []
     dikkat: List[str] = []
 
     for tip, _sym, h in olaylar:
         ad = degisim_al_etiket(h)
+        emtia = getattr(h, "piyasa", "") == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia"
+        etf = getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf"
         if tip == "AL":
-            (al_e if getattr(h, "piyasa", "") == "ETF" or getattr(h, "varlik_turu", "") == "etf" else al_h).append(ad)
+            if emtia:
+                al_m.append(ad)
+            elif etf:
+                al_e.append(ad)
+            else:
+                al_h.append(ad)
         elif tip == "AL_KALDIRILDI":
             kaldir.append(ad)
         elif tip == "SAT":
@@ -150,6 +158,8 @@ def _degisim_satirlari(olaylar: List[Tuple[str, str, Any]]) -> List[str]:
         satirlar.append(" +AL hisse: " + ", ".join(al_h))
     if al_e:
         satirlar.append(" +AL ETF: " + ", ".join(al_e))
+    if al_m:
+        satirlar.append(" +AL emtia: " + ", ".join(al_m))
     if kaldir:
         satirlar.append(" AL kalktı: " + ", ".join(kaldir))
     if sat:
@@ -193,11 +203,15 @@ def ozet_metni_olustur(
 
     # Portföy durumu — metrikler yerel; 💬 yalnızca cache (API yok)
     try:
-        from bildirim_ekleri import portfoy_durum_satirlari
+        from bildirim_ekleri import portfoy_durum_satirlari, portfoy_pozisyon_tablo_satirlari
         pd_satir = portfoy_durum_satirlari(snap, tarama)
         if pd_satir:
             satirlar.append("")
             satirlar.extend(pd_satir)
+        poz_tab = portfoy_pozisyon_tablo_satirlari(snap, tarama, profil)
+        if poz_tab:
+            satirlar.append("")
+            satirlar.extend(poz_tab)
     except Exception:
         pass
 

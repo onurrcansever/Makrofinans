@@ -150,7 +150,14 @@ def temel_skor_hesapla(
     h._profil_vade = profil_vade
     parcalar: dict = {}
 
-    if h.piyasa == "ETF" or h.varlik_turu == "etf":
+    if h.piyasa == "EMTIA" or h.varlik_turu == "emtia":
+        # Spot emtia: değerleme + vol; hisse peer/momentum yok
+        parcalar["degerleme"] = _degerleme_puan(h.zirve_52h_pct, 35.0)
+        parcalar["makro"] = _etf_makro_puan(makro_rejim, h.sektor if h.sektor in ("altin", "emtia") else "altin")
+        parcalar["vol"] = _vol_profil_puan(vol_30g, profil_risk, 30.0)
+        vade_p, vade_ok = 15.0, True
+        parcalar["vade"] = vade_p
+    elif h.piyasa == "ETF" or h.varlik_turu == "etf":
         parcalar["degerleme"] = _degerleme_puan(h.zirve_52h_pct, 30.0)
         parcalar["makro"] = _etf_makro_puan(makro_rejim, h.sektor)
         parcalar["vol"] = _vol_profil_puan(vol_30g, profil_risk, 25.0)

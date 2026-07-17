@@ -26,6 +26,7 @@ TUR_SECENEKLERI = {
     "tl_mevduat": "TL vadeli mevduat",
     "tefas": "TEFAS fon",
     "hisse": "BIST hissesi",
+    "hisse_us": "ABD hissesi (SP500/NASDAQ)",
     "etf": "ETF (UCITS)",
     "altin": "Altın",
     "gumus": "Gümüş",
@@ -33,7 +34,8 @@ TUR_SECENEKLERI = {
 }
 
 # miktar = adet/pay/gram; alim_fiyati = birim alış fiyatı (para_birimi cinsinden)
-BIRIMLI_TURLER = frozenset({"tefas", "hisse", "etf", "altin", "gumus", "kripto"})
+BIRIMLI_TURLER = frozenset({"tefas", "hisse", "hisse_us", "etf", "altin", "gumus", "kripto"})
+HISSE_TURLER = frozenset({"hisse", "hisse_us"})
 MIKTAR_ETIKET = {
     "nakit_tl": "Tutar (TL)",
     "nakit_eur": "Tutar (EUR)",
@@ -42,6 +44,7 @@ MIKTAR_ETIKET = {
     "tl_mevduat": "Anapara (TL)",
     "tefas": "Pay adedi",
     "hisse": "Lot / adet",
+    "hisse_us": "Lot / adet",
     "etf": "Pay adedi",
     "altin": "Gram",
     "gumus": "Gram",
@@ -50,6 +53,7 @@ MIKTAR_ETIKET = {
 ALIM_FIYAT_ETIKET = {
     "tefas": "Alış fiyatı (TL/pay)",
     "hisse": "Alış fiyatı (TL/adet)",
+    "hisse_us": "Alış fiyatı (USD/adet)",
     "etf": "Alış fiyatı (birim)",
     "altin": "Alış fiyatı (TL/gram)",
     "gumus": "Alış fiyatı (TL/gram)",
@@ -139,6 +143,169 @@ def _bist_sembol(kod: str) -> str:
     if k.endswith(".IS"):
         return k
     return f"{k}.IS"
+
+
+@dataclass
+class PozisyonEvrenSecim:
+    sembol: str
+    ad: str
+    label: str
+    para_birimi: str = "TL"
+
+
+def pozisyon_sembol_normalize(tur: str, sembol: str) -> str:
+    """Kayıt öncesi sembol standardizasyonu."""
+    s = (sembol or "").strip().upper()
+    if not s:
+        return ""
+    if tur == "hisse":
+        return _bist_sembol(s)
+    if tur == "hisse_us":
+        return s.split(".")[0]
+    if tur == "etf":
+        return _etf_ticker(s)
+    if tur == "tefas":
+        return s.split(".")[0]
+    return s
+
+
+def pozisyon_evren_listesi(
+    tur: str,
+    *,
+    tefas_fonlar=None,
+    ara: str = "",
+) -> List[PozisyonEvrenSecim]:
+    """Pozisyon ekleme — tam evren sembol seçenekleri."""
+    from stock_universe import tum_hisseler
+
+    q = (ara or "").strip().casefold()
+    out: List[PozisyonEvrenSecim] = []
+
+    def _eslesir(*parcalar: str) -> bool:
+        if not q:
+            return True
+        return any(q in (p or "").casefold() for p in parcalar if p)
+
+    if tur == "hisse":
+        for s, ad, piyasa, _ in tum_hisseler():
+            if piyasa != "BIST":
+                continue
+            kod = s.split(".")[0]
+            if not _eslesir(s, kod, ad):
+                continue
+            out.append(PozisyonEvrenSecim(
+                sembol=s,
+                ad=ad,
+                label=f"{kod} — {ad}",
+                para_birimi="TL",
+            ))
+    elif tur == "hisse_us":
+        for s, ad, piyasa, _ in tum_hisseler():
+            if piyasa not in ("SP500", "NASDAQ"):
+                continue
+            kod = s.split(".")[0]
+            if not _eslesir(s, kod, ad, piyasa):
+                continue
+            out.append(PozisyonEvrenSecim(
+                sembol=s,
+                ad=ad,
+                label=f"{kod} ({piyasa}) — {ad}",
+                para_birimi="USD",
+            ))
+    elif tur == "etf":
+        for s, ad, _, _, rt in REVOLUT_ETFLER:
+            if not _eslesir(s, rt, ad):
+                continue
+            out.append(PozisyonEvrenSecim(
+                sembol=s,
+                ad=ad,
+                label=f"{rt or s} — {ad}",
+                para_birimi="USD",
+            ))
+    elif tur == "tefas":
+        for f in tefas_fonlar or []:
+            kod = (getattr(f, "kod", "") or "").upper()
+            ad = getattr(f, "kisa_ad", "") or getattr(f, "ad", "") or kod
+            if not kod or not _eslesir(kod, ad):
+                continue
+            pb = getattr(f, "para_birimi", "TL") or "TL"
+            if pb not in ("TL", "EUR", "USD", "RON"):
+                pb = "TL"
+            out.append(PozisyonEvrenSecim(
+                sembol=kod,
+                ad=ad,
+                label=f"{kod} — {ad}",
+                para_birimi=pb,
+            ))
+    out.sort(key=lambda x: x.label)
+    return out
+
+
+def pozisyon_canli_fiyat(
+    sembol: str,
+    tur: str,
+    tarama=None,
+    *,
+    tefas_fonlar=None,
+) -> tuple:
+    """(fiyat, para_birimi) — tarama > live_quote > Yahoo."""
+    from fiyat_para import kaynak_para_birimi
+    from portfoy_yoneticisi import tarama_hisse_bul
+
+    sym = pozisyon_sembol_normalize(tur, sembol)
+    if not sym:
+        return None, "TL"
+
+    if tur == "tefas":
+        kod = sym
+        for f in tefas_fonlar or []:
+            if (getattr(f, "kod", "") or "").upper() == kod:
+                px = float(getattr(f, "fiyat", 0) or 0)
+                if px > 0:
+                    pb = getattr(f, "para_birimi", "TL") or "TL"
+                    return px, pb if pb in ("TL", "EUR", "USD", "RON") else "TL"
+        return None, "TL"
+
+    h = tarama_hisse_bul(tarama, sym)
+    if h and getattr(h, "fiyat", None) and float(h.fiyat) > 0:
+        pb = kaynak_para_birimi(sym, varlik_turu=tur)
+        return float(h.fiyat), pb
+
+    try:
+        from signal_engine.data.live_quote import get_live_quote
+
+        q = get_live_quote(sym, allow_stale=True)
+        if q and q.price and float(q.price) > 0:
+            pb = kaynak_para_birimi(sym, varlik_turu=tur)
+            return float(q.price), pb
+    except Exception:
+        pass
+
+    try:
+        import yfinance as yf
+
+        t = yf.Ticker(sym)
+        fi = getattr(t, "fast_info", None) or {}
+        px = fi.get("lastPrice") or fi.get("regularMarketPrice")
+        if px and float(px) > 0:
+            return float(px), kaynak_para_birimi(sym, varlik_turu=tur)
+    except Exception:
+        pass
+
+    return None, kaynak_para_birimi(sym, varlik_turu=tur) if tur in (*HISSE_TURLER, "etf") else "TL"
+
+
+def pozisyon_emtia_fiyat(tur: str, snap) -> tuple:
+    """Altın/gümüş gram TL fiyatı — makro snapshot."""
+    from varlik_fiyat import _tl_gram_altin, _tl_gram_gumus
+
+    if tur == "altin":
+        px = _tl_gram_altin(snap)
+        return (float(px), "TL") if px and px > 0 else (None, "TL")
+    if tur == "gumus":
+        px = _tl_gram_gumus(snap)
+        return (float(px), "TL") if px and px > 0 else (None, "TL")
+    return None, "TL"
 
 
 def varsayilan_store() -> VarlikStore:

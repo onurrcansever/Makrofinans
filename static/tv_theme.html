@@ -1,38 +1,39 @@
 <div aria-hidden="true" style="display:none!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;">
 <style id="modulcheck-theme-style">
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap");
+
 /* ══════════════════════════════════════════
-   ModulCheck Pro — Enterprise Light Theme
+   ModulCheck — Google Finance light theme
    Palette:
-     nav-bg      #0f1923   (en koyu, top bar)
-     sidebar-bg  #162032   (sidebar panel)
-     content-bg  #eef1f5   (ana içerik)
-     card-bg     #ffffff   (beyaz kartlar)
-     accent      #2563eb   (mavi)
-     text        #1e293b   (koyu metin)
-     text-muted  #64748b
-     border      #e2e8f0
-     up          #16a34a   (yeşil)
-     down        #dc2626   (kırmızı)
+     content-bg  #ffffff
+     sidebar-bg  #f8f9fa
+     card-bg     #ffffff
+     accent      #1a73e8
+     text        #202124
+     text-muted  #5f6368
+     border      #e8eaed
+     up          #137333
+     down        #a50e0e
    ══════════════════════════════════════════ */
 
 :root {
-  --mc-nav:      #0f1923;
-  --mc-sidebar:  #162032;
-  --mc-sidebar2: #1a2840;
-  --mc-content:  #eef1f5;
+  --mc-nav:      #ffffff;
+  --mc-sidebar:  #f8f9fa;
+  --mc-sidebar2: #f1f3f4;
+  --mc-content:  #ffffff;
   --mc-card:     #ffffff;
-  --mc-border:   #e2e8f0;
-  --mc-text:     #1e293b;
-  --mc-muted:    #64748b;
-  --mc-accent:   #2563eb;
-  --mc-accent-h: #1d4ed8;
-  --mc-up:       #16a34a;
-  --mc-down:     #dc2626;
-  --mc-warn:     #d97706;
-  --mc-sb-text:  #cbd5e1;
-  --mc-sb-muted: #64748b;
-  --mc-font:     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --mc-mono:     "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --mc-border:   #e8eaed;
+  --mc-text:     #202124;
+  --mc-muted:    #5f6368;
+  --mc-accent:   #1a73e8;
+  --mc-accent-h: #1765cc;
+  --mc-up:       #137333;
+  --mc-down:     #a50e0e;
+  --mc-warn:     #b06000;
+  --mc-sb-text:  #202124;
+  --mc-sb-muted: #5f6368;
+  --mc-font:     "Google Sans", Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mc-mono:     Roboto, ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* ── Google Fonts ─────────────────────────── */
@@ -59,10 +60,10 @@ html, body {
   background-color: var(--mc-content) !important;
 }
 
-/* ── Streamlit header bar — top nav feel ──── */
+/* ── Streamlit header bar — light ──── */
 [data-testid="stHeader"] {
   background-color: var(--mc-nav) !important;
-  border-bottom: 1px solid #1e3352 !important;
+  border-bottom: 1px solid var(--mc-border) !important;
   height: 48px !important;
 }
 
@@ -72,8 +73,8 @@ html, body {
 
 [data-testid="stToolbar"] button,
 [data-testid="stToolbar"] svg {
-  color: #94a3b8 !important;
-  fill: #94a3b8 !important;
+  color: var(--mc-muted) !important;
+  fill: var(--mc-muted) !important;
 }
 
 [data-testid="stDecoration"] {
@@ -118,11 +119,11 @@ p, li, label,
 }
 
 /* ══════════════════════════════════════════
-   SIDEBAR — ModulCheck dark navy
+   SIDEBAR — Google Finance light gray
    ══════════════════════════════════════════ */
 [data-testid="stSidebar"] {
   background-color: var(--mc-sidebar) !important;
-  border-right: 1px solid #1e3352 !important;
+  border-right: 1px solid var(--mc-border) !important;
 }
 
 [data-testid="stSidebar"] > div:first-child {
@@ -132,8 +133,8 @@ p, li, label,
 /* Sidebar brand heading (## Makrofinans) */
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
   font-size: 17px !important;
-  font-weight: 700 !important;
-  color: #f1f5f9 !important;
+  font-weight: 500 !important;
+  color: var(--mc-text) !important;
   letter-spacing: -0.01em !important;
   text-transform: none !important;
   padding: 4px 0 2px !important;
@@ -163,14 +164,14 @@ p, li, label,
 
 /* Sidebar dividers */
 [data-testid="stSidebar"] hr {
-  border-color: #1e3352 !important;
+  border-color: var(--mc-border) !important;
   margin: 8px 0 !important;
 }
 
 /* Sidebar selectbox + inputs */
 [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-  background-color: #1a2840 !important;
-  border-color: #1e3352 !important;
+  background-color: var(--mc-card) !important;
+  border-color: var(--mc-border) !important;
   color: var(--mc-sb-text) !important;
   border-radius: 5px !important;
 }
@@ -180,8 +181,8 @@ p, li, label,
 }
 
 [data-testid="stSidebar"] [data-baseweb="menu"] {
-  background-color: #1a2840 !important;
-  border: 1px solid #1e3352 !important;
+  background-color: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="menu"] li {
@@ -189,7 +190,7 @@ p, li, label,
 }
 
 [data-testid="stSidebar"] [data-baseweb="menu"] li:hover {
-  background-color: rgba(37,99,235,0.15) !important;
+  background-color: rgba(26,115,232,0.08) !important;
 }
 
 /* ── Sidebar radio navigation — ModulCheck style ── */
@@ -211,15 +212,15 @@ p, li, label,
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label:hover {
-  background: rgba(37,99,235,0.08) !important;
-  color: #f1f5f9 !important;
+  background: rgba(26,115,232,0.06) !important;
+  color: var(--mc-text) !important;
   cursor: pointer !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label:has(input:checked) {
-  background: rgba(37,99,235,0.15) !important;
+  background: rgba(26,115,232,0.10) !important;
   border-left-color: var(--mc-accent) !important;
-  color: #f1f5f9 !important;
+  color: var(--mc-text) !important;
   font-weight: 600 !important;
 }
 
@@ -230,16 +231,16 @@ p, li, label,
 
 /* Sidebar number input */
 [data-testid="stSidebar"] [data-testid="stNumberInput"] input {
-  background: #1a2840 !important;
-  border: 1px solid #1e3352 !important;
+  background: var(--mc-card) !important;
+  border: 1px solid var(--mc-border) !important;
   color: var(--mc-sb-text) !important;
   border-radius: 5px !important;
   font-family: var(--mc-mono) !important;
 }
 
 [data-testid="stSidebar"] [data-testid="stNumberInput"] button {
-  background: #1a2840 !important;
-  border-color: #1e3352 !important;
+  background: var(--mc-card) !important;
+  border-color: var(--mc-border) !important;
   color: var(--mc-sb-text) !important;
 }
 
@@ -359,7 +360,7 @@ p, li, label,
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background: #f1f5f9 !important;
+  background: #f8f9fa !important;
   border: 1px solid var(--mc-border) !important;
   border-radius: 5px !important;
   overflow: hidden !important;
@@ -392,7 +393,7 @@ p, li, label,
 [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
   background: var(--mc-card) !important;
   padding: 4px 16px 16px 48px !important;
-  border-top: 1px solid #f1f5f9 !important;
+  border-top: 1px solid #e8eaed !important;
   font-size: 14px !important;
   line-height: 1.55 !important;
 }
@@ -458,7 +459,7 @@ div[data-baseweb="notification"] {
 
 .stTabs [data-baseweb="tab"]:hover {
   color: var(--mc-text) !important;
-  background: rgba(37,99,235,0.05) !important;
+  background: rgba(26,115,232,0.05) !important;
 }
 
 .stTabs [aria-selected="true"] {
@@ -501,7 +502,7 @@ div[data-baseweb="notification"] {
 }
 
 .stButton > button:not([kind="primary"]):hover {
-  background-color: #f1f5f9 !important;
+  background-color: var(--mc-text) !important;
   border-color: #cbd5e1 !important;
 }
 
@@ -530,7 +531,7 @@ div[data-baseweb="notification"] {
 
 [data-testid="stFormSubmitButton"] > button:hover {
   background-color: var(--mc-accent-h) !important;
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.25) !important;
+  box-shadow: 0 0 0 3px rgba(26,115,232,0.20) !important;
 }
 
 /* ── Inputs / Selects ─────────────────────── */
@@ -545,7 +546,7 @@ div[data-baseweb="input"] > div {
 div[data-baseweb="select"] > div:focus-within,
 div[data-baseweb="input"] > div:focus-within {
   border-color: var(--mc-accent) !important;
-  box-shadow: 0 0 0 2px rgba(37,99,235,0.15) !important;
+  box-shadow: 0 0 0 2px rgba(26,115,232,0.15) !important;
 }
 
 [data-testid="stNumberInput"] input {
@@ -578,7 +579,7 @@ div[data-baseweb="input"] > div:focus-within {
 
 [data-baseweb="menu"] li:hover,
 [data-baseweb="menu"] li[aria-selected="true"] {
-  background: rgba(37,99,235,0.08) !important;
+  background: rgba(26,115,232,0.06) !important;
   color: var(--mc-accent) !important;
 }
 
@@ -596,7 +597,7 @@ div[data-baseweb="input"] > div:focus-within {
 }
 
 [data-testid="stDataFrame"] th {
-  background: #f1f5f9 !important;
+  background: #f8f9fa !important;
   color: var(--mc-muted) !important;
   font-size: 11px !important;
   text-transform: uppercase !important;
@@ -607,7 +608,7 @@ div[data-baseweb="input"] > div:focus-within {
 
 [data-testid="stDataFrame"] td {
   color: var(--mc-text) !important;
-  border-bottom: 1px solid #f1f5f9 !important;
+  border-bottom: 1px solid #e8eaed !important;
   font-size: 13px !important;
 }
 
@@ -627,11 +628,11 @@ div[data-baseweb="input"] > div:focus-within {
 }
 
 .mc-df-table tbody tr {
-  height: 32px !important;
+  height: 48px !important;
 }
 
 .mc-df-table tbody tr:hover td {
-  background: #f8fafc !important;
+  background: #f8f9fa !important;
 }
 
 .mc-df-table a.fav-star {
@@ -656,14 +657,14 @@ div[data-baseweb="input"] > div:focus-within {
   min-width: 1.25rem;
   text-align: center;
   text-decoration: none;
-  color: #64748b;
-  font-size: 15px;
-  font-weight: 600;
+  color: #5f6368;
+  font-size: 14px;
+  font-weight: 500;
   transition: color 0.12s ease, transform 0.12s ease;
 }
 
 .mc-df-table a.row-act-link:hover {
-  color: #2563eb;
+  color: #1a73e8;
   transform: scale(1.1);
 }
 
@@ -684,7 +685,7 @@ div[data-baseweb="input"] > div:focus-within {
 
 /* ── Code blocks ──────────────────────────── */
 .stCode, code, pre {
-  background: #f1f5f9 !important;
+  background: #f8f9fa !important;
   color: #334155 !important;
   border: 1px solid var(--mc-border) !important;
   border-radius: 5px !important;
@@ -813,7 +814,7 @@ footer { visibility: hidden !important; }
 }
 
 [data-testid="stSidebar"] ::-webkit-scrollbar-thumb {
-  background: #1e3352 !important;
+  background: #dadce0 !important;
 }
 </style>
 <script>

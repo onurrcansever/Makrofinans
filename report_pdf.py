@@ -168,6 +168,8 @@ def _pdf_col_w_for_df(basliklar: List[str], total_w: float) -> List[float]:
             agirlik.append(1.5)
         elif c == "Al":
             agirlik.append(1.15)
+        elif c == "Gram TL":
+            agirlik.append(1.0)
         elif c == "Rejim":
             agirlik.append(0.75)
         elif c in ("Karar", "Sembol"):
@@ -227,6 +229,99 @@ def hisse_etf_tablo_pdf_olustur(
         col_w = _pdf_col_w_for_df(basliklar, doc._w())
         # Daha sıkı satır — Rejim/Al tek satıra indi; boşluk azalır
         doc.tablo(basliklar, satirlar, font_boyut=6.5, satir_yuk=3.2, col_w=col_w)
+    doc.footer_disclaimer()
+    return doc.bytes()
+
+
+def pozisyonlar_pdf_olustur(
+    *,
+    portfoy_ad: str,
+    gosterim_pb: str,
+    pozisyonlar: list,
+    ozet: dict,
+    veri_zamani: str = "",
+    pozisyon_id: Optional[str] = None,
+) -> bytes:
+    """
+    Varlıklarım pozisyon raporu — özet tablo + pozisyon başına detay.
+    pozisyonlar: pozisyon_pdf_satir() dict listesi.
+    """
+    doc = RaporPDF(orientation="P")
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    hedef = pozisyon_id
+    baslik = "Pozisyon Detay Raporu" if hedef else "Pozisyonlar Raporu"
+    doc.bolum(baslik)
+    meta = f"Portföy: {_temiz(portfoy_ad)} · Üretim: {now} · Gösterim: {gosterim_pb}"
+    if veri_zamani:
+        meta += f" · Veri: {_temiz(veri_zamani, 40)}"
+    doc.paragraf(meta)
+
+    satirlar = pozisyonlar
+    if pozisyon_id:
+        satirlar = [r for r in pozisyonlar if r.get("id") == pozisyon_id]
+    if not satirlar:
+        doc.paragraf("Seçilen kapsamda pozisyon bulunamadı.")
+        doc.footer_disclaimer()
+        return doc.bytes()
+
+    w = doc._w()
+    doc.kutu(
+        "Portföy özeti",
+        f"Güncel: {ozet.get('toplam', 0):,.0f} {gosterim_pb} · "
+        f"Maliyet: {ozet.get('maliyet', 0):,.0f} {gosterim_pb} · "
+        f"K/Z: {ozet.get('kz', 0):+,.0f} ({ozet.get('kz_pct', 0):+.2f}%)",
+    )
+
+    ozet_rows = [
+        [
+            _temiz(r.get("arac"), 20),
+            _temiz(r.get("sembol"), 10),
+            _temiz(r.get("kz"), 16),
+            _temiz(r.get("sinyal"), 10),
+            _temiz(r.get("oneri"), 18),
+        ]
+        for r in satirlar
+    ]
+    doc.paragraf(f"{len(satirlar)} pozisyon — özet tablo")
+    doc.tablo(
+        ["Araç", "Sembol", "K/Z", "Sinyal", "Öneri"],
+        ozet_rows,
+        col_w=[w * 0.28, w * 0.12, w * 0.18, w * 0.14, w * 0.28],
+        font_boyut=7.5,
+        satir_yuk=3.8,
+    )
+
+    for i, r in enumerate(satirlar, 1):
+        doc._sayfa_yeterli(40)
+        doc.paragraf(f"— {i}. {_temiz(r.get('arac'))} ({_temiz(r.get('sembol'))}) —")
+        detay = [
+            ["Miktar", _temiz(r.get("miktar"))],
+            ["Alış / Güncel", f"{_temiz(r.get('alis'))} / {_temiz(r.get('guncel'))}"],
+            ["Maliyet / Değer", f"{_temiz(r.get('maliyet'))} / {_temiz(r.get('deger'))}"],
+            ["K/Z", _temiz(r.get("kz"))],
+            ["Alım/Satış Sinyali", _temiz(r.get("sinyal"))],
+            ["Pozisyon Önerisi", _temiz(r.get("oneri"))],
+            ["Ekle seviyesi", _temiz(r.get("ekle"))],
+            ["Stop seviyesi", _temiz(r.get("stop"))],
+        ]
+        if r.get("skor") is not None:
+            detay.append(["Motor skoru", _temiz(r.get("skor"))])
+        for et, val in (r.get("getiriler") or {}).items():
+            detay.append([et, _temiz(val)])
+        doc.tablo(
+            ["Alan", "Değer"],
+            detay,
+            col_w=[w * 0.32, w * 0.68],
+            font_boyut=7.5,
+            satir_yuk=3.6,
+        )
+        if r.get("oneri_aciklama"):
+            doc.paragraf(f"Öneri açıklaması: {_temiz(r.get('oneri_aciklama'), 500)}")
+        if r.get("plan"):
+            doc.paragraf(f"Rehber: {_temiz(r.get('plan'), 400)}")
+        if r.get("uyari"):
+            doc.paragraf(f"⚠ {_temiz(r.get('uyari'), 300)}")
+
     doc.footer_disclaimer()
     return doc.bytes()
 
@@ -895,7 +990,7 @@ class RaporPDF:
             ).decode().strip()
         except Exception:
             _git_hash = "—"
-        self.pdf.set_fill_color(0, 51, 102)
+        self.pdf.set_fill_color(26, 115, 232)
         self.pdf.rect(0, 0, 210, 30, "F")
         self.pdf.set_text_color(255, 255, 255)
         self.pdf.set_xy(self._kenar, 8)
@@ -912,7 +1007,7 @@ class RaporPDF:
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
         )
         self.pdf.ln(6)
-        self.pdf.set_text_color(0, 0, 0)
+        self.pdf.set_text_color(32, 33, 36)
         self.pdf.set_font("TR", "", 8.5)
         self.paragraf(f"Rapor üretildi: {now}  ·  Veri güncellemesi: {veri}  ·  Mod: {snap.veri_kaynak.upper()}  ·  Sürüm: {_git_hash}")
         self.paragraf(f"Yatırımcı profili: {profil.ozet()}")
@@ -923,13 +1018,13 @@ class RaporPDF:
         self.pdf.ln(3)
         self._sol()
         self.pdf.set_font("TR", "B", 12)
-        self.pdf.set_text_color(0, 51, 102)
+        self.pdf.set_text_color(32, 33, 36)
         self.pdf.cell(self._w(), 7, baslik, new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT)
-        self.pdf.set_draw_color(0, 51, 102)
+        self.pdf.set_draw_color(26, 115, 232)
         y = self.pdf.get_y()
         self.pdf.line(self.pdf.l_margin, y, self.pdf.w - self.pdf.r_margin, y)
         self.pdf.ln(2.5)
-        self.pdf.set_text_color(0, 0, 0)
+        self.pdf.set_text_color(32, 33, 36)
 
     def paragraf(self, metin: str) -> None:
         self._yaz(self._w(), 4.8, metin, boyut=9.5)
@@ -940,10 +1035,10 @@ class RaporPDF:
     def kutu(self, baslik: str, metin: str) -> None:
         self._sayfa_yeterli(18)
         w = self._w()
-        self.pdf.set_fill_color(240, 244, 248)
+        self.pdf.set_fill_color(248, 249, 250)
         self._sol()
         self.pdf.set_font("TR", "B", 9.5)
-        self.pdf.set_text_color(0, 0, 0)
+        self.pdf.set_text_color(32, 33, 36)
         self.pdf.multi_cell(
             w, 5.2, _temiz(baslik), fill=True, align=self._Align.L,
             new_x=self._XPos.LMARGIN, new_y=self._YPos.NEXT,
@@ -980,13 +1075,13 @@ class RaporPDF:
         def _hucre_ciz(x: float, y: float, cw: float, rh: float, text: str, kalin: bool, fill: bool, baslik_renk: bool) -> None:
             self.pdf.set_xy(x, y)
             if baslik_renk:
-                self.pdf.set_fill_color(0, 51, 102)
+                self.pdf.set_fill_color(26, 115, 232)
                 self.pdf.set_text_color(255, 255, 255)
             elif fill:
                 self.pdf.set_fill_color(248, 249, 250)
-                self.pdf.set_text_color(0, 0, 0)
+                self.pdf.set_text_color(32, 33, 36)
             else:
-                self.pdf.set_text_color(0, 0, 0)
+                self.pdf.set_text_color(32, 33, 36)
             self.pdf.set_font("TR", "B" if kalin else "", font_boyut)
             self.pdf.rect(x, y, cw, rh, style="DF" if (fill or baslik_renk) else "D")
             satirlar_txt = self._metin_satirlari(text, cw - 2 * pad)
@@ -1031,12 +1126,12 @@ class RaporPDF:
     def footer_disclaimer(self) -> None:
         self._sayfa_yeterli(16)
         self.pdf.ln(4)
-        self.pdf.set_draw_color(180, 180, 180)
+        self.pdf.set_draw_color(232, 234, 237)
         y = self.pdf.get_y()
         self.pdf.line(self.pdf.l_margin, y, self.pdf.w - self.pdf.r_margin, y)
         self.pdf.ln(2)
         self.pdf.set_font("TR", "", 7.5)
-        self.pdf.set_text_color(100, 100, 100)
+        self.pdf.set_text_color(95, 99, 104)
         self._sol()
         self.pdf.multi_cell(
             self._w(), 3.8,

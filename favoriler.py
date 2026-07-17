@@ -18,6 +18,7 @@ STATE_PATH = os.path.join(
 TUR_ETIKET = {
     "hisse": "Hisse",
     "etf": "ETF",
+    "emtia": "Emtia",
     "tefas": "TEFAS fon",
     "endeks": "Endeks",
 }
