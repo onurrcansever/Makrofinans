@@ -85,3 +85,40 @@ def dosya_base64_yukle(
     b64 = base64.b64encode(raw).decode("ascii")
     secret_yukle(secret_name, b64, repo=repo, token=token)
     return len(raw)
+
+
+def repo_dosya_yukle(
+    repo_path: str,
+    local_path: str,
+    *,
+    message: str,
+    repo: Optional[str] = None,
+    token: Optional[str] = None,
+    branch: str = "main",
+) -> str:
+    """Private repo'da dosya oluştur/güncelle (workflow scope gerektirmez). Dönüş: commit sha."""
+    slug = _repo_slug(repo)
+    tok = _token(token)
+    headers = {
+        "Authorization": f"Bearer {tok}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    with open(local_path, "rb") as f:
+        raw = f.read()
+    if not raw.strip():
+        raise ValueError(f"Boş dosya: {local_path}")
+    dest = repo_path.strip().lstrip("/")
+    url = f"https://api.github.com/repos/{slug}/contents/{dest}"
+    r = requests.get(url, headers=headers, params={"ref": branch}, timeout=30)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+    payload = {
+        "message": message,
+        "content": base64.b64encode(raw).decode("ascii"),
+        "branch": branch,
+    }
+    if sha:
+        payload["sha"] = sha
+    r2 = requests.put(url, headers=headers, json=payload, timeout=60)
+    r2.raise_for_status()
+    return r2.json().get("commit", {}).get("sha", "")

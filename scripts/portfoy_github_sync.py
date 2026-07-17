@@ -13,9 +13,12 @@ Kullanım:
   # veya belirli dosya:
   python3 scripts/portfoy_github_sync.py --portfoy ~/Desktop/tl-yatirim-asistani/.varliklarim.json
 """
-from typing import Optional
+from __future__ import annotations
+
+import argparse
 import os
 import sys
+from typing import Optional
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -27,13 +30,20 @@ try:
 except ImportError:
     pass
 
-from scripts.github_secrets_util import dosya_base64_yukle
+from scripts.github_secrets_util import dosya_base64_yukle, repo_dosya_yukle
 
 # (secret adı, yerel dosya adı, zorunlu)
 SYNC_DOSYALAR = (
     ("VARLIKLARIM_JSON", ".varliklarim.json", True),
     ("TEMEL_VERI_CACHE_JSON", ".temel_veri_cache.json", False),
     ("PORTFOY_YORUM_CACHE_JSON", ".portfoy_yorum_cache.json", False),
+)
+
+# Private repo dosyası — workflow güncellenmese de checkout'ta portföy gelir
+REPO_SYNC_DOSYALAR = (
+    (".varliklarim.json", "data/ci_varliklarim.json"),
+    (".temel_veri_cache.json", "data/ci_temel_veri_cache.json"),
+    (".portfoy_yorum_cache.json", "data/ci_portfoy_yorum_cache.json"),
 )
 
 
@@ -65,10 +75,13 @@ def main() -> int:
     parser.add_argument("--portfoy", help=".varliklarim.json yolu")
     parser.add_argument("--repo", default=os.getenv("GITHUB_REPO", "onurrcansever/Makrofinans"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-repo-sync", action="store_true", help="data/ci_* repo yüklemesini atla")
     args = parser.parse_args()
 
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT") or ""
     yuklenen = []
     atlanan = []
+    repo_yuklenen = []
 
     for secret_name, fname, zorunlu in SYNC_DOSYALAR:
         explicit = args.portfoy if fname == ".varliklarim.json" else None
@@ -93,9 +106,36 @@ def main() -> int:
                 return 1
             atlanan.append(fname)
 
+    if not args.no_repo_sync and token.strip():
+        print("\nRepo sync (data/ci_*)...")
+        for fname, repo_path in REPO_SYNC_DOSYALAR:
+            explicit = args.portfoy if fname == ".varliklarim.json" else None
+            path = _bul(fname, explicit)
+            if not path:
+                continue
+            if args.dry_run:
+                print(f"[dry-run] {repo_path} ← {path}")
+                repo_yuklenen.append(repo_path)
+                continue
+            try:
+                sha = repo_dosya_yukle(
+                    repo_path,
+                    path,
+                    message=f"sync: {repo_path} — Mac portföy/cache",
+                    repo=args.repo,
+                    token=token,
+                )
+                print(f"✓ {repo_path} ← {path} (commit {sha[:7] if sha else 'ok'})")
+                repo_yuklenen.append(repo_path)
+            except Exception as exc:
+                print(f"[UYARI] {repo_path}: {exc}", file=sys.stderr)
+
     if atlanan:
         print(f"  (atlandı: {', '.join(atlanan)})")
-    print(f"\n{len(yuklenen)} secret güncellendi. GitHub Actions bir sonraki alarmda kullanır.")
+    print(
+        f"\n{len(yuklenen)} secret, {len(repo_yuklenen)} repo dosyası güncellendi. "
+        "GitHub Actions bir sonraki alarmda kullanır."
+    )
     return 0
 
 

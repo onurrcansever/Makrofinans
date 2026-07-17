@@ -24,6 +24,10 @@ try:
 except ImportError:
     pass
 
+from scripts.ci_bootstrap import ci_bootstrap
+
+ci_bootstrap()
+
 import config
 import notifier
 from alerts import kontrol_ve_bildir

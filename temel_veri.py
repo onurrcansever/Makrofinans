@@ -21,10 +21,16 @@ ProgressCb = Optional[Callable[[int, int, str], None]]
 
 _log = logging.getLogger(__name__)
 
-STATE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".temel_veri_cache.json",
-)
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+STATE_PATH = os.path.join(_ROOT, ".temel_veri_cache.json")
+CI_SYNC_PATH = os.path.join(_ROOT, "data", "ci_temel_veri_cache.json")
+
+
+def _cache_kaynak_yolu() -> Optional[str]:
+    for path in (STATE_PATH, CI_SYNC_PATH):
+        if os.path.isfile(path):
+            return path
+    return None
 
 INFO_ALANLAR = (
     "trailingPE",
@@ -82,14 +88,15 @@ _yukle_mtime: Optional[float] = None
 def yukle_cache() -> Dict[str, dict]:
     """Disk cache — aynı process'te mtime ile kısa bellek (tablo satırları için)."""
     global _yukle_mem, _yukle_mtime
-    if not os.path.isfile(STATE_PATH):
+    kaynak = _cache_kaynak_yolu()
+    if not kaynak:
         _yukle_mem, _yukle_mtime = {}, None
         return {}
     try:
-        mtime = os.path.getmtime(STATE_PATH)
+        mtime = os.path.getmtime(kaynak)
         if _yukle_mem is not None and _yukle_mtime == mtime:
             return _yukle_mem
-        with open(STATE_PATH, encoding="utf-8") as f:
+        with open(kaynak, encoding="utf-8") as f:
             raw = json.load(f)
         out = raw if isinstance(raw, dict) else {}
         _yukle_mem, _yukle_mtime = out, mtime

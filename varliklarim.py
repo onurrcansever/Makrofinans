@@ -13,10 +13,20 @@ import config
 from birlesik_oneri import AracDagilimSatir, BirlesikOneri, HedefSatir
 from etf_universe import REVOLUT_ETFLER
 
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 STATE_PATH = os.getenv(
     "VARLIKLARIM_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".varliklarim.json"),
+    os.path.join(_ROOT, ".varliklarim.json"),
 )
+# GitHub Actions checkout — workflow scope olmadan portföy (Mac sync → private repo)
+CI_SYNC_PATH = os.path.join(_ROOT, "data", "ci_varliklarim.json")
+
+
+def _store_kaynak_yolu() -> Optional[str]:
+    for path in (STATE_PATH, CI_SYNC_PATH):
+        if path and os.path.isfile(path):
+            return path
+    return None
 
 TUR_SECENEKLERI = {
     "nakit_tl": "TL nakit",
@@ -314,10 +324,11 @@ def varsayilan_store() -> VarlikStore:
 
 
 def yukle_store() -> VarlikStore:
-    if not os.path.isfile(STATE_PATH):
+    kaynak = _store_kaynak_yolu()
+    if not kaynak:
         return varsayilan_store()
     try:
-        with open(STATE_PATH, encoding="utf-8") as f:
+        with open(kaynak, encoding="utf-8") as f:
             raw = json.load(f)
     except Exception:
         return varsayilan_store()

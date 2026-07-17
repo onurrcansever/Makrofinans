@@ -82,6 +82,42 @@ class VarliklarimTest(unittest.TestCase):
             finally:
                 vm.STATE_PATH = old
 
+    def test_yukle_store_ci_sync_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            import varliklarim as vm
+            old_state = vm.STATE_PATH
+            old_ci = vm.CI_SYNC_PATH
+            vm.STATE_PATH = os.path.join(td, "missing.json")
+            ci_path = os.path.join(td, "data", "ci_varliklarim.json")
+            os.makedirs(os.path.dirname(ci_path), exist_ok=True)
+            vm.CI_SYNC_PATH = ci_path
+            try:
+                store = VarlikStore(
+                    aktif_id="a",
+                    portfoyler=[VarlikPortfoy(id="a", ad="CI", pozisyonlar=[
+                        VarlikPozisyon(id="p1", tur="nakit_eur", miktar=500, maliyet=500, para_birimi="EUR"),
+                    ])],
+                )
+                kaydet_store(store)
+                with open(ci_path, "w", encoding="utf-8") as f:
+                    import json
+                    json.dump({
+                        "aktif_id": "a",
+                        "portfoyler": [{
+                            "id": "a",
+                            "ad": "CI",
+                            "pozisyonlar": [{
+                                "id": "p1", "tur": "nakit_eur", "miktar": 500,
+                                "maliyet": 500, "para_birimi": "EUR", "alim_fiyati": 0.0,
+                            }],
+                        }],
+                    }, f)
+                y2 = yukle_store()
+                self.assertEqual(y2.portfoyler[0].pozisyonlar[0].miktar, 500)
+            finally:
+                vm.STATE_PATH = old_state
+                vm.CI_SYNC_PATH = old_ci
+
     def test_yeni_portfoy(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, ".varliklarim.json")
