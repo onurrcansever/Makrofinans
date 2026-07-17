@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from typing import Optional
 
@@ -45,6 +46,25 @@ REPO_SYNC_DOSYALAR = (
     (".temel_veri_cache.json", "data/ci_temel_veri_cache.json"),
     (".portfoy_yorum_cache.json", "data/ci_portfoy_yorum_cache.json"),
 )
+
+
+def _git_token() -> str:
+    for key in ("GITHUB_TOKEN", "GITHUB_PAT"):
+        val = os.getenv(key, "").strip()
+        if val:
+            return val
+    proc = subprocess.run(
+        ["git", "credential", "fill"],
+        input=b"protocol=https\nhost=github.com\n\n",
+        capture_output=True,
+        cwd=ROOT,
+    )
+    if proc.returncode != 0:
+        return ""
+    for line in proc.stdout.decode().splitlines():
+        if line.startswith("password="):
+            return line.split("=", 1)[1]
+    return ""
 
 
 def _aday_yollar(dosya: str) -> list[str]:
@@ -78,7 +98,7 @@ def main() -> int:
     parser.add_argument("--no-repo-sync", action="store_true", help="data/ci_* repo yüklemesini atla")
     args = parser.parse_args()
 
-    token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT") or ""
+    token = _git_token()
     yuklenen = []
     atlanan = []
     repo_yuklenen = []
@@ -97,7 +117,7 @@ def main() -> int:
             yuklenen.append(secret_name)
             continue
         try:
-            n = dosya_base64_yukle(secret_name, path, repo=args.repo)
+            n = dosya_base64_yukle(secret_name, path, repo=args.repo, token=token or None)
             print(f"✓ {secret_name} ← {path} ({n:,} byte)")
             yuklenen.append(secret_name)
         except Exception as exc:
