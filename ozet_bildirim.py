@@ -20,7 +20,9 @@ from notifier import bildirim_gonder
 from signal_alerts import _degisimleri_bul, _oku as sinyal_oku
 from signal_alerts import _yaz as sinyal_yaz
 from signal_alerts import tarama_yap
-from varliklarim import yukle_store = os.getenv("OZET_ALARM_STATE_PATH", ".ozet_alarm_state.json")
+from varliklarim import yukle_store
+
+STATE_PATH = os.getenv("OZET_ALARM_STATE_PATH", ".ozet_alarm_state.json")
 VADE_UYARI_GUN = 7  # vadeye bu kadar gün kala ilk uyarı
 
 TAHSIS_KISA = {
