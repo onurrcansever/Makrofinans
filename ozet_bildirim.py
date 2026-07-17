@@ -20,10 +20,7 @@ from notifier import bildirim_gonder
 from signal_alerts import _degisimleri_bul, _oku as sinyal_oku
 from signal_alerts import _yaz as sinyal_yaz
 from signal_alerts import tarama_yap
-from varlik_fiyat import portfoy_degerle
-from varliklarim import yukle_store
-
-STATE_PATH = os.getenv("OZET_ALARM_STATE_PATH", ".ozet_alarm_state.json")
+from varliklarim import yukle_store = os.getenv("OZET_ALARM_STATE_PATH", ".ozet_alarm_state.json")
 VADE_UYARI_GUN = 7  # vadeye bu kadar gün kala ilk uyarı
 
 TAHSIS_KISA = {
@@ -87,15 +84,18 @@ def _tahsis_satir(tahsis) -> str:
 
 
 def _varlik_satirlari(snap: MacroSnapshot, onceki_tl: Optional[float]) -> List[str]:
+    from bildirim_ekleri import portfoy_degerle_guvenli
+
     store = yukle_store()
     portfoy = store.aktif()
     if not portfoy or not portfoy.pozisyonlar:
         return ["VARLIKLAR: kayıt yok"]
 
     try:
-        deger = portfoy_degerle(portfoy, snap, cache_salt="ozet_alarm")
+        deger = portfoy_degerle_guvenli(portfoy, snap, cache_salt="ozet_alarm")
     except Exception:
-        return ["VARLIKLAR: hesaplanamadı"]
+        n = len(portfoy.pozisyonlar)
+        return [f"VARLIKLAR: {n} pozisyon (fiyat güncellenemedi)"]
 
     tl = deger.toplam.get("TL", 0.0)
     maliyet = deger.maliyet_toplam.get("TL", tl)
@@ -270,12 +270,14 @@ def _vade_olaylari(onceki_bildirimler: Dict[str, str]) -> Tuple[List[str], Dict[
 
 
 def _portfoy_tl(snap: MacroSnapshot) -> Optional[float]:
+    from bildirim_ekleri import portfoy_degerle_guvenli
+
     store = yukle_store()
     portfoy = store.aktif()
     if not portfoy or not portfoy.pozisyonlar:
         return None
     try:
-        return portfoy_degerle(portfoy, snap, cache_salt="ozet_alarm").toplam.get("TL")
+        return portfoy_degerle_guvenli(portfoy, snap, cache_salt="ozet_alarm").toplam.get("TL")
     except Exception:
         return None
 

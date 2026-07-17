@@ -59,7 +59,7 @@ def ci_bootstrap() -> None:
     for src, dest in _REPO_COPY:
         dest_path = os.path.join(ROOT, dest)
         src_path = os.path.join(ROOT, src)
-        if os.path.isfile(dest_path) or not os.path.isfile(src_path):
+        if not os.path.isfile(src_path):
             continue
         with open(src_path, "rb") as sf, open(dest_path, "wb") as df:
             df.write(sf.read())

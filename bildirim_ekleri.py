@@ -44,6 +44,32 @@ def _etf_mi(h) -> bool:
     )
 
 
+def portfoy_degerle_guvenli(portfoy, snap, *, cache_salt: str = ""):
+    """CI/alarm — önce hızlı mod (aninda), gerekirse tam fiyat çekimi."""
+    import logging
+
+    from varlik_fiyat import portfoy_degerle
+
+    log = logging.getLogger(__name__)
+    ci = bool(os.getenv("GITHUB_ACTIONS"))
+    denemeler = (True, False) if ci else (False, True)
+    son_exc: Optional[Exception] = None
+    for aninda in denemeler:
+        try:
+            return portfoy_degerle(
+                portfoy, snap, cache_salt=cache_salt, aninda=aninda,
+            )
+        except Exception as exc:
+            son_exc = exc
+            log.warning(
+                "portfoy_degerle_guvenli (%s, aninda=%s): %s",
+                cache_salt, aninda, exc,
+            )
+    if son_exc:
+        raise son_exc
+    raise RuntimeError("portfoy_degerle_guvenli: beklenmeyen durum")
+
+
 def _temel_cache_oku(sembol: str) -> Dict[str, Any]:
     """API yok — yalnızca .temel_veri_cache.json."""
     try:
@@ -200,7 +226,6 @@ def portfoy_durum_satirlari(
     ozet: Dict[str, Any] = {}
     try:
         from portfoy_yorum import portfoy_ozet_hesapla
-        from varlik_fiyat import portfoy_degerle
         from varliklarim import yukle_store
 
         store = yukle_store()
@@ -210,7 +235,7 @@ def portfoy_durum_satirlari(
         deger_poz = None
         if snap is not None:
             try:
-                deger = portfoy_degerle(portfoy, snap, cache_salt="bildirim_ek")
+                deger = portfoy_degerle_guvenli(portfoy, snap, cache_salt="bildirim_ek")
                 deger_poz = deger.pozisyonlar
                 maliyet = deger.maliyet_toplam.get("TL", 0) or 0
                 toplam = deger.toplam.get("TL", 0) or 0
@@ -326,7 +351,6 @@ def portfoy_pozisyon_tablo_satirlari(
             pozisyon_oneri_etiket,
             yonetici_pozisyon_kolonlari,
         )
-        from varlik_fiyat import portfoy_degerle
         from varliklarim import yukle_store
 
         store = yukle_store()
@@ -334,7 +358,7 @@ def portfoy_pozisyon_tablo_satirlari(
         if not portfoy or not portfoy.pozisyonlar:
             return []
 
-        deger = portfoy_degerle(portfoy, snap, cache_salt="bildirim_poz_tab")
+        deger = portfoy_degerle_guvenli(portfoy, snap, cache_salt="bildirim_poz_tab")
         tefas_ham, tefas_skorlu = _tefas_bildirim_yukle(
             snap, tarama, profil, gpb, portfoy.pozisyonlar,
         )

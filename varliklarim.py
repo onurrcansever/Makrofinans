@@ -23,6 +23,9 @@ CI_SYNC_PATH = os.path.join(_ROOT, "data", "ci_varliklarim.json")
 
 
 def _store_kaynak_yolu() -> Optional[str]:
+    # CI: repo sync dosyası her zaman öncelikli (eski/boş .varliklarim.json'u atla)
+    if os.getenv("GITHUB_ACTIONS") and os.path.isfile(CI_SYNC_PATH):
+        return CI_SYNC_PATH
     for path in (STATE_PATH, CI_SYNC_PATH):
         if path and os.path.isfile(path):
             return path
