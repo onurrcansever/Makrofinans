@@ -13,9 +13,9 @@ import config
 from birlesik_oneri import AracDagilimSatir, BirlesikOneri, HedefSatir
 from etf_universe import REVOLUT_ETFLER
 
-STATE_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".varliklarim.json",
+STATE_PATH = os.getenv(
+    "VARLIKLARIM_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".varliklarim.json"),
 )
 
 TUR_SECENEKLERI = {

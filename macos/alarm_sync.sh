@@ -31,4 +31,8 @@ fi
   if [[ "${OZET_ALARM_HER_ZAMAN}" == "1" ]]; then
     "$PYTHON" main.py --ozet-alarm --notify 2>&1 || true
   fi
+  # GitHub Actions için portföy secret güncelle (GITHUB_TOKEN varsa)
+  if [[ -n "${GITHUB_TOKEN:-}${GITHUB_PAT:-}" ]]; then
+    "$PYTHON" scripts/portfoy_github_sync.py 2>&1 || true
+  fi
 } >> "$LOG" 2>&1

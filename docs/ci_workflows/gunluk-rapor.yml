@@ -1,0 +1,56 @@
+name: Makrofinans Alarmları
+
+# 10:00, 13:00, 15:00, 18:00 TR (07:00 / 10:00 / 12:00 / 15:00 UTC) — Mac kapalı olsa da WhatsApp.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+    - cron: "0 10 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 15 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  alarm:
+    runs-on: ubuntu-latest
+    env:
+      BILDIRIM_KANALI: whatsapp
+      WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
+      WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      EVDS_API_KEY: ${{ secrets.EVDS_API_KEY }}
+      INVESTOR_RISK: orta
+      INVESTOR_VADE: kisa_6
+      OZET_ALARM_HER_ZAMAN: "1"
+      OZET_POZISYON_TABLO: "1"
+      OZET_GOSTERIM_PB: EUR
+      GITHUB_ACTIONS: "true"
+      # Secret'lardan scripts/github_ci_restore.sh ile dosyaya yazılır
+      VARLIKLARIM_JSON: ${{ secrets.VARLIKLARIM_JSON }}
+      TEMEL_VERI_CACHE_JSON: ${{ secrets.TEMEL_VERI_CACHE_JSON }}
+      PORTFOY_YORUM_CACHE_JSON: ${{ secrets.PORTFOY_YORUM_CACHE_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Önceki alarm durumu (rejim + sinyal + varlık)
+        uses: actions/cache@v4
+        with:
+          path: |
+            .regime_state.json
+            .signal_state.json
+            .ozet_alarm_state.json
+          key: makrofinans-alarm-state-v1
+
+      - run: pip install -r requirements.txt
+
+      - name: Portföy + cache geri yükle (GitHub Secrets)
+        run: bash scripts/github_ci_restore.sh
+
+      - name: Günlük özet alarm (10/13/15/18 TR)
+        run: python main.py --ozet-alarm --notify
+
+      - name: AL/SAT değişim alarmı (aynı tur)
+        run: python main.py --sinyal-alarm --notify
