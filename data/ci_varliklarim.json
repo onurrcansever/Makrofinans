@@ -1,220 +1,519 @@
 {
-  "aktif_id": "p1",
+  "aktif_id": "15375535a7",
   "goruntuleme_pb": "TL",
   "portfoyler": [
     {
-      "id": "p1",
-      "ad": "Varlıklarım 1",
+      "id": "4ada58a06d",
+      "ad": "Portfoy 2 -09072026",
       "para_birimi": "TL",
       "kaynak": "oneri",
-      "olusturma": "2026-07-08",
+      "olusturma": "2026-07-09",
       "pozisyonlar": [
         {
-          "id": "ba9e235d7f",
-          "tur": "tl_mevduat",
-          "sembol": "",
-          "ad": "TL vadeli mevduat",
-          "miktar": 143000.0,
-          "maliyet": 143000.0,
-          "alim_fiyati": 0.0,
-          "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
-          "banka": "",
-          "vade_gun": 0,
-          "brut_faiz": 0.0,
-          "notu": "banka"
-        },
-        {
-          "id": "d5b29a823a",
+          "id": "1ae752f900",
           "tur": "nakit_eur",
           "sembol": "",
           "ad": "EUR nakit / mevduat",
-          "miktar": 192000.0,
-          "maliyet": 192000.0,
+          "miktar": 341148.1568835701,
+          "maliyet": 341148.1568835701,
           "alim_fiyati": 0.0,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "eur"
+          "notu": "EUR vadeli mevduat veya nakit (banka)"
         },
         {
-          "id": "5cdb7b4975",
-          "tur": "nakit_usd",
+          "id": "28cb450bfe",
+          "tur": "tl_mevduat",
           "sembol": "",
-          "ad": "USD nakit / mevduat",
-          "miktar": 190000.0,
-          "maliyet": 190000.0,
+          "ad": "TL vadeli mevduat",
+          "miktar": 171599.99999999997,
+          "maliyet": 171599.99999999997,
           "alim_fiyati": 0.0,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "usd"
+          "notu": "Banka vadeli hesap (~181 gün)"
         },
         {
-          "id": "29173224f8",
+          "id": "04c55098b5",
           "tur": "altin",
           "sembol": "",
           "ad": "Altın",
-          "miktar": 27.41248165247977,
-          "maliyet": 170000.0,
-          "alim_fiyati": 6201.554538372909,
+          "miktar": 34.703536397935004,
+          "maliyet": 215995.24332358176,
+          "alim_fiyati": 6224.012470856841,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "altin"
+          "notu": "Altın (ons / gram)"
         },
         {
-          "id": "4b6d6fe8d6",
+          "id": "79f500ff7d",
+          "tur": "nakit_usd",
+          "sembol": "",
+          "ad": "USD nakit / mevduat",
+          "miktar": 214435.9908240861,
+          "maliyet": 214435.9908240861,
+          "alim_fiyati": 0.0,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-09",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": "USD vadeli mevduat veya nakit (banka)"
+        },
+        {
+          "id": "f8742b7432",
           "tur": "gumus",
           "sembol": "",
           "ad": "Gümüş",
-          "miktar": 333.5697175765732,
-          "maliyet": 30000.0,
-          "alim_fiyati": 89.93622148303463,
+          "miktar": 1113.3206425995004,
+          "maliyet": 101181.91321154598,
+          "alim_fiyati": 90.88299393721435,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "gumus"
+          "notu": "Gümüş"
         },
         {
-          "id": "e16c645c29",
+          "id": "0a8fdab722",
           "tur": "tefas",
-          "sembol": "YIV",
-          "ad": "fon",
-          "miktar": 28490.0,
-          "maliyet": 28490.0,
-          "alim_fiyati": 0.0,
+          "sembol": "PKT",
+          "ad": "PARA PİYASASI KATILIM SERBEST (TL) FON · Mevduat %100",
+          "miktar": 20579.29382711585,
+          "maliyet": 31339.87730061349,
+          "alim_fiyati": 1.522884,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %37"
+          "notu": "Öneri · kategori içi %34"
         },
         {
-          "id": "df6a04601f",
+          "id": "7c1af5e7f5",
           "tur": "tefas",
-          "sembol": "YAY",
-          "ad": "fon",
-          "miktar": 24640.0,
-          "maliyet": 24640.0,
-          "alim_fiyati": 0.0,
+          "sembol": "YPT",
+          "ad": "PARA PİYASASI SERBEST (TL) FON · Bono/Repo %10 · Mevduat %90",
+          "miktar": 7902.9604801411415,
+          "maliyet": 31258.895705521463,
+          "alim_fiyati": 3.95534,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": "Öneri · kategori içi %34"
+        },
+        {
+          "id": "d1a0bef0b3",
+          "tur": "tefas",
+          "sembol": "KSY",
+          "ad": "PY KANDİLLİ SERBEST ÖZEL FON · Bono/Repo %43 · Mevduat %55",
+          "miktar": 2826.4527054691994,
+          "maliyet": 29801.226993865017,
+          "alim_fiyati": 10.543685,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
           "notu": "Öneri · kategori içi %32"
         },
         {
-          "id": "8d8ea3fbc8",
-          "tur": "tefas",
-          "sembol": "YTD",
-          "ad": "fon",
-          "miktar": 23870.0,
-          "maliyet": 23870.0,
-          "alim_fiyati": 0.0,
-          "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
-          "banka": "",
-          "vade_gun": 0,
-          "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %31"
-        },
-        {
-          "id": "b5aedc750e",
-          "tur": "etf",
-          "sembol": "CSPX.L",
-          "ad": "etf",
-          "miktar": 86900.0,
-          "maliyet": 86900.0,
-          "alim_fiyati": 0.0,
-          "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
-          "banka": "",
-          "vade_gun": 0,
-          "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %55"
-        },
-        {
-          "id": "114923dddb",
-          "tur": "etf",
-          "sembol": "VUAA.L",
-          "ad": "etf",
-          "miktar": 71100.0,
-          "maliyet": 71100.0,
-          "alim_fiyati": 0.0,
-          "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
-          "banka": "",
-          "vade_gun": 0,
-          "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %45"
-        },
-        {
-          "id": "d3ea67c58d",
+          "id": "47d50f266b",
           "tur": "hisse",
-          "sembol": "EKGYO.IS",
-          "ad": "gyo",
-          "miktar": 14000.0,
-          "maliyet": 14000.0,
-          "alim_fiyati": 0.0,
+          "sembol": "HALKB.IS",
+          "ad": "Halkbank",
+          "miktar": 1526.0303535931466,
+          "maliyet": 63238.69575721622,
+          "alim_fiyati": 41.439998626708984,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-09",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %35"
+          "notu": "Öneri · kategori içi %100"
         },
         {
-          "id": "93ff0853d7",
+          "id": "6f5988c266",
           "tur": "hisse",
-          "sembol": "ISCTR.IS",
-          "ad": "bank",
-          "miktar": 13200.0,
-          "maliyet": 13200.0,
-          "alim_fiyati": 0.0,
+          "sembol": "AKBNK.IS",
+          "ad": "Akbank",
+          "miktar": 1.0,
+          "maliyet": 35.0,
+          "alim_fiyati": 35.0,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-17",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %33"
+          "notu": ""
         },
         {
-          "id": "689f841875",
+          "id": "38f4405faf",
           "tur": "hisse",
-          "sembol": "YKBNK.IS",
-          "ad": "bank",
-          "miktar": 12800.0,
-          "maliyet": 12800.0,
-          "alim_fiyati": 0.0,
+          "sembol": "ARCLK.IS",
+          "ad": "Arcelik",
+          "miktar": 1.0,
+          "maliyet": 110.0,
+          "alim_fiyati": 110.0,
           "para_birimi": "TL",
-          "alim_tarihi": "2026-07-08",
+          "alim_tarihi": "2026-07-17",
           "banka": "",
           "vade_gun": 0,
           "brut_faiz": 0.0,
-          "notu": "Öneri · kategori içi %32"
+          "notu": ""
+        },
+        {
+          "id": "bb88c9d23d",
+          "tur": "hisse",
+          "sembol": "MGROS.IS",
+          "ad": "Migros",
+          "miktar": 1.0,
+          "maliyet": 550.0,
+          "alim_fiyati": 550.0,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "88126f61d2",
+          "tur": "hisse",
+          "sembol": "ASELS.IS",
+          "ad": "Aselsan",
+          "miktar": 1.0,
+          "maliyet": 290.0,
+          "alim_fiyati": 290.0,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        }
+      ]
+    },
+    {
+      "id": "15375535a7",
+      "ad": "TL Mevduat Yapı Kredi",
+      "para_birimi": "EUR",
+      "kaynak": "manuel",
+      "olusturma": "2026-07-10",
+      "pozisyonlar": [
+        {
+          "id": "2171bb6c1f",
+          "tur": "tl_mevduat",
+          "sembol": "",
+          "ad": "",
+          "miktar": 1200000.0,
+          "maliyet": 1200000.0,
+          "alim_fiyati": 0.0,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-02",
+          "banka": "",
+          "vade_gun": 94,
+          "brut_faiz": 42.0,
+          "notu": ""
+        },
+        {
+          "id": "889c3ab51e",
+          "tur": "nakit_eur",
+          "sembol": "",
+          "ad": "",
+          "miktar": 1000.0,
+          "maliyet": 53040.0,
+          "alim_fiyati": 53.04,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-13",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "c0cc8ff2df",
+          "tur": "nakit_ron",
+          "sembol": "",
+          "ad": "",
+          "miktar": 7914.98,
+          "maliyet": 0.0,
+          "alim_fiyati": 0.0,
+          "para_birimi": "RON",
+          "alim_tarihi": "2026-07-13",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "bb21c1441c",
+          "tur": "altin",
+          "sembol": "",
+          "ad": "",
+          "miktar": 17.01,
+          "maliyet": 106708.47408900001,
+          "alim_fiyati": 6273.2789,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-13",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        }
+      ]
+    },
+    {
+      "id": "5923a7c63e",
+      "ad": "Hisseler",
+      "para_birimi": "EUR",
+      "kaynak": "manuel",
+      "olusturma": "2026-07-17",
+      "pozisyonlar": [
+        {
+          "id": "c6d74651cc",
+          "tur": "hisse",
+          "sembol": "BIMAS.IS",
+          "ad": "BIM",
+          "miktar": 1.0,
+          "maliyet": 390.75,
+          "alim_fiyati": 390.75,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "a082a6d9f9",
+          "tur": "hisse",
+          "sembol": "MGROS.IS",
+          "ad": "Migros",
+          "miktar": 1.0,
+          "maliyet": 632.0,
+          "alim_fiyati": 632.0,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "c036474e86",
+          "tur": "altin",
+          "sembol": "",
+          "ad": "Altın",
+          "miktar": 2.0,
+          "maliyet": 12139.048334973528,
+          "alim_fiyati": 6069.524167486764,
+          "para_birimi": "TL",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
+        },
+        {
+          "id": "48c2c32a3a",
+          "tur": "hisse_us",
+          "sembol": "CSCO",
+          "ad": "Cisco",
+          "miktar": 1.0,
+          "maliyet": 109.66000366210938,
+          "alim_fiyati": 109.66000366210938,
+          "para_birimi": "USD",
+          "alim_tarihi": "2026-07-17",
+          "banka": "",
+          "vade_gun": 0,
+          "brut_faiz": 0.0,
+          "notu": ""
         }
       ]
     }
   ],
   "gunluk_snapshot": {
-    "2026-07-14": {
+    "2026-07-08": {
       "p1": {
-        "TL": 1000000.0,
-        "EUR": 18578.63360749405,
-        "USD": 21261.351339645837
+        "TL": 1200766.2570595762,
+        "EUR": 22464.47719301759,
+        "USD": 25642.824368995713
+      },
+      "7f210f4b4e": {
+        "TL": 1200000.0,
+        "EUR": 22427.391103141625,
+        "USD": 25611.52810562762
+      }
+    },
+    "2026-07-09": {
+      "p1": {
+        "TL": 1000605.0045664136,
+        "EUR": 18651.363905130132,
+        "USD": 21350.338848177147
+      },
+      "7f210f4b4e": {
+        "TL": 1200000.0,
+        "EUR": 22362.584573387576,
+        "USD": 25604.42368094683
+      },
+      "4ada58a06d": {
+        "TL": 1200271.2482265267,
+        "EUR": 22373.15997158981,
+        "USD": 25610.70326693532
+      },
+      "c155bb2205": {
+        "TL": 1200000.0,
+        "EUR": 22360.263811375647,
+        "USD": 25609.309634288442
+      },
+      "27a9cc29fd": {
+        "TL": 2403521.095890411,
+        "EUR": 44786.13815026358,
+        "USD": 51293.76329766818
+      },
+      "bcd81e3ff3": {
+        "TL": 1203521.095890411,
+        "EUR": 22433.73741337625,
+        "USD": 25680.04666269313
+      },
+      "b80ef84774": {
+        "TL": 200000.0,
+        "EUR": 3728.0173135276723,
+        "USD": 4267.485921166017
+      }
+    },
+    "2026-07-10": {
+      "p1": {
+        "TL": 1000213.153355263,
+        "EUR": 18607.3226358798,
+        "USD": 21290.190785464856
+      },
+      "4ada58a06d": {
+        "TL": 1199473.2362825987,
+        "EUR": 22314.229147800226,
+        "USD": 25531.571902299373
+      },
+      "bcd81e3ff3": {
+        "TL": 1204694.7945205478,
+        "EUR": 22454.59339327471,
+        "USD": 25705.420960233674
+      },
+      "15375535a7": {
+        "TL": 1209389.589041096,
+        "EUR": 22498.70660096067,
+        "USD": 25742.647952855365
+      },
+      "b80ef84774": {
+        "TL": 199867.1090972449,
+        "EUR": 3718.1992366301965,
+        "USD": 4254.302065660064
+      }
+    },
+    "2026-07-12": {
+      "15375535a7": {
+        "TL": 1211736.9863013697,
+        "EUR": 22566.237520672043,
+        "USD": 25802.11506442506
+      }
+    },
+    "2026-07-13": {
+      "15375535a7": {
+        "TL": 1453129.490118505,
+        "EUR": 27016.866840781164,
+        "USD": 30922.254147954645
+      },
+      "p1": {
+        "TL": 998223.5409158777,
+        "EUR": 18559.3773341115,
+        "USD": 21239.927905681696
+      },
+      "4ada58a06d": {
+        "TL": 1195964.7596604053,
+        "EUR": 22235.862352506836,
+        "USD": 25447.411558353175
+      },
+      "b80ef84774": {
+        "TL": 199282.8574632921,
+        "EUR": 3705.1477913331273,
+        "USD": 4240.286220333957
+      }
+    },
+    "2026-07-14": {
+      "15375535a7": {
+        "TL": 1453272.1191235934,
+        "EUR": 27063.298825110727,
+        "USD": 30900.762163662952
+      },
+      "4ada58a06d": {
+        "TL": 1192399.5700375412,
+        "EUR": 22194.665596289433,
+        "USD": 25355.314472905397
+      },
+      "b80ef84774": {
+        "TL": 199139.22642826202,
+        "EUR": 3706.6673359668243,
+        "USD": 4234.518224306915
+      }
+    },
+    "2026-07-15": {
+      "15375535a7": {
+        "TL": 1454031.298364508,
+        "EUR": 27086.8189392098,
+        "USD": 30919.139043112697
+      }
+    },
+    "2026-07-16": {
+      "15375535a7": {
+        "TL": 1455989.2723662672,
+        "EUR": 26927.45902278475,
+        "USD": 30961.301648509547
+      },
+      "34fc337b60": {
+        "TL": 350.0,
+        "EUR": 6.477287833390905,
+        "USD": 7.438847266659175
+      },
+      "4ada58a06d": {
+        "TL": 1182714.7392502874,
+        "EUR": 21951.401483816826,
+        "USD": 25145.685319940592
+      }
+    },
+    "2026-07-17": {
+      "4ada58a06d": {
+        "TL": 1184232.9024735459,
+        "EUR": 21951.173204795694,
+        "USD": 25110.42853414185
+      },
+      "15375535a7": {
+        "TL": 1456149.0194481956,
+        "EUR": 26990.669708017947,
+        "USD": 30899.3212437955
+      },
+      "5923a7c63e": {
+        "TL": 18319.355697840954,
+        "EUR": 339.61240363865426,
+        "USD": 388.44290770956303
+      },
+      "34fc337b60": {
+        "TL": 350.0,
+        "EUR": 6.484783936069285,
+        "USD": 7.421260366363581
       }
     }
   },
-  "guncelleme": "2026-07-14T16:13:08"
+  "guncelleme": "2026-07-17T15:40:42"
 }
