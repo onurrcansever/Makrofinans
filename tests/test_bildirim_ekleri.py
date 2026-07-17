@@ -246,6 +246,13 @@ class BildirimEkleriTest(unittest.TestCase):
         self.assertIn("Elde tut", metin)
         self.assertIn("-7,1%", metin)
 
+    def test_pozisyon_tablo_ad_sembol_oncelik(self):
+        from varliklarim import VarlikPozisyon
+        p = VarlikPozisyon(id="1", tur="tefas", sembol="YIV", ad="fon", miktar=1, maliyet=1)
+        self.assertEqual(be._pozisyon_tablo_ad(p), "YIV")
+        p2 = VarlikPozisyon(id="2", tur="hisse", sembol="HALKB.IS", ad="Halkbank", miktar=1, maliyet=1)
+        self.assertEqual(be._pozisyon_tablo_ad(p2), "Halkbank")
+
     def test_ozet_metni_pozisyon_tablosu(self):
         py.kaydet_cache({
             "x": {

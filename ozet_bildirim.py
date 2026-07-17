@@ -99,21 +99,33 @@ def _varlik_satirlari(snap: MacroSnapshot, onceki_tl: Optional[float]) -> List[s
         n = len(portfoy.pozisyonlar)
         return [f"VARLIKLAR: {n} pozisyon (fiyat güncellenemedi)"]
 
-    tl = deger.toplam.get("TL", 0.0)
-    maliyet = deger.maliyet_toplam.get("TL", tl)
-    kz = tl - maliyet
+    pb = (
+        getattr(config, "OZET_GOSTERIM_PB", None)
+        or os.getenv("OZET_GOSTERIM_PB", "EUR")
+    ).upper()
+    if pb == "EUR":
+        ana = deger.toplam.get("EUR", 0.0)
+        maliyet = deger.maliyet_toplam.get("EUR", ana)
+        birim = "EUR"
+    else:
+        ana = deger.toplam.get("TL", 0.0)
+        maliyet = deger.maliyet_toplam.get("TL", ana)
+        birim = "TL"
+    kz = ana - maliyet
     kz_pct = (100.0 * kz / maliyet) if maliyet > 0 else 0.0
 
-    satir = f"VARLIKLAR: {_fmt_tl(tl)} TL"
-    if onceki_tl and onceki_tl > 0:
-        satir += f" ({_fmt_pct(100 * (tl - onceki_tl) / onceki_tl)} önceki taramaya göre)"
-    satirlar = [satir, f" K/Z: {_fmt_tl(kz)} TL ({_fmt_pct(kz_pct)})"]
+    portfoy_ad = (portfoy.ad or "Portföy").strip()
+    satir = f"VARLIKLAR ({portfoy_ad}): {_fmt_tl(ana)} {birim}"
+    if onceki_tl and onceki_tl > 0 and birim == "TL":
+        satir += f" ({_fmt_pct(100 * (deger.toplam.get('TL', ana) - onceki_tl) / onceki_tl)} önceki taramaya göre)"
+    satirlar = [satir, f" K/Z: {_fmt_tl(kz)} {birim} ({_fmt_pct(kz_pct)})"]
 
     movers: List[Tuple[str, float]] = []
     for row in deger.pozisyonlar:
         g1 = row.getiriler.get("1G")
         if g1 is not None and abs(g1) >= 0.25:
-            movers.append((row.pozisyon.etiket()[:14], g1))
+            from bildirim_ekleri import _pozisyon_tablo_ad
+            movers.append((_pozisyon_tablo_ad(row.pozisyon)[:14], g1))
     movers.sort(key=lambda x: -abs(x[1]))
     if movers:
         parca = ", ".join(f"{ad} {_fmt_pct(g)}" for ad, g in movers[:3])

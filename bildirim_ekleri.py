@@ -52,7 +52,7 @@ def portfoy_degerle_guvenli(portfoy, snap, *, cache_salt: str = ""):
 
     log = logging.getLogger(__name__)
     ci = bool(os.getenv("GITHUB_ACTIONS"))
-    denemeler = (True, False) if ci else (False, True)
+    denemeler = (False, True)  # önce tam fiyat; CI'da aninda=0% sinyal üretir
     son_exc: Optional[Exception] = None
     for aninda in denemeler:
         try:
@@ -292,6 +292,28 @@ def _fmt_kz_pct(pct: float) -> str:
     return f"{pct:+.1f}".replace(".", ",") + "%"
 
 
+_GENERIC_POZ_AD = frozenset({"fon", "bank", "etf", "gyo", "hisse", ""})
+
+
+def _pozisyon_tablo_ad(p) -> str:
+    """WhatsApp tablo — sembol öncelikli (eski öneri aktarımında ad='fon' vb.)."""
+    ad = (getattr(p, "ad", None) or "").strip()
+    sym = (getattr(p, "sembol", None) or "").strip()
+    if sym:
+        kisa = sym.replace(".IS", "").replace(".L", "").replace(".DE", "").replace(".PA", "")
+        if not ad or ad.lower() in _GENERIC_POZ_AD or len(ad) <= 4:
+            return kisa
+    if ad:
+        return ad
+    if sym:
+        return sym.replace(".IS", "").replace(".L", "")
+    try:
+        from varliklarim import TUR_SECENEKLERI
+        return TUR_SECENEKLERI.get(getattr(p, "tur", ""), getattr(p, "tur", "—"))
+    except Exception:
+        return getattr(p, "tur", "—")
+
+
 def _tablo_kisalt(metin: str, max_len: int) -> str:
     s = (metin or "—").strip()
     if len(s) <= max_len:
@@ -376,7 +398,7 @@ def portfoy_pozisyon_tablo_satirlari(
                 gosterim_pb=gpb,
                 fx=fx,
             )
-            ad = _tablo_kisalt(p.etiket(), 12)
+            ad = _tablo_kisalt(_pozisyon_tablo_ad(p), 14)
             sinyal = _tablo_kisalt(str(kol.get(POZ_COL_SINYAL) or "—"), 8)
             oneri = _tablo_kisalt(pozisyon_oneri_etiket(kol.get(POZ_COL_ONERI)), 16)
             kz = _fmt_kz_pct(float(pd_.kar_zarar_pct or 0))

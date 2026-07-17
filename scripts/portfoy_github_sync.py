@@ -69,10 +69,11 @@ def _git_token() -> str:
 
 def _aday_yollar(dosya: str) -> list[str]:
     app_support = os.path.expanduser("~/Library/Application Support/TLYatirimAsistani")
+    # Canlı uygulama App Support'ta — Desktop kopyası eski şablon olabilir
     return [
-        os.path.join(ROOT, dosya),
         os.path.join(app_support, "project", dosya),
         os.path.join(app_support, dosya),
+        os.path.join(ROOT, dosya),
     ]
 
 
@@ -84,10 +85,11 @@ def _bul(dosya: str, explicit: Optional[str] = None) -> Optional[str]:
         p = os.getenv(env_key, "").strip()
         if p and os.path.isfile(p):
             return p
-    for p in _aday_yollar(dosya):
-        if os.path.isfile(p):
-            return p
-    return None
+    adaylar = [p for p in _aday_yollar(dosya) if os.path.isfile(p)]
+    if not adaylar:
+        return None
+    # Birden fazla kopya varsa en güncel (canlı portföy)
+    return max(adaylar, key=os.path.getmtime)
 
 
 def main() -> int:
