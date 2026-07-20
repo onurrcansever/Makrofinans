@@ -23,3 +23,6 @@ __pycache__/
 *.pyc
 .DS_Store
 fonts/*.ttf
+
+# Local Netlify folder
+.netlify

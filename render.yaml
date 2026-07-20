@@ -1,0 +1,43 @@
+# Modulfinans — Streamlit Web Service (Render)
+# Domain: www.makro.modulcheck.com (DNS Netlify → bu servis)
+services:
+  - type: web
+    name: modulfinans
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: llama-3.3-70b-versatile
+      - key: LLM_MODEL_FALLBACK
+        value: llama-3.1-8b-instant
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: EVDS_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: WHATSAPP_PHONE
+        sync: false
+      - key: WHATSAPP_APIKEY
+        sync: false
+      - key: BILDIRIM_KANALI
+        value: telegram
+      - key: INVESTOR_RISK
+        value: orta
+      - key: INVESTOR_VADE
+        value: kisa_6

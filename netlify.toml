@@ -1,0 +1,5 @@
+# Modulfinans Netlify yüzeyi — asıl Streamlit Render'da.
+# Domain www.makro.modulcheck.com DNS CNAME ile Render'a gider.
+[build]
+  publish = "public"
+  command = "echo ok"
