@@ -82,9 +82,9 @@ class DecisionLevelGoldenTest(unittest.TestCase):
                 self.assertEqual(h.signal_v2_decision, exp["decision"], msg=f"{sym} label")
 
     def test_veur_below_buy_threshold_is_izle_not_al(self):
-        """Eşik bandı: VEUR pin <66 → İZLE (66 artefaktı AL olmamalı)."""
+        """Eşik bandı: VEUR pin <64 → İZLE."""
         h = self._run("VEUR.L")
-        self.assertLess(h.signal_v2_score, 66.0)
+        self.assertLess(h.signal_v2_score, 64.0)
         self.assertEqual(h.signal_v2_code, "WATCH")
         self.assertEqual(h.signal_v2_decision, "İZLE")
 

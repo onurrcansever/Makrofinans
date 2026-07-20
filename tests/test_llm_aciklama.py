@@ -123,7 +123,8 @@ class LlmAciklamaTest(unittest.TestCase):
             {"guncelleme": "2026-07-16"},
         )
         self.assertIn("AI Analiz", md)
-        self.assertIn("Claude Sonnet 4.6", md)
+        self.assertIn("·", md)
+        self.assertTrue("AI" in md or "Groq" in md or "Claude" in md or "llama" in md.lower())
         self.assertIn("16 Tem 2026", md)
 
     def test_stale_cache_refetch(self):

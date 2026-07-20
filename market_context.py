@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import List, Optional, Tuple
 
+import config
 from allocation_engine import TahsisSonucu
 from investor_profile import (
     VADE_SECENEKLERI,
@@ -33,16 +34,9 @@ CDS_BANTLAR = [
     (9999, "Aşırı", "Acil koruma modu."),
 ]
 
-FOMC_2026 = [
-    date(2026, 1, 28), date(2026, 3, 18), date(2026, 5, 6), date(2026, 6, 17),
-    date(2026, 7, 29), date(2026, 9, 16), date(2026, 11, 4), date(2026, 12, 16),
-]
-
-TCMB_PPK_2026 = [
-    date(2026, 1, 23), date(2026, 3, 19), date(2026, 4, 24), date(2026, 6, 19),
-    date(2026, 7, 24), date(2026, 8, 21), date(2026, 9, 18), date(2026, 10, 23),
-    date(2026, 11, 20), date(2026, 12, 18),
-]
+# Tek kaynak: config.py (TCMB / Fed resmi takvimler)
+FOMC_2026 = list(config.FOMC_TAKVIM)
+TCMB_PPK_2026 = list(config.TCMB_PPK_TAKVIM)
 
 
 @dataclass
@@ -197,28 +191,36 @@ def _fed_beklenti(irx_chg: Optional[float], tnx_chg: Optional[float], fed: float
     )
 
 
-def _altin_beklenti(fiyat: float, yuksek: float, dusuk: float, deg3m: Optional[float]) -> str:
+def _altin_konum_trend(
+    fiyat: float, yuksek: float, dusuk: float, deg3m: Optional[float],
+) -> Tuple[str, str]:
+    """Konum ve trend ayrı — beklentiye kopyalanmaz (şablon sızıntısı / kesik cümle önlemi)."""
     if not yuksek or not dusuk or yuksek <= dusuk:
-        return "Teknik bant verisi yok — makro koruma gerekçesi öncelikli."
-    band = yuksek - dusuk
-    konum_pct = (fiyat - dusuk) / band * 100
-    if konum_pct > 85:
-        konum = "52 hafta bandının **üst %15'inde** — kısa vadede kar satışı normal."
-    elif konum_pct < 25:
-        konum = "52 hafta bandının **alt çeyreğinde** — toparlanma potansiyeli."
+        konum = "Teknik bant verisi yok — makro koruma gerekçesi öncelikli."
     else:
-        konum = f"52 hafta bandının **%{konum_pct:.0f}** noktasında — orta bölge."
-
-    trend = ""
-    if deg3m is not None:
-        if deg3m > 5:
-            trend = f" Son 3 ay **+{deg3m:.1f}%** yükseliş; momentum güçlü."
-        elif deg3m < -5:
-            trend = f" Son 3 ay **{deg3m:.1f}%** düşüş; kademeli alım düşünülebilir."
+        band = yuksek - dusuk
+        konum_pct = (fiyat - dusuk) / band * 100
+        if konum_pct > 85:
+            konum = "52 hafta bandının **üst %15'inde** — kısa vadede kar satışı normal."
+        elif konum_pct < 25:
+            konum = "52 hafta bandının **alt çeyreğinde** — toparlanma potansiyeli."
         else:
-            trend = f" Son 3 ay yatay (**{deg3m:+.1f}%**)."
+            konum = f"52 hafta bandının **%{konum_pct:.0f}** noktasında — orta bölge."
 
-    return konum + trend + " Fed ve reel faiz beklentisi altın talebini belirler."
+    if deg3m is None:
+        trend = "Trend: —"
+    elif deg3m > 5:
+        trend = f"Son 3 ay **+{deg3m:.1f}%** yükseliş; momentum güçlü."
+    elif deg3m < -5:
+        trend = f"Son 3 ay **{deg3m:.1f}%** düşüş; kademeli alım düşünülebilir."
+    else:
+        trend = f"Son 3 ay yatay (**{deg3m:+.1f}%**)."
+    return konum, trend
+
+
+def _altin_beklenti() -> str:
+    """Yalnızca ileriye dönük cümle — konum/trend BaglamParcasi alanlarında."""
+    return "Fed ve reel faiz beklentisi altın talebini belirler."
 
 
 def _tl_beklenti(snap: MacroSnapshot, tahsis: TahsisSonucu, ykb_3ay: Optional[float]) -> str:
@@ -401,15 +403,17 @@ def makro_baglam_olustur(
         alt_ok = "↘"
     else:
         alt_ok = "→"
+    alt_konum, alt_trend = _altin_konum_trend(fiyat or 0, yuksek or 0, dusuk or 0, deg3m)
+    if yuksek and dusuk:
+        alt_konum = (
+            f"52 hafta: **${dusuk:,.0f}** – **${yuksek:,.0f}**. {alt_konum}"
+        )
     parcalar.append(BaglamParcasi(
         baslik="Altın (spot)",
         canli=f"**${fiyat:,.0f}/oz**" if fiyat else "—",
-        konum=(
-            f"52 hafta: **${dusuk:,.0f}** – **${yuksek:,.0f}**"
-            if yuksek and dusuk else "Bant hesaplanamadı."
-        ),
-        trend=f"3 aylık değişim: **{deg3m:+.1f}%**" if deg3m is not None else "Trend: —",
-        beklenti=_altin_beklenti(fiyat or 0, yuksek or 0, dusuk or 0, deg3m),
+        konum=alt_konum,
+        trend=alt_trend,
+        beklenti=_altin_beklenti(),
         kaynak=kh.get("altin", "Yahoo GC=F"),
         ok=alt_ok,
     ))

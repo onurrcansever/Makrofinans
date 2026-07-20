@@ -32,7 +32,7 @@ from stock_universe import (
 )
 
 SINYAL_ETIKET = {
-    "ALIM_FIRSATI": "Alım fırsatı",
+    "ALIM_FIRSATI": "RSI dip bölgesi",
     "TREND_ALIM": "Trend alımı",
     "BEKLE": "Bekle",
     "ASIRI_ALIM": "Aşırı alım",
@@ -55,10 +55,23 @@ class EndeksOzet:
     degisim_1ay: Optional[float]
     degisim_3ay: Optional[float]
     rsi: Optional[float]
-    sinyal: str
+    sinyal: str  # legacy uyum — UI aksiyon/kurulum kullanır
     skor: float
     close_bar_dates: Optional[pd.DatetimeIndex] = None
     quote_currency: str = ""
+    platform: str = ""
+    aksiyon: str = "BEKLE"
+    aksiyon_etiket: str = "Bekle"
+    kurulum: str = ""
+    guven: float = 0.0
+    gerekce: str = ""
+    sma20: Optional[float] = None
+    sma50: Optional[float] = None
+    sma200: Optional[float] = None
+    teknik_aksiyon: str = "BEKLE"
+    teknik_aksiyon_etiket: str = "Bekle"
+    makro_chip: str = ""
+    makro_not: str = ""
 
 
 @dataclass
@@ -122,6 +135,7 @@ class HisseAnaliz:
     signal_v2_code: str = ""
     signal_v2_why: str = ""
     signal_v2_decision_gates: list = field(default_factory=list)
+    signal_v2_fund_note: str = ""
     signal_v2_al_price: Optional[float] = None
     signal_v2_al_method: str = ""
     signal_v2_al_p_fill: Optional[float] = None
@@ -160,6 +174,7 @@ class TaramaSonucu:
     usdtry_seri: Optional[pd.Series] = None
     gbpusd_seri: Optional[pd.Series] = None
     eurusd_seri: Optional[pd.Series] = None
+    chfusd_seri: Optional[pd.Series] = None
     # Veri bütünlüğü — sessiz düşme yok
     veri_ozet_log: str = ""
     veri_ozet_ui: str = ""
@@ -345,7 +360,8 @@ def _sinyal_uret(
 
     if 28 <= rsi <= 45 and not dusen_bicak:
         skor += 25
-        gerekceler.append(f"RSI {rsi:.0f} — dipten dönüş bölgesi")
+        # Dönüş teyidi (higher low / önceki kapanış üstü) YOK — yalnızca RSI bandı
+        gerekceler.append(f"RSI {rsi:.0f} — RSI dip bölgesi")
         sinyal = "ALIM_FIRSATI"
     elif 42 < rsi <= 62 and fiyat > sma50:
         skor += 18
@@ -400,27 +416,54 @@ def _sinyal_uret(
     return sinyal, max(0, min(100, skor)), "; ".join(gerekceler)
 
 
+def _df_index_tz_naive(df: pd.DataFrame) -> pd.DataFrame:
+    """yf.download (naive) ile Ticker.history (UTC-aware) concat uyumu."""
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame()
+    out = df.copy()
+    idx = out.index
+    if isinstance(idx, pd.DatetimeIndex) and idx.tz is not None:
+        out.index = idx.tz_convert("UTC").tz_localize(None)
+    return out
+
+
 def _indir(semboller: List[str], period: str = "1y", *, timeout: float = 25.0) -> pd.DataFrame:
     import yfinance as yf
 
     if not semboller:
         return pd.DataFrame()
 
-    def _batch_indir(chunk: List[str]) -> pd.DataFrame:
+    def _batch_indir(chunk: List[str], *, threads: bool = True) -> pd.DataFrame:
         part = yf.download(
             chunk,
             period=period,
             group_by="ticker",
             auto_adjust=True,
             progress=False,
-            threads=True,
+            threads=threads,
         )
-        return part if part is not None and not part.empty else pd.DataFrame()
+        if part is None or part.empty:
+            return pd.DataFrame()
+        return _df_index_tz_naive(part)
+
+    def _tek_ticker(sym: str) -> pd.DataFrame:
+        try:
+            h = yf.Ticker(sym).history(period=period, auto_adjust=True)
+            if h is None or h.empty or "Close" not in h.columns:
+                return pd.DataFrame()
+            # MultiIndex (ticker, field) — ana df ile uyum
+            part = h[["Open", "High", "Low", "Close", "Volume"]].copy()
+            part.columns = pd.MultiIndex.from_product([[sym], part.columns])
+            return _df_index_tz_naive(part)
+        except Exception as e:
+            print(f"[UYARI] yfinance tek {sym}: {e}")
+            return pd.DataFrame()
 
     parcalar = []
     batch = 35
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
 
+    basarisiz_chunklar: List[List[str]] = []
     for i in range(0, len(semboller), batch):
         chunk = semboller[i : i + batch]
         try:
@@ -429,25 +472,90 @@ def _indir(semboller: List[str], period: str = "1y", *, timeout: float = 25.0) -
                 part = fut.result(timeout=timeout) if timeout > 0 else fut.result()
             if not part.empty:
                 parcalar.append(part)
+            else:
+                basarisiz_chunklar.append(chunk)
         except FutTimeout:
             print(f"[UYARI] yfinance batch {i}: zaman aşımı ({timeout}s)")
+            basarisiz_chunklar.append(chunk)
         except Exception as e:
             print(f"[UYARI] yfinance batch {i}: {e}")
+            basarisiz_chunklar.append(chunk)
+
+    # Başarısız batch: bir kez threads=False + daha uzun timeout
+    for chunk in basarisiz_chunklar:
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(lambda c=chunk: _batch_indir(c, threads=False))
+                part = fut.result(timeout=max(timeout, 40.0))
+            if not part.empty:
+                parcalar.append(part)
+        except Exception as e:
+            print(f"[UYARI] yfinance retry batch: {e}")
+
     if not parcalar:
-        return pd.DataFrame()
-    if len(parcalar) == 1:
+        out = pd.DataFrame()
+    elif len(parcalar) == 1:
         out = parcalar[0]
     else:
-        out = pd.concat(parcalar, axis=1)
-    if isinstance(out.columns, pd.MultiIndex):
+        out = pd.concat([_df_index_tz_naive(p) for p in parcalar], axis=1)
+    if not out.empty and isinstance(out.columns, pd.MultiIndex):
         out = out.loc[:, ~out.columns.duplicated(keep="first")]
+    out = _df_index_tz_naive(out)
+
+    # Eksik kritik semboller (emtia + FX) — tek ticker doldur
+    kritik = [s for s, *_ in EMTIA_SEMBOLLER] + [
+        "EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X",
+    ]
+    eksik = [s for s in kritik if s in semboller and not _df_sembol_var(out, s)]
+    # Evren genelinde de boş kalanları (sınırlı) doldur — emtia öncelikli
+    diger_eksik = [
+        s for s in semboller
+        if s not in eksik and not _df_sembol_var(out, s)
+    ]
+    # Önce kritik, sonra en fazla 15 diğer (timeout patlamasın)
+    for sym in eksik + diger_eksik[:15]:
+        tek = _tek_ticker(sym)
+        if tek.empty:
+            continue
+        if out.empty:
+            out = tek
+        else:
+            out = pd.concat([_df_index_tz_naive(out), tek], axis=1)
+        if isinstance(out.columns, pd.MultiIndex):
+            out = out.loc[:, ~out.columns.duplicated(keep="first")]
     return out
 
 
-def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) -> EndeksOzet:
+def _df_sembol_var(df: pd.DataFrame, sembol: str) -> bool:
+    if df is None or df.empty:
+        return False
+    if isinstance(df.columns, pd.MultiIndex):
+        lvl0 = df.columns.get_level_values(0)
+        su = str(sembol).upper()
+        return any(str(t).upper() == su for t in lvl0.unique())
+    return sembol in df.columns or any(
+        str(c).upper() == str(sembol).upper() for c in df.columns
+    )
+
+def _endeks_analiz(
+    df: pd.DataFrame,
+    ad: str,
+    sym: str,
+    makro_rejim: str,
+    snap,
+    *,
+    fx_ok: bool = True,
+) -> EndeksOzet:
+    """Endeks özeti — hisse `_sinyal_uret` yolundan bağımsız platform yönlendirme."""
+    from endeks_yonlendirme import karar as endeks_karar
+
     close = _close_al(df, sym)
     if close.empty:
-        return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
+        return EndeksOzet(
+            ad, sym, None, None, None, None, None, "VERI_YOK", 0,
+            platform="TR" if sym.endswith(".IS") else "ABD",
+            kurulum="Veri zayıf", guven=0.0, gerekce="Fiyat serisi yok",
+        )
 
     fiyat = _son_fiyat(close)
     prev_close = None
@@ -461,28 +569,53 @@ def _endeks_analiz(df: pd.DataFrame, ad: str, sym: str, makro_rejim: str, snap) 
     except Exception:
         pass
     if fiyat is None:
-        return EndeksOzet(ad, sym, None, None, None, None, None, "VERI_YOK", 0)
+        return EndeksOzet(
+            ad, sym, None, None, None, None, None, "VERI_YOK", 0,
+            platform="TR" if sym.endswith(".IS") else "ABD",
+            kurulum="Veri zayıf", guven=0.0, gerekce="Fiyat yok",
+        )
     rsi = _rsi(close)
-    sma20, sma50 = _sma(close, 20), _sma(close, 50)
+    sma20, sma50, sma200 = _sma(close, 20), _sma(close, 50), _sma(close, 200)
     d1ay, d3ay = _degisim(close, 21), _degisim(close, 63)
-    piyasa = "BIST" if sym.endswith(".IS") else "NASDAQ" if sym in ("^IXIC", "^NDX") else "SP500"
-    sinyal, skor, _ = _sinyal_uret(fiyat, rsi, sma20, sma50, degisim_3ay=d3ay, degisim_1ay=d1ay)
-    sektor = "sanayi" if piyasa == "BIST" else "teknoloji"
-    rh = rejim_hisse_ayarla(sinyal, skor, "", piyasa, sektor, makro_rejim, snap)
-    skor = max(0, min(100, skor + rh.skor_delta))
+    k = endeks_karar(
+        sembol=sym,
+        fiyat=float(fiyat),
+        rsi=rsi,
+        sma20=sma20,
+        sma50=sma50,
+        sma200=sma200,
+        degisim_1ay=d1ay,
+        degisim_3ay=d3ay,
+        fx_ok=fx_ok,
+        makro_rejim=makro_rejim or "NOTR",
+        snap=snap,
+    )
 
     return EndeksOzet(
         ad=ad,
         sembol=sym,
         fiyat=fiyat,
         degisim_1g=_degisim_1g(fiyat, close, prev_close, sembol=sym),
-        degisim_1ay=_degisim(close, 21),
-        degisim_3ay=_degisim(close, 63),
+        degisim_1ay=d1ay,
+        degisim_3ay=d3ay,
         rsi=rsi,
-        sinyal=rh.sinyal,
-        skor=skor,
+        sinyal=k.sinyal,
+        skor=k.skor,
         close_bar_dates=close.index,
         quote_currency="TRY" if sym.endswith(".IS") else "USD",
+        platform=k.platform,
+        aksiyon=k.aksiyon,
+        aksiyon_etiket=k.aksiyon_etiket,
+        kurulum=k.kurulum,
+        guven=k.guven,
+        gerekce=k.gerekce,
+        sma20=sma20,
+        sma50=sma50,
+        sma200=sma200,
+        teknik_aksiyon=k.teknik_aksiyon,
+        teknik_aksiyon_etiket=k.teknik_aksiyon_etiket,
+        makro_chip=k.makro_chip,
+        makro_not=k.makro_not,
     )
 
 
@@ -546,21 +679,23 @@ def _hisse_analiz(
                 et = _extract_close(df, "EURTRY=X")
                 gbp_s = _extract_close(df, "GBPUSD=X")
                 eurusd_s = _extract_close(df, "EURUSD=X")
+                chf_s = _extract_close(df, "CHFUSD=X")
                 try:
                     fx = kur_tablo_spot(
-                        snap, et, ut, gbp_s, eurusd_s, asof=when, check_plausibility=False,
+                        snap, et, ut, gbp_s, eurusd_s, asof=when,
+                        chf_s=chf_s, check_plausibility=False,
                     )
                     fiyat = convert_settlement(
                         live.price, live.settlement, target,
                         eur_try=fx.eur_try, usd_try=fx.usd_try,
-                        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=fx.chf_usd,
                     )
                     if live.previous_close is not None:
                         try:
                             prev_close = convert_settlement(
                                 live.previous_close, live.settlement, target,
                                 eur_try=fx.eur_try, usd_try=fx.usd_try,
-                                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=fx.chf_usd,
                             )
                         except FxUnavailableError:
                             prev_close = live.previous_close
@@ -670,9 +805,14 @@ def _hisse_analiz(
 def _hikaye_uret(h: HisseAnaliz) -> str:
     """Büyük şirket / Revolut ETF / spot emtia için kısa yatırım hikayesi."""
     sek = SEKTOR_ETIKET.get(h.sektor, h.sektor)
+    v2_code = (getattr(h, "signal_v2_code", None) or "").upper()
+    # v2 nihai karar alım değilse — eski v1 “kademeli alım” dilini sustur
+    v2_alim_yok = v2_code in ("WATCH", "WAIT", "REDUCE")
 
     if h.varlik_turu == "emtia" or h.piyasa == "EMTIA":
-        if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
+        if v2_alim_yok:
+            hik = f"Spot {sek} (ons) — {getattr(h, 'signal_v2_decision', None) or 'izle'}"
+        elif h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
             hik = f"Spot {sek} (ons) — teknik alım bölgesi"
         elif h.sinyal in ("ASIRI_ALIM", "UZAK_DUR"):
             hik = f"Spot {sek} (ons) — zirveye yakın, temkin"
@@ -680,7 +820,9 @@ def _hikaye_uret(h: HisseAnaliz) -> str:
             hik = f"Spot {sek} (ons) — fiziksel alım/satım izleme"
     elif h.varlik_turu == "etf" or h.piyasa == "ETF":
         rt = h.revolut_ticker or h.sembol.split(".")[0]
-        if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
+        if v2_alim_yok:
+            hik = f"Revolut {rt} · {sek} ETF — {getattr(h, 'signal_v2_decision', None) or 'izle'}"
+        elif h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM"):
             hik = f"Revolut {rt} · {sek} ETF — kademeli DCA / alım adayı"
         elif h.sinyal in ("ASIRI_ALIM", "UZAK_DUR"):
             hik = f"Revolut {rt} · {sek} ETF — şimdilik bekle, zirveye yakın"
@@ -688,17 +830,28 @@ def _hikaye_uret(h: HisseAnaliz) -> str:
             hik = f"Revolut {rt} · {sek} ETF — çekirdek portföy, izleme"
         if h.isin:
             hik += f" (ISIN {h.isin})"
+    elif v2_alim_yok:
+        hik = (
+            f"Blue-chip {sek} · karar {getattr(h, 'signal_v2_decision', None) or 'İZLE'} "
+            "— alım hikayesi yok"
+        )
     elif h.sinyal == "ALIM_FIRSATI":
-        hik = f"Blue-chip {sek} · RSI dipten toparlanma — kademeli alım bölgesi"
+        hik = f"Blue-chip {sek} · RSI dip bölgesi — teyit sonrası değerlendir"
     elif h.sinyal == "TREND_ALIM":
-        hik = f"Blue-chip {sek} · trend yukarı (SMA50 destek) — momentum alımı"
+        hik = f"Blue-chip {sek} · trend yukarı (SMA50 destek) — momentum"
     elif h.sinyal in ("ASIRI_ALIM", "UZAK_DUR"):
         hik = f"Blue-chip {sek} · riskli bölge — şimdilik uzak dur"
     else:
         hik = f"Blue-chip {sek} · net teknik sinyal yok"
 
-    if h.degisim_1ay is not None and h.degisim_1ay <= -12 and h.rsi and h.rsi < 50:
-        hik = f"{sek} · son 1 ay %{abs(h.degisim_1ay):.0f} geri çekilme — indirim bölgesi"
+    if (
+        not v2_alim_yok
+        and h.degisim_1ay is not None
+        and h.degisim_1ay <= -12
+        and h.rsi
+        and h.rsi < 50
+    ):
+        hik = f"{sek} · son 1 ay %{abs(h.degisim_1ay):.0f} geri çekilme — izleme"
     if h.rejim_notu and h.rejim_notu != "Rejim uyumlu":
         hik += f" · {h.rejim_notu.split(';')[0]}"
     if getattr(h, "profil_notu", "") and h.profil_notu != "Profil uyumlu":
@@ -712,17 +865,78 @@ def _hikaye_uret(h: HisseAnaliz) -> str:
     return hik
 
 
-def _firsatlari_sec(hisseler: List[HisseAnaliz], min_skor: float = 55) -> List[HisseAnaliz]:
+def _firsatlari_sec(
+    hisseler: List[HisseAnaliz],
+    min_skor: float = 55,
+    *,
+    v2: bool = False,
+) -> List[HisseAnaliz]:
+    """v2 açıksa yalnızca BUY/STRONG_BUY; kapalıysa eski v1 sinyal filtresi."""
     esik = max(min_skor, config.BILESKE_BEKLE_ESIK)
-    return sorted(
-        [
+    if v2:
+        adaylar = [
+            h
+            for h in hisseler
+            if (getattr(h, "signal_v2_code", None) or "") in ("STRONG_BUY", "BUY")
+            and _bilesik(h) >= esik
+            and not getattr(h, "veri_quarantine", False)
+        ]
+    else:
+        adaylar = [
             h
             for h in hisseler
             if h.sinyal in ("ALIM_FIRSATI", "TREND_ALIM")
             and _bilesik(h) >= esik
-        ],
-        key=lambda x: -_bilesik(x),
-    )
+        ]
+    return sorted(adaylar, key=lambda x: -_bilesik(x))
+
+
+# AL eşiği 64; histerezis 2 → 62 = eşiğe yakın (AL değil)
+ESIGE_YAKIN_SKOR = 62.0
+
+
+def esige_yakin_sec(
+    hisseler: List[HisseAnaliz],
+    makro_rejim: str = "",
+    *,
+    min_skor: float = ESIGE_YAKIN_SKOR,
+    n: int = 12,
+) -> List[HisseAnaliz]:
+    """İZLE + skoru AL’ye yakın — takip listesi; asla AL adayı sayılmaz.
+
+    Koşulların hepsi zorunlu: WATCH, skor≥min_skor, TRENDING_DOWN değil,
+    makro KRIZ/EM_STRES değil, karantina yok. ETF’ler önce.
+    """
+    rejim = (makro_rejim or "").strip().upper()
+    if rejim in ("KRIZ", "EM_STRES"):
+        return []
+    adaylar: List[HisseAnaliz] = []
+    for h in hisseler:
+        if getattr(h, "veri_quarantine", False):
+            continue
+        code = (getattr(h, "signal_v2_code", None) or "").upper()
+        if code != "WATCH":
+            continue
+        if (getattr(h, "signal_v2_regime", None) or "") == "TRENDING_DOWN":
+            continue
+        skor = getattr(h, "signal_v2_score", None)
+        if skor is None:
+            skor = getattr(h, "skor", None)
+        try:
+            if float(skor or 0) < float(min_skor):
+                continue
+        except (TypeError, ValueError):
+            continue
+        adaylar.append(h)
+
+    def _key(h: HisseAnaliz):
+        etf = 0 if getattr(h, "piyasa", "") == "ETF" else 1
+        s = getattr(h, "signal_v2_score", None)
+        if s is None:
+            s = getattr(h, "skor", 0) or 0
+        return (etf, -float(s))
+
+    return sorted(adaylar, key=_key)[:n]
 
 
 def _bilesik(h: HisseAnaliz) -> float:
@@ -765,7 +979,7 @@ def tam_tarama(
     evren = tum_evren()
     semboller = list(dict.fromkeys(
         list(ENDEKSLER.values()) + [s for s, _, _, _, _, _ in evren]
-        + ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"]
+        + ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X"]
     ))
     period = "2y" if v2 else "1y"
     df = _indir(semboller, period=period)
@@ -786,8 +1000,13 @@ def tam_tarama(
     usdtry_close = _close_al(df, "USDTRY=X")
     gbpusd_close = _close_al(df, "GBPUSD=X")
     eurusd_close = _close_al(df, "EURUSD=X")
+    chfusd_close = _close_al(df, "CHFUSD=X")
 
-    endeksler = [_endeks_analiz(df, ad, sym, makro_rejim, snap) for ad, sym in ENDEKSLER.items()]
+    fx_ok = not eurtry_close.empty
+    endeksler = [
+        _endeks_analiz(df, ad, sym, makro_rejim, snap, fx_ok=fx_ok)
+        for ad, sym in ENDEKSLER.items()
+    ]
     tum: List[HisseAnaliz] = []
     for sembol, ad, piyasa, sektor, isin, revolut_ticker in evren:
         if piyasa == "ETF":
@@ -806,6 +1025,17 @@ def tam_tarama(
     esik = profil_firsat_esik(profil)
 
     uyarilar: List[str] = []
+    # Başarısız / eksik emtia uyarısı
+    emtia_bos = [
+        h.sembol for h in tum
+        if (h.piyasa == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia")
+        and (getattr(h, "veri_hatasi", "") or "").startswith("boş")
+    ]
+    if emtia_bos:
+        uyarilar.append(
+            f"[UYARI] Emtia tarihsel seri eksik ({', '.join(emtia_bos)}) — "
+            "canlı fiyat görünür ama RSI/karar güvenilir değil; taramayı yenileyin."
+        )
     if eurtry_close.empty:
         uyarilar.append("[UYARI] EUR bazlı 52H hesaplanamadı — kur verisi çekilemedi")
     elif usdtry_close.empty:
@@ -838,11 +1068,21 @@ def tam_tarama(
 
     if v2:
         from signal_engine.pipeline import signal_engine_v2_uygula
-        signal_engine_v2_uygula(tum, df, profil_risk=profil.risk, persist_decision_history=True)
+        signal_engine_v2_uygula(
+            tum,
+            df,
+            profil_risk=profil.risk,
+            persist_decision_history=True,
+            makro_rejim=makro_rejim,
+        )
 
-    firsatlar = profil_firsat_sinirla(_isin_dedup(_firsatlari_sec(tum, esik)[:20]), profil)
+    firsatlar = profil_firsat_sinirla(
+        _isin_dedup(_firsatlari_sec(tum, esik, v2=v2)[:20]), profil
+    )
     etfler = [h for h in tum if h.piyasa == "ETF"]
-    etf_firsat = _isin_dedup(_etf_sirala(_firsatlari_sec(etfler, esik)[:10], makro_rejim))
+    etf_firsat = _isin_dedup(
+        _etf_sirala(_firsatlari_sec(etfler, esik, v2=v2)[:10], makro_rejim)
+    )
 
     aday_sem = {h.sembol for h in firsatlar} | {h.sembol for h in etf_firsat}
     from alim_uygunluk import alim_uygunluk_uygula
@@ -858,13 +1098,27 @@ def tam_tarama(
     for h in tum:
         h.hikaye = _hikaye_uret(h)
 
-    ozet = (
-        f"{len(evren)} varlık tarandı (BIST {len(BIST_HISSELER)}, "
-        f"SP500 {len(SP500_HISSELER)}, NASDAQ {len(NASDAQ_HISSELER)}, "
-        f"Revolut ETF {len(REVOLUT_ETFLER)}, Emtia {len(EMTIA_SEMBOLLER)}) · "
-        f"Rejim: {makro_rejim} · Profil: {profil_ozet} · "
-        f"{len(firsatlar)} alım adayı (eşik ≥{esik:.0f}, {len(etf_firsat)} ETF)"
-    )
+    uygun_n = sum(1 for h in tum if getattr(h, "alim_uygun", "") == "UYGUN")
+    if v2:
+        ozet = (
+            f"Evren: {len(evren)} sembol tarandı (BIST {len(BIST_HISSELER)}, "
+            f"SP500 {len(SP500_HISSELER)}, NASDAQ {len(NASDAQ_HISSELER)}, "
+            f"Revolut ETF {len(REVOLUT_ETFLER)}, Emtia {len(EMTIA_SEMBOLLER)}) · "
+            f"Rejim: {makro_rejim} · Profil: {profil_ozet} · "
+            f"Karar AL/GÜÇLÜ AL (UYGUN): {uygun_n} · "
+            f"Öne çıkan liste: {len(firsatlar)} "
+            f"(yalnızca v2 AL/GÜÇLÜ AL, eşik ≥{esik:.0f}, {len(etf_firsat)} ETF)"
+        )
+    else:
+        ozet = (
+            f"Evren: {len(evren)} sembol tarandı (BIST {len(BIST_HISSELER)}, "
+            f"SP500 {len(SP500_HISSELER)}, NASDAQ {len(NASDAQ_HISSELER)}, "
+            f"Revolut ETF {len(REVOLUT_ETFLER)}, Emtia {len(EMTIA_SEMBOLLER)}) · "
+            f"Rejim: {makro_rejim} · Profil: {profil_ozet} · "
+            f"Şu an alınabilir (UYGUN): {uygun_n} · "
+            f"Teknik skor listesi: {len(firsatlar)} (eşik ≥{esik:.0f}, "
+            f"içinde {len(etf_firsat)} ETF — UYGUN ile aynı şey değildir)"
+        )
 
     from veri_butunlugu import tarama_butunluk_ozeti
     vo = tarama_butunluk_ozeti(tum)
@@ -885,6 +1139,7 @@ def tam_tarama(
         usdtry_seri=usdtry_close,
         gbpusd_seri=gbpusd_close,
         eurusd_seri=eurusd_close,
+        chfusd_seri=chfusd_close,
         veri_ozet_log=vo.log_satiri,
         veri_ozet_ui=vo.ui_satiri or "",
         veri_yok_semboller=list(vo.veri_yok),
@@ -898,20 +1153,42 @@ def _demo_tarama(
 ) -> TaramaSonucu:
     profil = profil or YatirimProfili()
     profil_ozet, profil_notlari = profil_tarama_bilgisi(profil, makro_rejim)
+    from endeks_yonlendirme import karar as endeks_karar
+
+    def _demo_endeks(ad, sym, fiyat, d1g, d1a, d3a, rsi, *, fx_ok=True):
+        # Demo SMA: fiyat civarı — trend/çekilme senaryosu için
+        sma50 = fiyat * (0.98 if d3a and d3a > 0 else 1.04)
+        sma20 = fiyat * (0.99 if d3a and d3a > 0 else 1.02)
+        sma200 = fiyat * 0.92
+        k = endeks_karar(
+            sembol=sym, fiyat=float(fiyat), rsi=rsi,
+            sma20=sma20, sma50=sma50, sma200=sma200,
+            degisim_1ay=d1a, degisim_3ay=d3a, fx_ok=fx_ok,
+            makro_rejim=makro_rejim,
+        )
+        return EndeksOzet(
+            ad, sym, fiyat, d1g, d1a, d3a, rsi, k.sinyal, k.skor,
+            platform=k.platform, aksiyon=k.aksiyon, aksiyon_etiket=k.aksiyon_etiket,
+            kurulum=k.kurulum, guven=k.guven, gerekce=k.gerekce,
+            quote_currency="TRY" if sym.endswith(".IS") else "USD",
+            teknik_aksiyon=k.teknik_aksiyon, teknik_aksiyon_etiket=k.teknik_aksiyon_etiket,
+            makro_chip=k.makro_chip, makro_not=k.makro_not,
+        )
+
     endeksler = [
-        EndeksOzet("BIST 100", "XU100.IS", 14286, 0.8, 5.2, 8.5, 48, "BEKLE", 52),
-        EndeksOzet("NASDAQ Composite", "^IXIC", 19850, 0.5, 3.1, 12.0, 55, "TREND_ALIM", 68),
-        EndeksOzet("NASDAQ 100", "^NDX", 21500, 0.6, 3.5, 13.2, 56, "TREND_ALIM", 70),
-        EndeksOzet("S&P 500", "^GSPC", 5450, 0.3, 2.8, 9.5, 52, "BEKLE", 58),
+        _demo_endeks("BIST 100", "XU100.IS", 14286, 0.8, 5.2, 8.5, 48),
+        _demo_endeks("NASDAQ Composite", "^IXIC", 19850, 0.5, 3.1, 12.0, 55),
+        _demo_endeks("NASDAQ 100", "^NDX", 21500, 0.6, 3.5, 13.2, 56),
+        _demo_endeks("S&P 500", "^GSPC", 5450, 0.3, 2.8, 9.5, 52),
     ]
     hisseler = [
-        HisseAnaliz("NVDA", "NVIDIA", "NASDAQ", 135.0, 1.2, 8.5, 15.0, 20.0, 38, 128, 120, "ALIM_FIRSATI", 78, "RSI 38 — dipten dönüş", "teknoloji", teknik_skor=78),
-        HisseAnaliz("ASELS.IS", "Aselsan", "BIST", 185.0, -0.5, 4.2, 6.0, 18.0, 36, 180, 175, "ALIM_FIRSATI", 72, "RSI 36 — dipten dönüş", "savunma", teknik_skor=72),
+        HisseAnaliz("NVDA", "NVIDIA", "NASDAQ", 135.0, 1.2, 8.5, 15.0, 20.0, 38, 128, 120, "ALIM_FIRSATI", 78, "RSI 38 — RSI dip bölgesi", "teknoloji", teknik_skor=78),
+        HisseAnaliz("ASELS.IS", "Aselsan", "BIST", 185.0, -0.5, 4.2, 6.0, 18.0, 36, 180, 175, "ALIM_FIRSATI", 72, "RSI 36 — RSI dip bölgesi", "savunma", teknik_skor=72),
         HisseAnaliz("AAPL", "Apple", "NASDAQ", 210.0, 0.4, 2.1, 5.0, 12.0, 58, 205, 200, "TREND_ALIM", 65, "RSI 58 + SMA50 üstü", "teknoloji", teknik_skor=65),
         HisseAnaliz("GARAN.IS", "Garanti BBVA", "BIST", 142.0, 0.2, 1.5, 2.0, 8.0, 45, 140, 138, "BEKLE", 55, "Net sinyal yok", "finans", teknik_skor=55),
         HisseAnaliz("TSLA", "Tesla", "NASDAQ", 320.0, -1.5, -5.0, -8.0, -15.0, 72, 315, 300, "ASIRI_ALIM", 25, "RSI 72 — aşırı alım", "buyume", teknik_skor=25),
         HisseAnaliz("VWCE.DE", "Vanguard All-World", "ETF", 118.5, 0.3, 2.1, 4.0, 10.0, 44, 116, 114,
-                    "ALIM_FIRSATI", 76, "RSI 44 — dipten dönüş", "dunya",
+                    "ALIM_FIRSATI", 76, "RSI 44 — RSI dip bölgesi", "dunya",
                     isin="IE00BK5BQT80", revolut_ticker="VWCE", varlik_turu="etf", teknik_skor=66),
         HisseAnaliz("CSPX.L", "iShares S&P 500", "ETF", 520.0, 0.2, 1.8, 3.5, 9.0, 52, 515, 510,
                     "TREND_ALIM", 74, "RSI 52 + SMA50 üstü", "abd",

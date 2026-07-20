@@ -156,22 +156,15 @@ KURALLAR:
 """
 
 
-def _call_anthropic(prompt: str, *, api_key: Optional[str] = None) -> str:
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY") or ""
-    if not key or key.startswith("your_key"):
-        raise RuntimeError("ANTHROPIC_API_KEY yok")
-    import anthropic
+def _call_llm(prompt: str, *, api_key: Optional[str] = None) -> str:
+    from llm_shared import aktif_model_meta, call_llm_default
 
-    client = anthropic.Anthropic(api_key=key)
-    response = client.messages.create(
-        model=MODEL,
+    text = call_llm_default(
+        prompt,
         max_tokens=200,
-        messages=[{"role": "user", "content": prompt}],
+        timeout=API_TIMEOUT_SEC,
+        api_key=api_key,
     )
-    parts = getattr(response, "content", None) or []
-    if not parts:
-        return FALLBACK
-    text = getattr(parts[0], "text", None) or str(parts[0])
     return (text or "").strip() or FALLBACK
 
 
@@ -194,12 +187,16 @@ def hisse_aciklamasi(
     Dönüş: (metin, meta) — meta: cache_hit, guncelleme, model, hata.
     _call_fn: test mock (prompt -> str).
     """
+    from llm_shared import aktif_model_meta
+
     key = cache_anahtar(sembol, karar, skor)
     cache = yukle_cache()
+    am = aktif_model_meta()
     meta: Dict[str, Any] = {
         "cache_hit": False,
         "guncelleme": _bugun(),
-        "model": MODEL,
+        "model": am.get("model") or MODEL,
+        "provider": am.get("provider") or "",
         "anahtar": key,
     }
 
@@ -208,6 +205,7 @@ def hisse_aciklamasi(
         if ent and _cache_taze(ent) and ent.get("metin"):
             meta["cache_hit"] = True
             meta["guncelleme"] = ent.get("guncelleme") or _bugun()
+            meta["model"] = ent.get("model") or meta["model"]
             return str(ent["metin"]), meta
 
     if not _rate_limit_ok():
@@ -219,7 +217,7 @@ def hisse_aciklamasi(
         faktorler or {}, temel or {},
         float(fiyat_eur or 0), float(getiri_1y or 0), rejim or "—",
     )
-    call = _call_fn or _call_anthropic
+    call = _call_fn or _call_llm
 
     def _run():
         if _call_fn is not None:
@@ -247,7 +245,8 @@ def hisse_aciklamasi(
         "sembol": (sembol or "").upper(),
         "karar": karar,
         "skor": int(round(skor)),
-        "model": MODEL,
+        "model": meta["model"],
+        "provider": meta.get("provider") or "",
     }
     try:
         kaydet_cache(cache)
@@ -269,10 +268,11 @@ def format_ai_markdown(metin: str, meta: Optional[dict] = None) -> str:
         gun_tr = f"{d.day} {aylar[d.month - 1]} {d.year}"
     except ValueError:
         gun_tr = gun
+    src = meta.get("hint") or meta.get("provider") or meta.get("model") or "AI"
     return (
         "### ✨ AI Analiz\n\n"
         f"{metin}\n\n"
-        f"[Claude Sonnet 4.6 · {gun_tr}]"
+        f"[{src} · {gun_tr}]"
     )
 
 

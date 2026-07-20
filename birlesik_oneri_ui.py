@@ -18,9 +18,13 @@ except ImportError:
 
 
 def _fx_ctx(snap, tarama=None) -> tuple[float, float, dict[str, float]]:
-    """Yahoo FX spot — EUR/GBP→USD dönüşümü için gbp_usd + eur_usd."""
+    """Yahoo FX spot — EUR/GBP/CHF→USD dönüşümü için gbp_usd + eur_usd + chf_usd."""
     fx, _, _, _, _ = tablo_fx_hazirla(snap, tarama)
-    return fx.eur_try, fx.usd_try, {"gbp_usd": fx.gbp_usd, "eur_usd": fx.eur_usd}
+    return fx.eur_try, fx.usd_try, {
+        "gbp_usd": fx.gbp_usd,
+        "eur_usd": fx.eur_usd,
+        "chf_usd": getattr(fx, "chf_usd", None),
+    }
 
 
 def _tutar(
@@ -90,17 +94,15 @@ def birlesik_oneri_paneli(
             return
         raise
 
-    st.subheader("Önerilen portföy dağılımı")
+    st.subheader("Önerilen dağılım")
     st.caption(
-        f"**Vade ufku:** {vade_etiket or oneri.ozet} · "
-        f"Hesaplama: **{para_birimi}** · Tablo görünümü: **{gpb}** · "
-        "Üst tablo makro hedef; alt tablo **TEFAS / ETF / BIST** araçlarının kategori içi payları. "
-        "BIST önerisi tarama skoruna göredir — Varlıklarım'daki mevcut hisselerden bağımsızdır."
+        f"{vade_etiket or oneri.ozet} · {para_birimi} · görünüm {gpb}"
     )
 
     if oneri.mevcut_notlar:
-        for n in oneri.mevcut_notlar:
-            st.info(n)
+        with st.expander(f"Notlar ({len(oneri.mevcut_notlar)})", expanded=False):
+            for n in oneri.mevcut_notlar:
+                st.caption(n)
 
     if oneri.hedef_tablo:
         c_graf, c_tab = st.columns([1, 1.2])

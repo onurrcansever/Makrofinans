@@ -5,21 +5,28 @@ Karar sözlükleri — v1 / v2 / TEFAS ayrımı korunur (zorla birleştirilmez).
 v2 (Signal Engine): GÜÇLÜ AL / AL / İZLE / BEKLE / AZALT
 v1 (eski bileşik): AL / DİKKAT / BEKLE / ALMA
 TEFAS: AL / İZLE / BEKLE / Zayıf; AL* = küçük akran grubu işareti
+
+UI birincil sütun adı: «Şimdi ne yap?» (değerler aynı sözlük).
 """
 from __future__ import annotations
 
 from collections import Counter
 from typing import Iterable, List
 
-# Signal Engine v2 — tek kaynak (tablo Karar + lejant)
+# Signal Engine v2 — tek kaynak (tablo aksiyon + lejant)
 V2_KARAR_SIRASI = ("GÜÇLÜ AL", "AL", "İZLE", "BEKLE", "AZALT")
 
+# UI birincil aksiyon sütunu (eski ad: Karar)
+HISSE_AKSIYON_SUTUN = "Şimdi ne yap?"
+HISSE_MOMENTUM_SUTUN = "Momentum"
+HISSE_ALIM_SEVIYE_SUTUN = "Alım seviyesi"
+
 V2_KARAR_ACIKLAMA = {
-    "GÜÇLÜ AL": "Tüm faktörler pozitif, güçlü giriş sinyali",
-    "AL": "Momentum ve trend uyumlu, giriş değerlendirilebilir",
-    "İZLE": "Nötr bölge, net sinyal yok",
-    "BEKLE": "Zayıflama sinyali, pozisyon azaltılabilir",
-    "AZALT": "Trend ve momentum olumsuz, çıkış değerlendirilebilir",
+    "GÜÇLÜ AL": "Yeni alım öncelikli değerlendirilebilir — Alım seviyesi’ne bak",
+    "AL": "Yeni alım değerlendirilebilir — Alım seviyesi’ne bak",
+    "İZLE": "Yeni alım yok; izle / tut (Momentum ▲ olsa bile)",
+    "BEKLE": "Ekleme yok; zayıflama — pozisyonu gözden geçir",
+    "AZALT": "Ekleme yok; çıkış / azaltma değerlendir",
 }
 
 # Eski motor (v2 kapalıyken)
@@ -44,28 +51,106 @@ def v2_lejant_satirlari() -> List[str]:
 
 
 def v2_lejant_markdown() -> str:
-    lines = ["**Signal Engine v2 — Karar sözlüğü**", ""]
+    lines = [
+        f"**Signal Engine v2 — {HISSE_AKSIYON_SUTUN} sözlüğü**",
+        "",
+    ]
     lines.extend(f"- {s}" for s in v2_lejant_satirlari())
     lines.append("")
     lines.append(
         "Not: **BEKLE** ≠ İZLE. İZLE nötr izleme; BEKLE zayıflama "
         "(AZALT’ın bir üstü)."
     )
+    lines.append(
+        f"**{HISSE_MOMENTUM_SUTUN}** (▲/—/▼) skor/analist rozetidir — "
+        f"**{HISSE_AKSIYON_SUTUN} değildir.**"
+    )
+    lines.append(
+        "**Temel kapı:** negatif FCF+zarar, aşırı kaldıraç, analist sat, "
+        "sektör F/K pahalı (soft) veya ≥2 soft bayrak → AL/GÜÇLÜ AL **İZLE**’ye çekilir."
+    )
     return "\n".join(lines)
 
 
 def v1_lejant_markdown() -> str:
-    lines = ["**Eski bileşik skor — Karar sözlüğü**", ""]
+    lines = [f"**Eski bileşik skor — {HISSE_AKSIYON_SUTUN} sözlüğü**", ""]
     for k, v in V1_KARAR_ACIKLAMA.items():
         lines.append(f"- **{k}** = {v}")
     return "\n".join(lines)
 
 
+def tefas_lejant_kisa() -> str:
+    return "Öneri: AL / İZLE / BEKLE / Zayıf · * = küçük akran grubu"
+
+
 def tefas_lejant_caption() -> str:
+    return tefas_lejant_kisa()
+
+
+def tefas_lejant_detay() -> str:
     return (
         "Öneri: AL / İZLE / BEKLE / Zayıf · "
         + TEFAS_YILDIZ_ACIKLAMA
     )
+
+
+def endeks_lejant_kisa() -> str:
+    return "Endeks önerisi pozisyon ağırlığıdır; hisse aksiyonundan ayrı okunur."
+
+
+def endeks_lejant_caption() -> str:
+    return endeks_lejant_kisa()
+
+
+def endeks_lejant_detay() -> str:
+    return (
+        "Endeks önerisi (**Artır / Koru / Bekle / Azalt**) pozisyon ağırlığıdır; "
+        f"hisse **{HISSE_AKSIYON_SUTUN}** (AL / İZLE / BEKLE / AZALT) motor aksiyonudur — "
+        "**Koru ≈ İZLE değildir.**"
+    )
+
+
+def hisse_lejant_caption() -> str:
+    """Tablo üstü — tek kısa satır (detay expander’da)."""
+    return (
+        f"**{HISSE_AKSIYON_SUTUN}** = al/ekle kararı · "
+        f"**{HISSE_MOMENTUM_SUTUN}** = skor rozeti "
+        f"(**{HISSE_AKSIYON_SUTUN} değildir**)"
+    )
+
+
+def hisse_playbook_caption() -> str:
+    """Kısa kullanım: ne zaman alırım."""
+    return (
+        "**AL / GÜÇLÜ AL** → Alım seviyesi’ne bak. "
+        "**İZLE** → yeni alım yok. "
+        "**BEKLE / AZALT** → ekleme yok. "
+        "Eşiğe yakın = şimdi alma."
+    )
+
+
+def hisse_al_bildirim_caption() -> str:
+    return "AL / GÜÇLÜ AL listesine bakın; eşiğe yakın = takip, şimdi alma."
+
+
+def hisse_sozluk_expander_markdown() -> str:
+    """Kapalı expander — tam sözlük + playbook."""
+    return "\n\n".join([
+        (
+            f"**{HISSE_AKSIYON_SUTUN}** = motor aksiyonu (yalnızca buna göre al/ekle) · "
+            f"**{HISSE_ALIM_SEVIYE_SUTUN}** = emir fiyat bandı · "
+            f"**{HISSE_MOMENTUM_SUTUN}** = skor/analist rozeti "
+            f"(**{HISSE_AKSIYON_SUTUN} değildir**) · "
+            "**Özet** = T teknik / A analist / H haber (AL kararını değiştirmez)."
+        ),
+        (
+            "**AL / GÜÇLÜ AL** → Alım seviyesi’ne bak (yoksa spot civarı, küçük dilim). "
+            "**İZLE** → yeni alım yok. **BEKLE / AZALT** → ekleme yok. "
+            "Makro KRIZ/EM_STRES → AL listede görünmez. "
+            "Eşiğe yakın = takip; şimdi alma."
+        ),
+        v2_lejant_markdown(),
+    ])
 
 
 def _normalize_karar(k: str) -> str:
@@ -113,7 +198,7 @@ def karar_dagilim_ozeti(
         if sadece_pozitif and n <= 0:
             continue
         parts.append(f"{lab}: {n}")
-    return " · ".join(parts) if parts else "Karar dağılımı yok"
+    return " · ".join(parts) if parts else "Aksiyon dağılımı yok"
 
 
 def kararlar_from_df_column(series) -> List[str]:

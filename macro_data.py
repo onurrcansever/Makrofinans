@@ -250,6 +250,124 @@ def _enflasyon_tr(api_key: str) -> Tuple[Optional[float], str]:
     return None, "varsayilan"
 
 
+def _live_quote_yedek(sembol: str) -> Tuple[Optional[float], Optional[float]]:
+    """Yahoo history boşsa canlı kotasyon (fiyat, 1G %)."""
+    try:
+        from signal_engine.data.live_quote import get_live_quote, load_live_quotes_disk
+
+        load_live_quotes_disk(hydrate_memory=True)
+        live = get_live_quote(sembol, allow_stale=True)
+        if not live or not live.price or float(live.price) <= 0:
+            return None, None
+        px = float(live.price)
+        deg_1g = None
+        prev = getattr(live, "previous_close", None)
+        if prev is not None and float(prev) > 0:
+            deg_1g = (px / float(prev) - 1.0) * 100.0
+        return px, deg_1g
+    except Exception:
+        return None, None
+
+
+def snap_piyasa_yedekle(snap: "MacroSnapshot") -> "MacroSnapshot":
+    """Session/disk’te boş kalan VIX/BIST/Altın alanlarını doldur (in-place).
+
+    Sıra: disk makro → canlı kotasyon → kısa Yahoo son fiyat.
+    """
+    if snap is None:
+        return snap
+    eksik = (
+        snap.bist100 is None
+        or snap.vix is None
+        or snap.altin_usd_oz is None
+        or snap.bist_vol_30g is None
+    )
+    if not eksik:
+        return snap
+
+    kh = dict(snap.kaynak_haritasi or {})
+
+    # 1) Diskteki taze/bayat makro (arka plan SWR yazmış olabilir)
+    try:
+        from disk_onbellek import TTL, disk_getir
+
+        disk_snap, _yas = disk_getir(
+            "makro:canli", TTL.get("makro", 900), bayat_kabul=True,
+        )
+        if disk_snap is not None:
+            for attr, kaynak_key in (
+                ("bist100", "bist100"),
+                ("bist100_1g_degisim", None),
+                ("vix", "vix"),
+                ("vix_1g_degisim", None),
+                ("altin_usd_oz", "altin"),
+                ("altin_1g_degisim", None),
+                ("bist_vol_30g", "bist_vol"),
+                ("bist_vol_1g_degisim", None),
+                ("gumus_usd_oz", "gumus"),
+                ("btc_usd", "btc"),
+            ):
+                if getattr(snap, attr, None) is None:
+                    val = getattr(disk_snap, attr, None)
+                    if val is not None:
+                        setattr(snap, attr, val)
+                        if kaynak_key:
+                            dkh = getattr(disk_snap, "kaynak_haritasi", None) or {}
+                            if dkh.get(kaynak_key):
+                                kh[kaynak_key] = dkh[kaynak_key]
+    except Exception:
+        pass
+
+    # 2) Canlı kotasyon
+    if snap.bist100 is None:
+        px, d1 = _live_quote_yedek("XU100.IS")
+        if px is not None:
+            snap.bist100 = px
+            if snap.bist100_1g_degisim is None:
+                snap.bist100_1g_degisim = d1
+            kh["bist100"] = "Canlı kotasyon (XU100.IS)"
+    if snap.altin_usd_oz is None:
+        px, d1 = _live_quote_yedek("GC=F")
+        if px is not None:
+            snap.altin_usd_oz = px
+            if snap.altin_1g_degisim is None:
+                snap.altin_1g_degisim = d1
+            kh["altin"] = "Canlı kotasyon (GC=F)"
+    if snap.vix is None:
+        px, d1 = _live_quote_yedek("^VIX")
+        if px is not None:
+            snap.vix = px
+            if snap.vix_1g_degisim is None:
+                snap.vix_1g_degisim = d1
+            kh["vix"] = "Canlı kotasyon (^VIX)"
+
+    # 3) Hâlâ boşsa kısa Yahoo (5g close) — vol için history gerekir, atlanır
+    for attr, ticker, kaynak_key, kaynak_lbl in (
+        ("bist100", "XU100.IS", "bist100", "Yahoo son fiyat (XU100.IS)"),
+        ("altin_usd_oz", "GC=F", "altin", "Yahoo son fiyat (GC=F)"),
+        ("vix", "^VIX", "vix", "Yahoo son fiyat (^VIX)"),
+    ):
+        if getattr(snap, attr, None) is None:
+            px = _yf_son_fiyat(ticker)
+            if px is not None:
+                setattr(snap, attr, px)
+                kh[kaynak_key] = kaynak_lbl
+
+    # EUR bazlı altın
+    if (
+        snap.altin_eur_oz is None
+        and snap.altin_usd_oz is not None
+        and snap.eur_usd
+    ):
+        try:
+            snap.altin_eur_oz = snap.altin_usd_oz / float(snap.eur_usd)
+        except Exception:
+            pass
+
+    snap.kaynak_haritasi = kh
+    return snap
+
+
 def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
     """Kur, endeks, emtia — paralel Yahoo/Frankfurter çekimi."""
     from concurrent.futures import ThreadPoolExecutor
@@ -297,16 +415,43 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
     if altin is None:
         altin = _fred_son_deger(config.FRED_API_KEY, "GOLDPMGBD228NLBM")
         kaynak["altin"] = "FRED (Londra altin, gecikmeli)" if altin else "—"
+    if altin is None:
+        altin, altin_1g_lq = _live_quote_yedek("GC=F")
+        if altin is not None:
+            kaynak["altin"] = "Canlı kotasyon (GC=F)"
+            if altin_a.get("degisim_1g") is None and altin_1g_lq is not None:
+                altin_a = dict(altin_a)
+                altin_a["degisim_1g"] = altin_1g_lq
 
     kaynak["gumus"] = "Yahoo Finance (SI=F vadeli)" if gumus else "—"
+    if gumus is None:
+        gumus, _ = _live_quote_yedek("SI=F")
+        if gumus is not None:
+            kaynak["gumus"] = "Canlı kotasyon (SI=F)"
 
     vix = vix_a["fiyat"]
     kaynak["vix"] = "Yahoo Finance (^VIX)" if vix else "—"
     if vix is None:
         vix = _fred_son_deger(config.FRED_API_KEY, "VIXCLS")
         kaynak["vix"] = "FRED (VIXCLS)" if vix else "—"
+    if vix is None:
+        vix, vix_1g_lq = _live_quote_yedek("^VIX")
+        if vix is not None:
+            kaynak["vix"] = "Canlı kotasyon (^VIX)"
+            if vix_a.get("degisim_1g") is None and vix_1g_lq is not None:
+                vix_a = dict(vix_a)
+                vix_a["degisim_1g"] = vix_1g_lq
 
-    kaynak["bist100"] = "Yahoo Finance (XU100.IS)" if bist["fiyat"] else "—"
+    bist_fiyat = bist.get("fiyat")
+    kaynak["bist100"] = "Yahoo Finance (XU100.IS)" if bist_fiyat else "—"
+    if bist_fiyat is None:
+        bist_fiyat, bist_1g_lq = _live_quote_yedek("XU100.IS")
+        if bist_fiyat is not None:
+            kaynak["bist100"] = "Canlı kotasyon (XU100.IS)"
+            bist = dict(bist)
+            bist["fiyat"] = bist_fiyat
+            if bist.get("degisim_1g") is None and bist_1g_lq is not None:
+                bist["degisim_1g"] = bist_1g_lq
     kaynak["bist_vol"] = (
         "Yahoo XU100.IS — 30G realize vol (yıllık %, TR proxy)"
         if bist["vol"] is not None else "—"
@@ -549,6 +694,7 @@ def canli_snapshot(taze: bool = True, _tick: int = 0) -> MacroSnapshot:
             kaynak[anahtar] = (kaynak.get(anahtar, "") + " [onay bekliyor]").strip()
     snap.cekim_uyarilari = uyarilar
     snap.kaynak_haritasi = kaynak
+    snap = snap_piyasa_yedekle(snap)
 
     cache_kaydet(snap)
     return snap

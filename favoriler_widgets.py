@@ -26,6 +26,7 @@ _FAV_ACTION_KEY = "fav_action_item_id"
 _NAV_PAGES = frozenset({
     "Portföy Tahsisi",
     "Karar Asistanı",
+    "Asistan",
     "Varlıklarım",
     "Favorilerim",
     "AI Danışman",
@@ -102,10 +103,10 @@ def _toggle_favori(tur: str, sym: str, ad: str) -> None:
 
 
 def _default_badge_col(df: pd.DataFrame) -> str:
-    for c in ("Karar", "Öneri", "Emir", "Sinyal / Öneri"):
+    for c in ("Şimdi ne yap?", "Karar", "Öneri", "Emir", "Sinyal / Öneri"):
         if c in df.columns:
             return c
-    return "Karar"
+    return "Şimdi ne yap?"
 
 
 def _sync_star_column(

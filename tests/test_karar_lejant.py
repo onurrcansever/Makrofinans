@@ -24,6 +24,12 @@ class KararLejantTest(unittest.TestCase):
         self.assertIn("≠ İZLE", md)
         self.assertNotIn("BEKLE = izle", md.lower())
 
+    def test_endeks_lejant_koru_not_izle(self):
+        from karar_lejant import endeks_lejant_caption
+        c = endeks_lejant_caption()
+        self.assertIn("Koru", c)
+        self.assertIn("İZLE değildir", c)
+
     def test_al_yildiz_aciklama(self):
         self.assertIn("AL*", TEFAS_YILDIZ_ACIKLAMA)
         self.assertIn("BEKLE*", TEFAS_YILDIZ_ACIKLAMA)
@@ -51,7 +57,7 @@ class KararLejantTest(unittest.TestCase):
         pdf = hisse_etf_tablo_pdf_olustur(
             df, gosterim_pb="EUR",
             piyasa_filtre=["BIST"],
-            sinyal_filtre=["Alım fırsatı", "Trend alımı", "Bekle"],
+            sinyal_filtre=["RSI dip bölgesi", "Trend alımı", "Bekle"],
         )
         self.assertIsInstance(pdf, (bytes, bytearray))
         self.assertGreater(len(pdf), 100)
@@ -115,7 +121,8 @@ class KararLejantTest(unittest.TestCase):
         fx = SN(eur_try=50.0, usd_try=40.0, gbp_usd=1.3, eur_usd=1.1)
         kol = yonetici_tablo_kolonlari(h, "EUR", fx)
         self.assertNotIn("Emir", kol)
-        self.assertIn("Al", kol)
+        self.assertIn("Alım seviyesi", kol)
+        self.assertNotIn("Al", kol)
 
 
 if __name__ == "__main__":

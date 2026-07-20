@@ -144,14 +144,15 @@ PPK_BEKLE_GUN = int(os.getenv("PPK_BEKLE_GUN", "7"))
 
 from datetime import date as _date  # noqa: E402
 
+# TCMB resmi PPK 2026 (karar günü): https://www.tcmb.gov.tr/.../PPK/2026
 TCMB_PPK_TAKVIM = [
-    _date(2026, 1, 23), _date(2026, 3, 19), _date(2026, 4, 24), _date(2026, 6, 19),
-    _date(2026, 7, 24), _date(2026, 8, 21), _date(2026, 9, 18), _date(2026, 10, 23),
-    _date(2026, 11, 20), _date(2026, 12, 18),
+    _date(2026, 1, 22), _date(2026, 3, 12), _date(2026, 4, 22), _date(2026, 6, 11),
+    _date(2026, 7, 23), _date(2026, 9, 10), _date(2026, 10, 22), _date(2026, 12, 10),
 ]
+# Fed FOMC 2026 (toplantı son günü / karar): federalreserve.gov/monetarypolicy/fomccalendars.htm
 FOMC_TAKVIM = [
-    _date(2026, 1, 28), _date(2026, 3, 18), _date(2026, 5, 6), _date(2026, 6, 17),
-    _date(2026, 7, 29), _date(2026, 9, 16), _date(2026, 11, 4), _date(2026, 12, 16),
+    _date(2026, 1, 28), _date(2026, 3, 18), _date(2026, 4, 29), _date(2026, 6, 17),
+    _date(2026, 7, 29), _date(2026, 9, 16), _date(2026, 10, 28), _date(2026, 12, 9),
 ]
 
 # ------------------------------------------------------------------
@@ -267,7 +268,8 @@ SENARYO_TCMB_DEGISIM_BP = float(os.getenv("SENARYO_TCMB_DEGISIM_BP", "300"))
 TL_STOPAJ_ORAN = float(os.getenv("TL_STOPAJ_ORAN", os.getenv("TL_STOPAJ", "0.15")))
 TL_STOPAJ_KAYNAK = os.getenv(
     "TL_STOPAJ_KAYNAK",
-    "GVK Md.94 — bireysel vadeli TL mevduat stopajı %15 (2024+; bankanızdan teyit edin)",
+    "GVK Md.94 — bireysel vadeli TL mevduat stopajı %15 "
+    "(2024+ varsayılan; dönemsel dilimler değişebilir — bankanızdan teyit edin)",
 )
 TL_STOPAJ_TABLOSU: List[Tuple[int, float]] = [
     (99999, TL_STOPAJ_ORAN),
@@ -295,6 +297,11 @@ STATIK_REFERANS_AGIRLIKLARI: Dict[str, Dict[str, float]] = {
 
 # Kripto yalnızca RISK_ON + yeterli skor iken tahsis edilir (0 aksi halde)
 KRIPTO_MIN_SKOR = float(os.getenv("KRIPTO_MIN_SKOR", "55"))
+# Tahsis yeniden dengeleme eşiği (oran puanı, örn. 0.03 = %3)
+REBALANCE_MIN_PP = float(os.getenv("REBALANCE_MIN_PP", "0.03"))
+# Tarama AL yokken BIST dilimi: makro ağırlığın yarısı ve mutlak tavan
+BIST_SINYAL_YOK_CARPAN = float(os.getenv("BIST_SINYAL_YOK_CARPAN", "0.50"))
+BIST_SINYAL_YOK_MAX = float(os.getenv("BIST_SINYAL_YOK_MAX", "0.04"))
 KRIPTO_SADECE_RISK_ON = os.getenv("KRIPTO_SADECE_RISK_ON", "1").strip().lower() not in ("0", "false", "no")
 
 # TL mevduat reel negatifken tahsis/sinyal üst sınırı (profil vadesi banka net − enflasyon)

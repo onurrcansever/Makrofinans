@@ -132,6 +132,61 @@ class PortfoyYoneticisiTest(unittest.TestCase):
         self.assertEqual(kol[POZ_COL_SINYAL], "—")
         self.assertNotEqual(kol["Stop"], "—")
         self.assertIn("tip", kol[POZ_COL_ONERI])
+        self.assertIn("Hedef", kol)
+
+    def test_pozisyon_yahoo_hedef_us(self):
+        from unittest.mock import patch
+        from varliklarim import VarlikPozisyon
+        from varlik_fiyat import PozisyonDeger
+
+        p = VarlikPozisyon(id="ko", tur="hisse_us", sembol="KO", miktar=10, maliyet=700)
+        pd_ = PozisyonDeger(
+            pozisyon=p, miktar_goster="10", alim_birim=70.0, guncel_birim=81.0,
+            maliyet_deger=700, guncel_deger=810, kar_zarar=110, kar_zarar_pct=15.7,
+            para="USD", getiriler={},
+        )
+        with patch(
+            "temel_veri.get_temel",
+            return_value={
+                "targetMeanPrice": 95.0,
+                "currency": "USD",
+                "guncelleme": "2026-07-18",
+            },
+        ):
+            kol = yonetici_pozisyon_kolonlari(p, pd_, fx=_fx())
+        h = kol["Hedef"]
+        self.assertIsInstance(h, dict)
+        self.assertNotEqual(h.get("label"), "—")
+        self.assertIn("Yahoo", h.get("tip", ""))
+        self.assertIn("bilgi", h.get("tip", "").lower())
+
+    def test_pozisyon_yahoo_hedef_bos_cache(self):
+        from unittest.mock import patch
+        from varliklarim import VarlikPozisyon
+        from varlik_fiyat import PozisyonDeger
+
+        p = VarlikPozisyon(id="x", tur="hisse_us", sembol="ZZZZ", miktar=1, maliyet=10)
+        pd_ = PozisyonDeger(
+            pozisyon=p, miktar_goster="1", alim_birim=10.0, guncel_birim=11.0,
+            maliyet_deger=10, guncel_deger=11, kar_zarar=1, kar_zarar_pct=10.0,
+            para="USD", getiriler={},
+        )
+        with patch("temel_veri.get_temel", return_value={}):
+            kol = yonetici_pozisyon_kolonlari(p, pd_, fx=_fx())
+        self.assertEqual(kol["Hedef"].get("label"), "—")
+
+    def test_pozisyon_yahoo_hedef_nakit_yok(self):
+        from varliklarim import VarlikPozisyon
+        from varlik_fiyat import PozisyonDeger
+
+        p = VarlikPozisyon(id="n", tur="nakit_eur", sembol="", miktar=1000, maliyet=1000)
+        pd_ = PozisyonDeger(
+            pozisyon=p, miktar_goster="1000", alim_birim=1.0, guncel_birim=1.0,
+            maliyet_deger=1000, guncel_deger=1000, kar_zarar=0, kar_zarar_pct=0,
+            para="EUR", getiriler={},
+        )
+        kol = yonetici_pozisyon_kolonlari(p, pd_, fx=_fx())
+        self.assertEqual(kol["Hedef"], "—")
 
     def test_pozisyon_v2_azalt_kar_al(self):
         from varliklarim import VarlikPozisyon

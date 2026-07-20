@@ -32,7 +32,8 @@ def _snap_and_fx(df):
     ut = _extract_close(df, "USDTRY=X")
     gbp = _extract_close(df, "GBPUSD=X")
     eurusd = _extract_close(df, "EURUSD=X")
-    fx = kur_tablo_spot(snap, et, ut, gbp, eurusd, asof=ASOF)
+    chf = _extract_close(df, "CHFUSD=X")
+    fx = kur_tablo_spot(snap, et, ut, gbp, eurusd, asof=ASOF, chf_s=chf)
     return snap, fx, et, ut, gbp
 
 
@@ -149,11 +150,11 @@ class Jul15CrossConsistencyTest(unittest.TestCase):
             native = float(bars.close.iloc[-1])
             tl = tablo_fiyat(
                 native, "TL", fx.eur_try, fx.usd_try, sembol=sym,
-                quote_currency=qc, gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                quote_currency=qc, gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
             )
             usd = tablo_fiyat(
                 native, "USD", fx.eur_try, fx.usd_try, sembol=sym,
-                quote_currency=qc, gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                quote_currency=qc, gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
             )
             gbp_px = native if qc == "GBP" else usd / fx.gbp_usd
             assert_price_cross_consistency(

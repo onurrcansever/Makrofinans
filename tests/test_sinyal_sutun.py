@@ -58,30 +58,12 @@ class SinyalSutunTest(unittest.TestCase):
         )
 
     def test_tooltips_analist_vs_motor(self):
-        self.assertEqual(
-            tv.sinyal_tooltip("🔼", analist_var=True),
-            "Momentum ve analist uyumlu — al/ekle değerlendirin",
-        )
-        self.assertEqual(
-            tv.sinyal_tooltip("⏸", analist_var=True),
-            "Sinyal karışık — bekleyin veya tutun",
-        )
-        self.assertEqual(
-            tv.sinyal_tooltip("🔽", analist_var=True),
-            "Momentum ve analist zayıf — azaltmayı değerlendirin",
-        )
-        self.assertEqual(
-            tv.sinyal_tooltip("🔼", analist_var=False),
-            "Güçlü momentum (analist verisi yok)",
-        )
-        self.assertEqual(
-            tv.sinyal_tooltip("⏸", analist_var=False),
-            "Nötr momentum (analist verisi yok)",
-        )
-        self.assertEqual(
-            tv.sinyal_tooltip("🔽", analist_var=False),
-            "Zayıf momentum (analist verisi yok)",
-        )
+        self.assertIn("Şimdi ne yap?", tv.sinyal_tooltip("🔼", analist_var=True))
+        self.assertIn("aksiyon", tv.sinyal_tooltip("⏸", analist_var=True).lower())
+        self.assertIn("aksiyon", tv.sinyal_tooltip("🔽", analist_var=True).lower())
+        self.assertIn("Şimdi ne yap?", tv.sinyal_tooltip("🔼", analist_var=False))
+        self.assertIn("Nötr momentum", tv.sinyal_tooltip("⏸", analist_var=False))
+        self.assertIn("Zayıf momentum", tv.sinyal_tooltip("🔽", analist_var=False))
 
     def test_skor_label_no_triangle(self):
         label = tv.skor_label(65, 97, {
@@ -91,46 +73,45 @@ class SinyalSutunTest(unittest.TestCase):
         for mark in ("🔼", "⏸", "🔽"):
             self.assertNotIn(mark, label)
 
-    def test_sinyal_first_column_ui_order(self):
+    def test_aksiyon_momentum_yan_yana(self):
         df = pd.DataFrame([
-            {"⭐": "☆", "Sinyal": "🔼", "Karar": "İZLE", "Sembol": "EQQQ",
-             "Skor": "66 (92%)"},
-            {"⭐": "☆", "Sinyal": "⏸", "Karar": "İZLE", "Sembol": "CSPX",
-             "Skor": "64 (80%)"},
-            {"⭐": "☆", "Sinyal": "🔼", "Karar": "İZLE", "Sembol": "BIMAS.IS",
-             "Skor": "59 (73%) 💚14/14 +37%"},
-            {"⭐": "☆", "Sinyal": "⏸", "Karar": "AZALT", "Sembol": "MSFT",
-             "Skor": "40 (7%) 💚53/55 +39%"},
-            {"⭐": "☆", "Sinyal": "🔽", "Karar": "AZALT", "Sembol": "NFLX",
-             "Skor": "40 (8%) 🟡12/40 +10%"},
+            {"⭐": "☆", "Şimdi ne yap?": "İZLE", "Momentum": "🔼", "Özet": "T:Nötr",
+             "Rejim": "—", "Sembol": "EQQQ", "Hisse/ETF": "EQQQ", "Fiyat (EUR)": 1.0,
+             "Alım seviyesi": "—", "Skor": "66 (92%)"},
+            {"⭐": "☆", "Şimdi ne yap?": "İZLE", "Momentum": "⏸", "Özet": "T:Nötr",
+             "Rejim": "—", "Sembol": "CSPX", "Hisse/ETF": "CSPX", "Fiyat (EUR)": 1.0,
+             "Alım seviyesi": "—", "Skor": "64 (80%)"},
+            {"⭐": "☆", "Şimdi ne yap?": "AZALT", "Momentum": "🔽", "Özet": "T:Zayıf",
+             "Rejim": "—", "Sembol": "NFLX", "Hisse/ETF": "NFLX", "Fiyat (EUR)": 1.0,
+             "Alım seviyesi": "—", "Skor": "40 (8%)"},
         ])
         data_cols = [c for c in df.columns if c != "⭐"]
-        self.assertEqual(data_cols[0], "Sinyal")
-        self.assertEqual(df.loc[df["Sembol"] == "EQQQ", "Sinyal"].iloc[0], "🔼")
-        self.assertEqual(df.loc[df["Sembol"] == "CSPX", "Sinyal"].iloc[0], "⏸")
-        self.assertEqual(df.loc[df["Sembol"] == "BIMAS.IS", "Sinyal"].iloc[0], "🔼")
-        self.assertEqual(df.loc[df["Sembol"] == "MSFT", "Sinyal"].iloc[0], "⏸")
-        self.assertEqual(df.loc[df["Sembol"] == "NFLX", "Sinyal"].iloc[0], "🔽")
+        self.assertEqual(data_cols[:8], [
+            "Şimdi ne yap?", "Momentum", "Özet", "Rejim", "Sembol", "Hisse/ETF",
+            "Fiyat (EUR)", "Alım seviyesi",
+        ])
+        self.assertEqual(df.loc[df["Sembol"] == "EQQQ", "Momentum"].iloc[0], "🔼")
+        self.assertEqual(df.loc[df["Sembol"] == "NFLX", "Momentum"].iloc[0], "🔽")
 
-    def test_pdf_sinyal_first_column(self):
+    def test_pdf_aksiyon_first_column(self):
         df = pd.DataFrame([
-            {"⭐": "☆", "Sinyal": "🔼", "Karar": "İZLE", "Sembol": "EQQQ",
+            {"⭐": "☆", "Şimdi ne yap?": "İZLE", "Momentum": "🔼", "Sembol": "EQQQ",
              "Skor": "66 (92%)"},
-            {"⭐": "☆", "Sinyal": "⏸", "Karar": "AZALT", "Sembol": "MSFT",
+            {"⭐": "☆", "Şimdi ne yap?": "AZALT", "Momentum": "⏸", "Sembol": "MSFT",
              "Skor": "40 (7%) 💚53/55 +39%"},
-            {"⭐": "☆", "Sinyal": "🔽", "Karar": "AZALT", "Sembol": "NFLX",
+            {"⭐": "☆", "Şimdi ne yap?": "AZALT", "Momentum": "🔽", "Sembol": "NFLX",
              "Skor": "40 (8%) 🟡12/40 +10%"},
         ])
         cleaned = _df_pdf_hazirla(df)
-        self.assertEqual(list(cleaned.columns)[0], "Sin")
-        self.assertEqual(cleaned["Sin"].tolist(), ["↑", "=", "↓"])
+        self.assertEqual(list(cleaned.columns)[0], "Ne yap?")
+        self.assertEqual(cleaned["Mom"].tolist(), ["↑", "=", "↓"])
         pdf = hisse_etf_tablo_pdf_olustur(df, gosterim_pb="EUR")
         self.assertTrue(pdf.startswith(b"%PDF"))
         from pypdf import PdfReader
         text = "\n".join(
             (p.extract_text() or "") for p in PdfReader(io.BytesIO(pdf)).pages
         )
-        self.assertLess(text.find("Sin"), text.find("Karar"))
+        self.assertLess(text.find("Ne yap"), text.find("Mom"))
         self.assertIn("↑", text)
         self.assertIn("=", text)
         self.assertIn("↓", text)

@@ -34,7 +34,45 @@ class EmtiaUniverseTest(unittest.TestCase):
         self.assertAlmostEqual(g, 6034.0, delta=2.0)
         txt = gram_tl_metin(3985.0, 47.10)
         self.assertTrue(txt.startswith("Gram: ~"))
-        self.assertIn("TL", txt)
+        self.assertIn("TL/g", txt)
+        # Binlik nokta belirsizliği yok (6.034 gibi görünmesin)
+        self.assertNotIn("6.034", txt)
+        self.assertIn("6034", txt.replace(" ", ""))
+
+    def test_indir_tz_naive_concat(self):
+        """Batch naive + Ticker.history UTC-aware birleşmeli."""
+        from unittest.mock import patch
+        import pandas as pd
+        from stock_scanner import _indir, _df_sembol_var
+
+        idx_naive = pd.bdate_range("2025-01-01", periods=40)
+        idx_aware = pd.bdate_range("2025-01-01", periods=40, tz="UTC")
+        close_n = pd.Series(range(100, 140), index=idx_naive, dtype=float)
+        close_a = pd.Series(range(3900, 3940), index=idx_aware, dtype=float)
+
+        batch = pd.DataFrame({
+            ("AAPL", "Open"): close_n,
+            ("AAPL", "High"): close_n,
+            ("AAPL", "Low"): close_n,
+            ("AAPL", "Close"): close_n,
+            ("AAPL", "Volume"): 1.0,
+        })
+        batch.columns = pd.MultiIndex.from_tuples(batch.columns)
+
+        with patch("yfinance.download", return_value=batch):
+            with patch("yfinance.Ticker") as T:
+                class _Tk:
+                    def history(self, **kw):
+                        return pd.DataFrame({
+                            "Open": close_a, "High": close_a, "Low": close_a,
+                            "Close": close_a, "Volume": 1.0,
+                        }, index=idx_aware)
+                T.side_effect = lambda s: _Tk()
+                # AAPL batch'te var; GC=F eksik → tek ticker path
+                out = _indir(["AAPL", "GC=F"], period="1y", timeout=5)
+        self.assertTrue(_df_sembol_var(out, "AAPL"))
+        self.assertTrue(_df_sembol_var(out, "GC=F"))
+        self.assertIsNone(getattr(out.index, "tz", "x"))
 
     def test_motor_sinyal_thresholds(self):
         self.assertEqual(sinyal_isaret(67, {"tur": "emtia"}), "🔼")

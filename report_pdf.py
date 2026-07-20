@@ -66,11 +66,20 @@ def _temiz(text: Any, max_len: int = 0) -> str:
         return "—"
     s = re.sub(r"\*\*", "", s)
     s = re.sub(r"\*", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
+    # Satır sonlarını koru (kart gövdesi); diğer boşlukları sadeleştir
+    s = re.sub(r"[^\S\n]+", " ", s)
+    s = re.sub(r"\n{3,}", "\n\n", s).strip()
     if not s:
         return "—"
     if max_len and len(s) > max_len:
-        return s[: max_len - 1] + "…"
+        # Kelime/cümle sınırında kes — "Fed ve…" gibi anlamsız kırılmaları azalt
+        kes = s[: max_len - 1]
+        for sep in (". ", "; ", ", ", " ", "\n"):
+            i = kes.rfind(sep)
+            if i >= max(24, max_len // 3):
+                kes = kes[: i + (1 if sep == ". " else 0)].rstrip(" ,;\n")
+                break
+        return kes + "…"
     return s
 
 
@@ -118,16 +127,22 @@ def _df_pdf_hazirla(df) -> "pd.DataFrame":
 
     out = df.copy()
     out = out.drop(columns=[c for c in out.columns if c in _PDF_ATLA_SUTUNLAR], errors="ignore")
-    # Sinyal PDF'te en başa (⭐ zaten atıldı); başlık kısa → satır kırılmasın
-    if "Sinyal" in out.columns:
+    # Aksiyon önce; Momentum (eski Sinyal) kısa başlık
+    if "Şimdi ne yap?" in out.columns:
+        cols = ["Şimdi ne yap?"] + [c for c in out.columns if c != "Şimdi ne yap?"]
+        out = out[cols]
+    elif "Sinyal" in out.columns:
         cols = ["Sinyal"] + [c for c in out.columns if c != "Sinyal"]
         out = out[cols]
+    elif "Momentum" in out.columns:
+        # Aksiyon yoksa Momentum’u öne alma — ortada kalsın
+        pass
     uzun = {
         "Hisse/ETF", "Gerekçe", "Hikaye", "Rejim etkisi", "Profil etkisi",
         "Faktör", "Trend filtresi", "Haber", "Skor",
     }
     for col in out.columns:
-        if col == "Al":
+        if col in ("Al", "Alım seviyesi"):
             limit = 26
         elif col == "Rejim":
             limit = 14
@@ -141,18 +156,27 @@ def _df_pdf_hazirla(df) -> "pd.DataFrame":
         def _cell(v, lim=limit, c=col):
             if c == "Rejim":
                 return _pdf_rejim_kisa(v)
-            if c == "Al":
+            if c in ("Al", "Alım seviyesi"):
                 return _pdf_al_kisa(v)
             t = _html_temiz(v, lim)
             if c == "Skor":
                 t = skor_label_pdf_safe(t)
-            elif c == "Sinyal":
+            elif c in ("Sinyal", "Momentum"):
                 t = sinyal_pdf_safe(t)
             return t
 
         out[col] = out[col].apply(_cell)
+    rename = {}
     if "Sinyal" in out.columns:
-        out = out.rename(columns={"Sinyal": "Sin"})
+        rename["Sinyal"] = "Sin"
+    if "Momentum" in out.columns:
+        rename["Momentum"] = "Mom"
+    if "Şimdi ne yap?" in out.columns:
+        rename["Şimdi ne yap?"] = "Ne yap?"
+    if "Alım seviyesi" in out.columns:
+        rename["Alım seviyesi"] = "Al sev."
+    if rename:
+        out = out.rename(columns=rename)
     return out
 
 
@@ -160,19 +184,19 @@ def _pdf_col_w_for_df(basliklar: List[str], total_w: float) -> List[float]:
     """Sin/Rejim dar; Skor geniş — satır yüksekliği şişmesin."""
     agirlik = []
     for c in basliklar:
-        if c in ("Sin", "Sinyal"):
+        if c in ("Sin", "Sinyal", "Mom", "Momentum"):
             agirlik.append(0.4)
         elif c == "Skor":
             agirlik.append(2.6)
         elif c in ("Hisse/ETF", "Hisse", "ETF", "Gerekçe", "Hikaye", "Neden?"):
             agirlik.append(1.5)
-        elif c == "Al":
+        elif c in ("Al", "Alım seviyesi", "Al sev."):
             agirlik.append(1.15)
         elif c == "Gram TL":
             agirlik.append(1.0)
         elif c == "Rejim":
             agirlik.append(0.75)
-        elif c in ("Karar", "Sembol"):
+        elif c in ("Karar", "Şimdi ne yap?", "Ne yap?", "Sembol"):
             agirlik.append(0.85)
         elif c == "RSI":
             agirlik.append(0.55)
@@ -207,10 +231,17 @@ def hisse_etf_tablo_pdf_olustur(
     filtre_parcalar: List[str] = []
     if piyasa_filtre:
         filtre_parcalar.append(f"Piyasa: {', '.join(piyasa_filtre)}")
-    # Karar dağılımı (rapordaki satırlar) — aktif teknik filtre listesi değil
-    if df is not None and not getattr(df, "empty", True) and "Karar" in getattr(df, "columns", []):
+    # Aksiyon dağılımı (rapordaki satırlar) — aktif teknik filtre listesi değil
+    _aksiyon_col = None
+    if df is not None and not getattr(df, "empty", True):
+        cols = getattr(df, "columns", [])
+        if "Şimdi ne yap?" in cols:
+            _aksiyon_col = "Şimdi ne yap?"
+        elif "Karar" in cols:
+            _aksiyon_col = "Karar"
+    if _aksiyon_col:
         from karar_lejant import karar_dagilim_ozeti, kararlar_from_df_column
-        dagilim = karar_dagilim_ozeti(kararlar_from_df_column(df["Karar"]))
+        dagilim = karar_dagilim_ozeti(kararlar_from_df_column(df[_aksiyon_col]))
         if dagilim:
             filtre_parcalar.append(dagilim)
     elif sinyal_filtre:
@@ -303,6 +334,7 @@ def pozisyonlar_pdf_olustur(
             ["Pozisyon Önerisi", _temiz(r.get("oneri"))],
             ["Ekle seviyesi", _temiz(r.get("ekle"))],
             ["Stop seviyesi", _temiz(r.get("stop"))],
+            ["Yahoo hedef", _temiz(r.get("hedef"))],
         ]
         if r.get("skor") is not None:
             detay.append(["Motor skoru", _temiz(r.get("skor"))])
@@ -814,9 +846,9 @@ def _backtest_bolumu(
                 s.tarih,
                 _temiz(s.rejim_etiket, 18),
                 _sayi(s.eur_try, 1),
-                f"{s.agirliklar.get('gold', 0) * 100:.0f}%",
-                f"{s.agirliklar.get('tl_deposit', 0) * 100:.0f}%",
-                f"{s.agirliklar.get('bist', 0) * 100:.0f}%",
+                f"%{s.agirliklar.get('gold', 0) * 100:.0f}",
+                f"%{s.agirliklar.get('tl_deposit', 0) * 100:.0f}",
+                f"%{s.agirliklar.get('bist', 0) * 100:.0f}",
             ])
         doc.paragraf(f"Son {min(6, len(satirlar))} ay tahsis geçmişi:")
         doc.tablo(
@@ -828,7 +860,13 @@ def _backtest_bolumu(
         )
 
 
-def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> None:
+def _tarama_bolumu(
+    doc: "RaporPDF",
+    tarama: TaramaSonucu,
+    rejim_etiket: str,
+    snap: Optional[MacroSnapshot] = None,
+    makro_rejim: str = "NOTR",
+) -> None:
     doc.bolum("Hisse & ETF Yatırım Önerileri")
     profil_oz = getattr(tarama, "profil_ozet", "") or ""
     if profil_oz:
@@ -843,7 +881,7 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         + (f"  —  {ozet_str}" if ozet_str else "")
         + f"  |  Rejim: {rejim_etiket}",
     )
-    from karar_lejant import v2_lejant_satirlari
+    from karar_lejant import endeks_lejant_caption, v2_lejant_satirlari
     doc.paragraf(
         "Karar (v2): " + " · ".join(v2_lejant_satirlari())
         + " Veriler Yahoo Finance (gecikmeli). Yatırım tavsiyesi değildir."
@@ -852,26 +890,51 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         doc.madde(_temiz(u, 140))
 
     if tarama.endeksler:
-        doc.paragraf("Ana endeksler — BIST 100 · NASDAQ · S&P 500")
+        from endeks_yonlendirme import (
+            endeks_alanlarini_doldur,
+            oncelik_ozeti_sade,
+            ozet_neden,
+        )
+
+        makro = getattr(tarama, "makro_rejim", None) or makro_rejim or "NOTR"
+        endeks_alanlarini_doldur(
+            tarama.endeksler,
+            fx_ok=True,
+            makro_rejim=makro,
+            snap=snap,
+        )
+        oncelik = oncelik_ozeti_sade(tarama.endeksler)
+        if oncelik:
+            doc.paragraf(_temiz(oncelik.replace("**", ""), 200))
+        doc.paragraf(
+            "Ana endeksler — BIST 100 · NASDAQ · S&P 500 "
+            "(Öneri = ağırlık; getiriler yerel para biriminde)"
+        )
         w = doc._w()
         endeks_rows = []
         for e in tarama.endeksler:
             fiyat = _sayi(e.fiyat, 0 if (e.fiyat or 0) >= 100 else 2)
+            oneri = getattr(e, "aksiyon_etiket", None) or "Bekle"
+            neden = ozet_neden(e)
             endeks_rows.append([
-                _temiz(e.ad, 24),
+                _temiz(e.ad, 22),
                 fiyat,
                 _pct(e.degisim_1g),
                 _pct(e.degisim_1ay),
                 _pct(e.degisim_3ay),
-                _temiz(_sinyal_sade(e.sinyal), 28),
+                _temiz(oneri, 8),
+                _temiz(neden, 52),
             ])
         doc.tablo(
-            ["Endeks", "Fiyat", "1 Gün", "Son 1 Ay", "Son 3 Ay", "Durum"],
+            ["Endeks", "Fiyat", "1 Gün", "Son 1 Ay", "Son 3 Ay", "Öneri", "Neden"],
             endeks_rows,
-            font_boyut=8.5,
-            satir_yuk=4.5,
-            col_w=[w * 0.26, w * 0.12, w * 0.09, w * 0.10, w * 0.10, w * 0.33],
+            font_boyut=7.5,
+            satir_yuk=5.0,
+            col_w=[
+                w * 0.18, w * 0.09, w * 0.08, w * 0.09, w * 0.09, w * 0.09, w * 0.38,
+            ],
         )
+        doc.paragraf(_temiz(endeks_lejant_caption().replace("**", ""), 220))
 
     uygun_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "UYGUN"])
     sinirli_list = _hisse_sirala([h for h in (tarama.hisseler or []) if getattr(h, "alim_uygun", "") == "SINIRLI"])
@@ -883,14 +946,17 @@ def _tarama_bolumu(doc: "RaporPDF", tarama: TaramaSonucu, rejim_etiket: str) -> 
         dikkat_n = len(sinirli_list)
         etf_n = len(etf_firsat)
         trunc_not = ""
+        evren_n = len(tarama.hisseler or [])
         if al_n == 0 and len(kanonik) > config.TARAMA_KANONIK_MAX_SATIR:
             trunc_not = (
-                f" Şu an alınabilir aday yok; tablo özet için {config.TARAMA_KANONIK_MAX_SATIR} satırla "
-                f"sınırlandı ({len(kanonik)} aday tarandı)."
+                f" Şu an alınabilir (UYGUN) yok; tabloda {config.TARAMA_KANONIK_MAX_SATIR} "
+                f"sınırlı/ETF satırı gösteriliyor (listede {len(kanonik)}; "
+                f"taranan evren {evren_n} sembol — bu sayı evren değildir)."
             )
             kanonik = kanonik[: config.TARAMA_KANONIK_MAX_SATIR]
         doc.paragraf(
-            f"Yatırım önerileri — Şu an alınabilir: {al_n}  ·  Dikkat/Sınırlı: {dikkat_n}  ·  ETF: {etf_n}"
+            f"Yatırım önerileri — Şu an alınabilir (UYGUN): {al_n}  ·  "
+            f"Dikkat/Sınırlı: {dikkat_n}  ·  ETF fırsat listesi: {etf_n}"
             f"{trunc_not}"
         )
         _kanonik_aday_tablo(doc, kanonik)
@@ -1137,6 +1203,7 @@ class RaporPDF:
             self._w(), 3.8,
             "Yasal uyarı: Bu rapor otomatik üretilmiş bir karar-destek belgesidir; yatırım tavsiyesi "
             "niteliği taşımaz. Geçmiş performans gelecek getirileri garanti etmez. "
+            "Menkul vergi özeti bilgi amaçlıdır; hisse/ETF/TEFAS brüt, yalnızca mevduat nettir. "
             "Nihai yatırım kararı tamamen yatırımcıya aittir. © Kişisel Portföy Asistanı",
             align=self._Align.L,
             new_x=self._XPos.LMARGIN,
@@ -1276,7 +1343,13 @@ def rapor_pdf_direkt_olustur(
 
     # ── 4. HİSSE & ETF YATIRIM ÖNERİLERİ ────────────────────────────────────
     if tarama and (tarama.endeksler or tarama.hisseler):
-        _tarama_bolumu(doc, tarama, tahsis.rejim.etiket)
+        _tarama_bolumu(
+            doc,
+            tarama,
+            tahsis.rejim.etiket,
+            snap=snap,
+            makro_rejim=getattr(tahsis.rejim, "rejim", None) or "NOTR",
+        )
 
     # ── 5. VARLIKLARIM POZİSYONLARI ──────────────────────────────────────────
     varliklarim_pdf_bolumu(doc, varlik_store, snap, kullanici_portfoy)
@@ -1372,6 +1445,14 @@ def rapor_pdf_direkt_olustur(
                     "Vadeden önce bozmada faiz kaybı yaşanır. Acil ihtiyaç fonunuzu bu tutarın dışında tutunuz."
                 )
 
+    from vergi_notu import vergi_notu_rapor_satirlari
+    doc.bolum("2026 Menkul Kıymet Vergi Notu (özet)")
+    doc.paragraf(
+        "Tam mükellef gerçek kişi — bilgi katmanı; hisse/ETF/TEFAS tutarlarına stopaj uygulanmaz."
+    )
+    for vs in vergi_notu_rapor_satirlari(max_satir=6):
+        doc.madde(_temiz(vs, 280))
+
     # ── 7. MAKRO VERİLER ──────────────────────────────────────────────────────
     doc.bolum("Makro Göstergeler")
     rezerv = (
@@ -1416,9 +1497,15 @@ def rapor_pdf_direkt_olustur(
     if danisman.makro_baglam and danisman.makro_baglam.parcalar:
         doc.bolum("Makro Piyasa Değerlendirmesi")
         for p in danisman.makro_baglam.parcalar[:5]:
+            makro_govde = (
+                f"{p.canli}\n"
+                f"Konum: {p.konum}\n"
+                f"Trend: {p.trend}\n"
+                f"Beklenti: {p.beklenti}"
+            )
             doc.kutu(
                 _temiz(p.baslik, 60),
-                _temiz(f"{p.canli} — {p.beklenti}", 320),
+                _temiz(makro_govde, 520),
             )
 
     # ── 8. VARLIK STRATEJİ NOTLARI ────────────────────────────────────────────
@@ -1426,12 +1513,19 @@ def rapor_pdf_direkt_olustur(
     for var in danisman.varliklar:
         if var.agirlik_pct < 0.5 and var.sinyal == "KACIN":
             continue
+        # Tüm metin tek kutuda — madde satırları önceki/sonraki kartla karışmasın
+        govde_parca = [_temiz(var.baslik, 180)]
+        for n in (var.nedenler or [])[:3]:
+            govde_parca.append("• " + _temiz(n, 220))
+        if getattr(var, "teknik", None):
+            govde_parca.append("Teknik: " + _temiz(var.teknik, 120))
         doc.kutu(
-            _temiz(f"{var.ad}  ·  {var.sinyal_etiket}  ·  Portföy payı: %{var.agirlik_pct:.0f}", 80),
-            _temiz(var.baslik, 200),
+            _temiz(
+                f"{var.ad}  ·  {var.sinyal_etiket}  ·  Portföy payı: %{var.agirlik_pct:.1f}",
+                90,
+            ),
+            "\n".join(govde_parca),
         )
-        for n in var.nedenler[:2]:
-            doc.madde(_temiz(n, 160))
 
     # ── 9. TEKNİK EKLER ───────────────────────────────────────────────────────
     _girdi_dogrulama_bolumu(doc, snap)

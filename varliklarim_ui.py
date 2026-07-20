@@ -241,19 +241,19 @@ def _pozisyon_tablo(
             birim_pb = kaynak_para_birimi(p.sembol, varlik_turu=p.tur)
         alis = pb_cevir(
             pd_.alim_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         ) if pd_.alim_birim > 0 else 0
         guncel = pb_cevir(
             pd_.guncel_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         ) if pd_.guncel_birim > 0 else 0
         maliyet = pb_cevir(
             pd_.maliyet_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         deger_v = pb_cevir(
             pd_.guncel_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         kz = deger_v - maliyet
         kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
@@ -265,7 +265,7 @@ def _pozisyon_tablo(
             f"Güncel": _fmt_birim(guncel, p.tur) if guncel > 0 else "—",
             f"Maliyet": f"{maliyet:,.0f}",
             f"Değer": f"{deger_v:,.0f}",
-            "K/Z": f"{kz:+,.0f} ({kz_pct:+.1f}%)",
+            "K/Z": f"{kz:+,.2f} ({kz_pct:+.1f}%)",
             **yonetici_pozisyon_kolonlari(
                 p, pd_, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
                 gosterim_pb=gosterim_pb, fx=fx,
@@ -318,19 +318,19 @@ def _pozisyon_pdf_satirlari(
             birim_pb = kaynak_para_birimi(p.sembol, varlik_turu=p.tur)
         alis = pb_cevir(
             pd_.alim_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         ) if pd_.alim_birim > 0 else 0
         guncel = pb_cevir(
             pd_.guncel_birim, birim_pb, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         ) if pd_.guncel_birim > 0 else 0
         maliyet = pb_cevir(
             pd_.maliyet_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         deger_v = pb_cevir(
             pd_.guncel_deger, pd_.para, gosterim_pb, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         kz = deger_v - maliyet
         kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
@@ -380,6 +380,11 @@ def _pozisyon_pdf_satirlari(
             "oneri_aciklama": (oneri_h.get("tip") if isinstance(oneri_h, dict) else ""),
             "ekle": kol.get("Ekle", "—"),
             "stop": kol.get("Stop", "—"),
+            "hedef": (
+                (kol.get("Hedef") or {}).get("label")
+                if isinstance(kol.get("Hedef"), dict)
+                else kol.get("Hedef", "—")
+            ),
             "skor": sinyal.get("skor"),
             "getiriler": getiriler,
             "plan": yonetici_pozisyon_plani(
@@ -834,42 +839,27 @@ def _render_portfoy_durum_kutusu(aktif, deger, tarama, *, portfoy_kz_pct: float)
     azalt_uyari = azalt >= 15
     kons = ozet.get("konsantrasyon_uyari")
 
-    st.markdown(
-        f"""
-<div style="
-  border:1px solid rgba(120,120,120,0.35);
-  border-radius:10px;
-  padding:14px 16px 10px;
-  margin:0 0 14px 0;
-  background:linear-gradient(180deg, rgba(40,48,56,0.06), rgba(40,48,56,0.02));
-">
-  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
-    <div style="font-weight:650;font-size:1.05rem;">📊 Portföy Durumu</div>
-    <div style="opacity:0.65;font-size:0.85rem;">{gun_tr}</div>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Ort. sinyal", f"{ozet.get('ortalama_skor', 0)}/100")
-    m2.metric("K/Z", f"{ozet.get('portfoy_kz_pct', 0):+.1f}%")
-    m3.metric(
-        "AZALT ağırlık",
-        f"%{azalt:.1f}",
-        delta="dikkat" if azalt_uyari else None,
-        delta_color="inverse" if azalt_uyari else "off",
-    )
-    m4.metric("Pozisyon", f"{ozet.get('toplam_pozisyon', 0)}")
+    st.caption(f"Portföy durumu · {gun_tr}")
+    render_metric_strip([
+        {"label": "Ort. sinyal", "value": f"{ozet.get('ortalama_skor', 0)}/100"},
+        {"label": "K/Z", "value": f"{ozet.get('portfoy_kz_pct', 0):+.1f}%"},
+        {
+            "label": "AZALT ağırlık",
+            "value": f"%{azalt:.1f}",
+            "delta": "dikkat" if azalt_uyari else None,
+            "delta_inverse": True,
+        },
+        {"label": "Pozisyon", "value": f"{ozet.get('toplam_pozisyon', 0)}"},
+    ])
     if kons:
-        st.caption(f"⚠ Konsantrasyon: {ozet.get('en_buyuk_sektor', '—')}")
+        st.caption(f"Konsantrasyon: {ozet.get('en_buyuk_sektor', '—')}")
     elif azalt_uyari:
-        st.caption(f"⚠ AZALT sinyalli ağırlık: %{azalt:.1f}")
+        st.caption(f"AZALT sinyalli ağırlık: %{azalt:.1f}")
 
     if st.button(
-        "✨ Portföy Yorumu Al",
+        "Portföy yorumu",
         key=f"portfoy_yorum_al_{aktif.id}",
-        help="Claude ile 2–3 cümlelik portföy özeti (cache 6 saat; sembol gönderilmez)",
+        help="2–3 cümlelik portföy özeti (cache 6 saat)",
     ):
         poz_list = [
             {
@@ -911,12 +901,9 @@ def varliklarim_paneli(
     rejim: str = "NOTR",
     mevduat_ozet=None,
 ) -> None:
-    st.header("Varlıklarım")
-    st.caption(
-        "BES platformu gibi portföy takibi — **miktar × birim fiyat** ile canlı K/Z. "
-        "Hisse/ETF/fon eklerken sembol listeden seçilir; alış fiyatı otomatik dolar. "
-        "Veriler `.varliklarim.json` dosyasına kaydedilir."
-    )
+    from ui_theme import render_page_header
+
+    render_page_header("Varlıklarım", "Pozisyon takibi · miktar × fiyat")
 
     if "varlik_store" not in st.session_state:
         st.session_state.varlik_store = yukle_store()
@@ -1085,7 +1072,7 @@ def varliklarim_paneli(
     render_metric_strip([
         {"label": f"Toplam ({pb})", "value": f"{toplam:,.0f}"},
         {"label": "Maliyet", "value": f"{maliyet:,.0f}"},
-        {"label": "K/Z", "value": f"{kz:+,.0f}", "delta": f"{kz_pct:+.2f}%"},
+        {"label": "K/Z", "value": f"{kz:+,.2f}", "delta": f"{kz_pct:+.2f}%"},
         {"label": "1G", "value": _fmt_getiri(deger.agirlikli_getiri.get("1G"))},
         {"label": "1H", "value": _fmt_getiri(deger.agirlikli_getiri.get("1H"))},
         {"label": "1A", "value": _fmt_getiri(deger.agirlikli_getiri.get("1A"))},
@@ -1097,9 +1084,7 @@ def varliklarim_paneli(
     diger = [x for x in ("TL", "EUR", "USD") if x != pb]
     st.caption(
         " · ".join(f"**{x}:** {deger.toplam.get(x, 0):,.0f}" for x in diger)
-        + " — aynı portföy, farklı kur görünümü · "
-        f"**Getiri ({pb}):** kur hareketi dahil · "
-        "**1G/1H/1A/3A/6A:** alım tarihinizden itibaren (bugün eklediyseniz 0,00%)"
+        + f" · getiri ({pb}) kur dahil"
     )
 
     if deger.pozisyonlar and go is not None:
@@ -1212,8 +1197,11 @@ def varliklarim_paneli(
         st.caption(
             "**Alım/Satış Sinyali** = motor (hisse/ETF/emtia v2 veya TEFAS skoru) · "
             "**Pozisyon Önerisi** = ne yapmalı? · rozetin üzerine gelin → kısa açıklama · "
+            "**Hedef** = Yahoo konsensüs hedef fiyatı (bilgi; otomatik satış değil) · "
             "Yatırım tavsiyesi değildir."
         )
+        from vergi_notu import vergi_notu_caption
+        st.caption(vergi_notu_caption("genel"))
         st.caption("Satır sonundaki **⋯** ile düzenle veya sil")
     else:
         st.info("Henüz pozisyon yok — **➕ Ekle** butonuna basın veya Portföy Tahsisi'nden öneriyi aktarın.")
@@ -1235,5 +1223,5 @@ def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, fx) -> float:
     from varlik_fiyat import _pb_cevir
     return _pb_cevir(
         deger, kaynak, hedef, fx.eur_try, fx.usd_try,
-        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
     )

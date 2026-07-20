@@ -18,11 +18,11 @@ from stock_scanner import _hisse_analiz
 FIX = Path(__file__).resolve().parent / "fixtures" / "signal_golden_20260715.pkl"
 
 GOLDEN = [
-    ("AMAT", 65, "İZLE"),
-    ("EQQQ.L", 64, "İZLE"),
-    ("CSCO", 64, "İZLE"),
+    ("AMAT", 65, "AL"),
+    ("EQQQ.L", 64, "AL"),
+    ("CSCO", 64, "İZLE"),  # skor ~63.8 < AL 64
     ("MSFT", 40, "AZALT"),
-    ("IS3N.DE", 64, "İZLE"),  # round(63.7)
+    ("IS3N.DE", 64, "İZLE"),  # round(63.7) — AL eşiği 64 altı
     ("VEUR.L", 63, "İZLE"),  # round(62.6)
 ]
 

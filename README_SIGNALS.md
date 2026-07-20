@@ -31,16 +31,17 @@ percentile = sınıf içi sıra (etf_broad | etf_other | bist | global_stock)
 | RANGE_BOUND | diğer | SMA50 veya −%5 |
 
 **TRENDING_UP + derin −25% hedef birlikte gösterilmez.**
+**TRENDING_DOWN:** GÜÇLÜ AL ve AL → İZLE (rejim kapısı).
 
 ## Karar etiketleri
 
 | Etiket | Skor eşiği | Hysteresis |
 |--------|------------|------------|
-| GÜÇLÜ AL | ≥ 82 | −3 puan |
-| AL | ≥ 72 | −3 |
-| İZLE | ≥ 58 | −3 |
-| BEKLE | ≥ 45 | — |
-| AZALT | < 45 | — |
+| GÜÇLÜ AL | ≥ 76 | −2 puan |
+| AL | ≥ 64 | −2 |
+| İZLE | ≥ 52 | −2 |
+| BEKLE | ≥ 42 | — |
+| AZALT | < 42 | — |
 
 ## Alım seviyesi
 

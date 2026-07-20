@@ -39,6 +39,8 @@ REVOLUT_ETFLER: List[Tuple[str, str, str, str, str]] = [
     ("VAGP.L", "Vanguard Global Aggregate Bond UCITS", "tahvil", "IE00BG47KH54", "VAGP"),
     # ── ESG ──
     ("IUSQ.DE", "iShares MSCI World SRI UCITS (Acc)", "esg", "IE00BYV2GR82", "IUSQ"),
+    # ── ABD tema (Revolut dışı; tarama evreni) ──
+    ("ITA", "iShares US Aerospace Defense ETF", "savunma_uzay", "US4642875237", "ITA"),
 ]
 
 ETF_ETIKET = {
@@ -51,6 +53,7 @@ ETF_ETIKET = {
     "temettu": "Temettü",
     "avrupa": "Avrupa",
     "esg": "ESG/Sürdürülebilir",
+    "savunma_uzay": "Savunma / Uzay",
 }
 
 # Makro rejimde öncelik sırası (düşük = daha önce öner)

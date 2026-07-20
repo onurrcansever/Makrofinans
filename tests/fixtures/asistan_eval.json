@@ -1,0 +1,105 @@
+[
+  {
+    "id": "al_adaylari",
+    "soru": "AL adaylarım neler?",
+    "mock_yanit": "THYAO öncelikli AL adayı olarak görünüyor.",
+    "beklenen_icerir": ["THYAO", "Kaynak:"],
+    "temkinli_rejim": false
+  },
+  {
+    "id": "odak_thyao",
+    "soru": "THYAO neden AL?",
+    "mock_yanit": "THYAO skor 72 ile AL; momentum destekliyor.",
+    "beklenen_icerir": ["THYAO", "Kaynak:"],
+    "odak_sembol": "THYAO.IS"
+  },
+  {
+    "id": "grounding",
+    "soru": "Ne alayım?",
+    "mock_yanit": "ZZZZTOP alınabilir.",
+    "beklenen_icerir": ["veride olmayan", "Kaynak:"],
+    "beklenen_grounding": ["ZZZZTOP"]
+  },
+  {
+    "id": "rejim_kriz",
+    "soru": "Bugün ne yapayım?",
+    "mock_yanit": "Temkinli kalın; agresif alım uygun değil.",
+    "rejim_kod": "KRIZ",
+    "temkinli_rejim": true,
+    "beklenen_icerir": ["Kaynak:"],
+    "prompt_icerir": ["REJİM KİLİDİ"]
+  },
+  {
+    "id": "vix_yuksek",
+    "soru": "Risk alayım mı?",
+    "mock_yanit": "VIX yüksek; kademeli ve temkinli yaklaşın.",
+    "vix": 32.0,
+    "temkinli_rejim": true,
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "tl_altin",
+    "soru": "TL mi altın mı?",
+    "mock_yanit": "Rejim ve tahsis oranlarına göre dengeli okuyun.",
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "portfoy_uyum",
+    "soru": "Portföyüm rejimle uyumlu mu?",
+    "mock_yanit": "Fiili sınıf ile hedef tahsisi karşılaştırın.",
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "endeks",
+    "soru": "BIST ne diyor?",
+    "mock_yanit": "XU100 için Koru önerisi görünüyor.",
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "bos_soru",
+    "soru": "   ",
+    "beklenen_hata": "empty"
+  },
+  {
+    "id": "dipnot_vix",
+    "soru": "Makro özet?",
+    "mock_yanit": "VIX sakin; BIST nötr.",
+    "beklenen_icerir": ["VIX", "Kaynak:"]
+  },
+  {
+    "id": "tefas",
+    "soru": "TEFAS tarafı?",
+    "mock_yanit": "Üst skorlu fonlar listede.",
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "plan_yok",
+    "soru": "Nakit planım?",
+    "mock_yanit": "Veride nakit planı yoksa plan oluşturun.",
+    "beklenen_icerir": ["Kaynak:"]
+  },
+  {
+    "id": "allowlist_thyao_ok",
+    "soru": "THYAO?",
+    "mock_yanit": "THYAO.IS değerlendirilebilir.",
+    "beklenen_grounding": [],
+    "beklenen_icerir": ["THYAO", "Kaynak:"]
+  },
+  {
+    "id": "history_context",
+    "soru": "Peki skor?",
+    "history": [
+      {"role": "user", "content": "THYAO nasıl?"},
+      {"role": "assistant", "content": "AL adayı."}
+    ],
+    "mock_yanit": "Skor 72 civarı.",
+    "beklenen_icerir": ["Kaynak:"],
+    "prompt_gecmis_icerir": ["THYAO nasıl?"]
+  },
+  {
+    "id": "no_key",
+    "soru": "Merhaba",
+    "no_key": true,
+    "beklenen_hata": "no_key"
+  }
+]

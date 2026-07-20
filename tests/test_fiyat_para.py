@@ -59,6 +59,20 @@ def test_tutar_goster_eur_to_usd_requires_eur_usd():
     assert v == "1,080 USD"
 
 
+def test_pb_cevir_eur_usd_implies_cross_from_try():
+    """EURUSD yoksa EURTRY÷USDTRY ile settlement çevirisi çalışır (portföy çökmesin)."""
+    from signal_engine.data.quote_normalize import convert_settlement
+
+    out = convert_settlement(
+        100, "EUR", "USD",
+        eur_try=EUR_TRY, usd_try=USD_TRY, eur_usd=None,
+    )
+    assert abs(out - 100 * (EUR_TRY / USD_TRY)) < 1e-9
+    # pb_cevir settlement yolu
+    v = pb_cevir(100, "USD", "EUR", EUR_TRY, USD_TRY, eur_usd=None)
+    assert abs(v - 100 / (EUR_TRY / USD_TRY)) < 1e-9
+
+
 def test_tefas_birim_pay_her_zaman_tl():
     v = tablo_fiyat(2.1019, "EUR", EUR_TRY, USD_TRY, kaynak_pb="TL")
     assert v == round(2.1019 / EUR_TRY, 4)

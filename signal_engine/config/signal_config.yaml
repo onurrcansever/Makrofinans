@@ -29,12 +29,12 @@ entry:
   shallow_max_pct: 0.08
 
 decisions:
-  strong_buy: 78
-  buy: 66
+  strong_buy: 76
+  buy: 64
   watch: 52
   wait: 42
   reduce: 0
-  hysteresis_margin: 3.0
+  hysteresis_margin: 2.0
 
 benchmarks:
   bist: "XU100.IS"

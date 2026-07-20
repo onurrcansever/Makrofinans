@@ -8,6 +8,7 @@ from signal_engine.config.loader import load_signal_config
 from signal_engine.decisions.state_machine import (
     format_decision_why,
     format_effective_threshold_lines,
+    format_score_vs_threshold_line,
     LEVEL_LABELS,
 )
 
@@ -35,6 +36,13 @@ def why_markdown(h: "HisseAnaliz") -> str:
         "",
         f"**Skor:** {h.signal_v2_score:.0f} · **Sınıf içi:** %{getattr(h, 'signal_v2_percentile', 0):.0f} · "
         f"**Veri:** {getattr(h, 'signal_v2_data', '—')}",
+        "",
+        format_score_vs_threshold_line(
+            float(h.signal_v2_score),
+            code,
+            prev,
+            cfg,
+        ),
         "",
         f"**Rejim:** `{getattr(h, 'signal_v2_regime', '—')}` — {getattr(h, 'signal_v2_regime_detail', '')}",
         "",

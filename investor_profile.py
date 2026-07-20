@@ -41,6 +41,12 @@ VADE_MEVDUAT_ESLESTIRME = {
 VADELER_KISA = frozenset({"kisa_3", "kisa_6", "kisa"})
 VADELER_COK_KISA = frozenset({"kisa_3", "kisa_6"})
 
+AMAC_SECENEKLERI = {
+    "sermaye_koruma": "Sermaye koruma — kayıp hassasiyeti yüksek",
+    "dengeli": "Dengeli — koruma + sınırlı büyüme",
+    "buyume": "Büyüme — getiri odaklı (dalgalanma tolere)",
+}
+
 
 def vade_kisa_mi(vade: str) -> bool:
     return vade in VADELER_KISA
@@ -59,7 +65,8 @@ class YatirimProfili:
     def ozet(self) -> str:
         return (
             f"{RISK_SECENEKLERI.get(self.risk, self.risk)} · "
-            f"{VADE_SECENEKLERI.get(self.vade, self.vade)}"
+            f"{VADE_SECENEKLERI.get(self.vade, self.vade)} · "
+            f"{AMAC_SECENEKLERI.get(self.amac, self.amac)}"
         )
 
 
@@ -134,6 +141,20 @@ def profil_sinirlari(profil: YatirimProfili) -> Tuple[Dict[str, float], Dict[str
         max_a["gold"] = min(max_a["gold"] + 0.05, 0.40)
         kalan_gun = VADE_GUN["uzun"]
 
+    # Amaç — risk/vade tavanlarını yumuşak ayarlar (ölü kontrol değil)
+    amac = getattr(profil, "amac", "dengeli") or "dengeli"
+    if amac == "sermaye_koruma":
+        max_a["bist"] = min(max_a["bist"], 0.08 if profil.risk != "yuksek" else 0.12)
+        max_a["crypto"] = min(max_a["crypto"], 0.02 if profil.risk == "yuksek" else 0.0)
+        min_a["eur_cash"] = max(min_a["eur_cash"], 0.20)
+        min_a["gold"] = max(min_a["gold"], 0.08)
+        mutlak_tavan = min(mutlak_tavan, 0.40 if profil.risk != "yuksek" else mutlak_tavan)
+    elif amac == "buyume":
+        if profil.risk != "dusuk":
+            max_a["bist"] = min(max_a["bist"] + 0.04, 0.28)
+            max_a["crypto"] = min(max_a["crypto"] + 0.02, 0.14)
+        max_a["tl_deposit"] = min(max_a["tl_deposit"], mutlak_tavan)
+
     return min_a, max_a, kalan_gun, mutlak_tavan
 
 
@@ -200,6 +221,20 @@ def profil_skor_ayari(profil: YatirimProfili) -> Dict[str, float]:
         delta["bist"] += 8
         delta["gold"] += 5
         delta["tl_deposit"] += 5
+
+    amac = getattr(profil, "amac", "dengeli") or "dengeli"
+    if amac == "sermaye_koruma":
+        delta["eur_cash"] += 8
+        delta["gold"] += 6
+        delta["bist"] -= 10
+        delta["crypto"] -= 12
+        delta["tl_deposit"] -= 3
+    elif amac == "buyume":
+        delta["bist"] += 8
+        delta["crypto"] += 5
+        delta["eur_cash"] -= 4
+        if profil.risk != "dusuk":
+            delta["tl_deposit"] += 2
 
     return delta
 

@@ -22,7 +22,8 @@ def universe_quote_symbols() -> List[str]:
     from stock_universe import tum_evren
 
     syms = list(ENDEKSLER.values()) + [s for s, *_ in tum_evren()]
-    syms += ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"]
+    # ^VIX makro kartında; ENDEKSLER listesinde yok → ayrıca çek
+    syms += ["^VIX", "EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X"]
     return list(dict.fromkeys(s for s in syms if s))
 
 
@@ -149,8 +150,9 @@ def refresh_stale_tarama(
     return {"status": "ok", "elapsed_sec": elapsed, "n_hisse": n, "key": anahtar}
 
 
-# Streamlit: uzun Yahoo çekimi rerun ile ölmesin → küçük dalgalar
-ANALIST_BATCH_SIZE = 12
+# Streamlit: uzun Yahoo çekimi rerun ile ölmesin → dalgalar
+# (Tam doldurma sayfa açılışında senkron; bu yedek / TTL sonrası)
+ANALIST_BATCH_SIZE = 24
 _analist_lock = threading.Lock()
 _analist_running = False
 _quotes_lock = threading.Lock()
@@ -163,6 +165,7 @@ def refresh_analist_misses(
     max_workers: int = 3,
     batch_limit: Optional[int] = None,
     log: LogFn = _default_log,
+    progress_cb=None,
 ) -> Dict[str, object]:
     from temel_veri import MAX_WORKERS, temel_veri_tarama_icin
 
@@ -180,7 +183,7 @@ def refresh_analist_misses(
     t0 = time.time()
     log(f"[cache] analist dalga · {len(need)}/{remaining} eksik (toplam liste {len(syms)})…")
     _cache, stats = temel_veri_tarama_icin(
-        need, force=False, max_workers=workers, progress_cb=None,
+        need, force=False, max_workers=workers, progress_cb=progress_cb,
     )
     elapsed = time.time() - t0
     ok, tot = analist_hazir_say(syms)

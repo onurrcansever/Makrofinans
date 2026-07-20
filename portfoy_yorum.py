@@ -425,22 +425,15 @@ def prompt_sembol_icerir_mi(prompt: str) -> bool:
     return bool(_TICKER_RE.search(prompt or ""))
 
 
-def _call_anthropic(prompt: str, *, api_key: Optional[str] = None) -> str:
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY") or ""
-    if not key or key.startswith("your_key"):
-        raise RuntimeError("ANTHROPIC_API_KEY yok")
-    import anthropic
+def _call_llm(prompt: str, *, api_key: Optional[str] = None) -> str:
+    from llm_shared import call_llm_default
 
-    client = anthropic.Anthropic(api_key=key)
-    response = client.messages.create(
-        model=MODEL,
+    text = call_llm_default(
+        prompt,
         max_tokens=220,
-        messages=[{"role": "user", "content": prompt}],
+        timeout=API_TIMEOUT_SEC,
+        api_key=api_key,
     )
-    parts = getattr(response, "content", None) or []
-    if not parts:
-        return FALLBACK
-    text = getattr(parts[0], "text", None) or str(parts[0])
     return (text or "").strip() or FALLBACK
 
 
@@ -480,11 +473,15 @@ def portfoy_genel_yorum(
         }, ensure_ascii=False, sort_keys=True)).encode()
     ).hexdigest()[:32]
 
+    from llm_shared import aktif_model_meta
+
+    am = aktif_model_meta()
     cache = yukle_cache()
     meta: Dict[str, Any] = {
         "cache_hit": False,
         "guncelleme": _now_utc().isoformat(),
-        "model": MODEL,
+        "model": am.get("model") or MODEL,
+        "provider": am.get("provider") or "",
         "anahtar": key,
     }
 
@@ -505,7 +502,7 @@ def portfoy_genel_yorum(
         # Güvenlik ağı: ticker'ları sil
         prompt = _TICKER_RE.sub("[pozisyon]", prompt)
 
-    call = _call_fn or _call_anthropic
+    call = _call_fn or _call_llm
 
     def _run():
         if _call_fn is not None:

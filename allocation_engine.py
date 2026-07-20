@@ -50,6 +50,12 @@ class TahsisSonucu:
     tl_kritik_veto: bool = False
     tl_ppk_bekle: bool = False
     tl_ppk_notu: str = ""
+    tl_efektif_tavan: float = 0.0
+    rebalance_korundu: bool = False
+    # Makro tahsis (sinyal ince ayarı öncesi) — tekrar uygulanabilir köprü
+    agirliklar_makro: Dict[str, float] = field(default_factory=dict)
+    bist_al_sayisi: int = 0
+    bist_sinyal_notu: str = ""
 
 
 def _skor_sinirla(s: float) -> float:
@@ -210,10 +216,30 @@ def _skorlari_agirliga_cevir(
     return {k: sinirli[k] / t for k in VARLIKLAR}
 
 
+def _rebalance_deadband(
+    yeni: Dict[str, float],
+    eski: Optional[Dict[str, float]],
+    esik: float,
+) -> tuple:
+    """Küçük sapmada önceki ağırlığı koru — aşırı işlem / nokta hedef hissi azaltır."""
+    if not eski or esik <= 0:
+        return yeni, False
+    try:
+        max_d = max(abs(float(yeni.get(k, 0)) - float(eski.get(k, 0) or 0)) for k in VARLIKLAR)
+    except (TypeError, ValueError):
+        return yeni, False
+    if max_d < esik:
+        koru = {k: float(eski.get(k, 0) or 0) for k in VARLIKLAR}
+        t = sum(koru.values()) or 1.0
+        return {k: koru[k] / t for k in VARLIKLAR}, True
+    return yeni, False
+
+
 def tahsis_hesapla(
     snap: MacroSnapshot,
     profil: Optional[YatirimProfili] = None,
     ham_rejim: bool = False,
+    onceki_agirliklar: Optional[Dict[str, float]] = None,
 ) -> TahsisSonucu:
     profil = profil or YatirimProfili()
     min_a, max_a, kalan_gun, mutlak_tavan = profil_sinirlari(profil)
@@ -363,10 +389,11 @@ def tahsis_hesapla(
         skorlar["gold"] = min(skorlar["gold"], config.ALTIN_MOMENTUM_SKOR_TAVAN)
 
     if rejim.rejim == "KRIZ":
+        # TL tüm profillerde 0 — Kapı 1 / kriz ile tutarlı (yüksek riskte bile %5 TL yok)
         sablon = {
             "dusuk": {"eur_cash": 0.45, "usd_cash": 0.25, "gold": 0.30},
-            "orta": {"eur_cash": 0.42, "usd_cash": 0.23, "gold": 0.28},
-            "yuksek": {"eur_cash": 0.38, "usd_cash": 0.22, "gold": 0.25, "tl_deposit": 0.05},
+            "orta": {"eur_cash": 0.42, "usd_cash": 0.23, "gold": 0.35},
+            "yuksek": {"eur_cash": 0.40, "usd_cash": 0.25, "gold": 0.35},
         }
         baz = sablon.get(profil.risk, sablon["orta"])
         agirliklar = {k: 0.0 for k in VARLIKLAR}
@@ -375,10 +402,13 @@ def tahsis_hesapla(
         agirliklar["silver"] = 0.0
         agirliklar["bist"] = 0.0
         agirliklar["crypto"] = 0.0
+        agirliklar["tl_deposit"] = 0.0
         t = sum(agirliklar.values())
         if t < 1.0:
             agirliklar["eur_cash"] += 1.0 - t
-        adimlar.append(f"KRİZ rejimi: {profil.risk} risk profiline göre defansif şablon.")
+        adimlar.append(
+            f"KRİZ rejimi: {profil.risk} risk — defansif şablon (TL=0, BIST/kripto kapalı)."
+        )
 
     # Profil mutlak tavan
     toplam_riskli = agirliklar["bist"] + agirliklar["crypto"] + agirliklar["silver"]
@@ -462,6 +492,37 @@ def tahsis_hesapla(
             t = sum(agirliklar.values())
             agirliklar = {k: v / t for k, v in agirliklar.items()}
 
+    # Ülke riski bütçesi (düşük risk): TL + BIST birlikte sınırlı
+    if profil.risk == "dusuk":
+        tr_budce = 0.18
+        tr_toplam = agirliklar["tl_deposit"] + agirliklar["bist"]
+        if tr_toplam > tr_budce + 1e-6:
+            kes = tr_toplam - tr_budce
+            # Önce BIST'ten kes
+            bist_kes = min(agirliklar["bist"], kes)
+            agirliklar["bist"] -= bist_kes
+            kalan_kes = kes - bist_kes
+            if kalan_kes > 0:
+                agirliklar["tl_deposit"] = max(0.0, agirliklar["tl_deposit"] - kalan_kes)
+            agirliklar["eur_cash"] += kes * 0.65
+            agirliklar["gold"] += kes * 0.35
+            adimlar.append(
+                f"[Ülke riski] Düşük risk: TL+BIST ≤%{tr_budce*100:.0f} "
+                f"(fazla %{kes*100:.1f} EUR/altına)."
+            )
+            t = sum(agirliklar.values())
+            agirliklar = {k: v / t for k, v in agirliklar.items()}
+
+    esik_reb = float(getattr(config, "REBALANCE_MIN_PP", 0.03) or 0.03)
+    agirliklar, rebalance_korundu = _rebalance_deadband(
+        agirliklar, onceki_agirliklar, esik_reb,
+    )
+    if rebalance_korundu:
+        adimlar.append(
+            f"[Rebalance] Değişim <%{esik_reb*100:.0f} pp — önceki dağılım korundu "
+            "(aşırı işlem önlemi)."
+        )
+
     config.KALAN_GUN = eski_kalan
 
     tutarlar = {k: config.TOPLAM_EUR * agirliklar[k] for k in VARLIKLAR}
@@ -474,13 +535,7 @@ def tahsis_hesapla(
         if agirliklar[k] >= 0.01
     )
 
-    tavsiye = (
-        f"ÖNERİ [{rejim.etiket}] · {profil.ozet()}: "
-        f"Toplam {config.TOPLAM_EUR:,.0f} EUR için önerilen dağılım — {satir}. "
-        f"Öncelikli varlık: {etiket[en_yuksek]}. "
-        f"Tranşlar halinde ({config.TRANS_SAYISI} parça) girin."
-    )
-
+    tl_oneri_pct = agirliklar["tl_deposit"] * 100
     tl_explain = explain_tl_decision(
         snap.veri,
         vade_gun=mevduat_vade_gun,
@@ -488,6 +543,14 @@ def tahsis_hesapla(
         reel_pp=tl_mevduat_reel,
         profil_tavan=risk_tavan,
         allocation_pay=agirliklar["tl_deposit"],
+    )
+    tavsiye = (
+        f"ÖNERİ [{rejim.etiket}] · {profil.ozet()}: "
+        f"Toplam {config.TOPLAM_EUR:,.0f} EUR için önerilen dağılım — {satir}. "
+        f"TL öneri ~%{tl_oneri_pct:.0f} · etkin tavan %{tl_efektif_tavan*100:.0f} "
+        f"({tl_explain.baglayici_etiket or tl_explain.baglayici_kisit or '—'}). "
+        f"Öncelikli: {etiket[en_yuksek]}. "
+        f"Tranş ({config.TRANS_SAYISI} parça); küçük sapmada yeniden dengelemeyin."
     )
 
     return TahsisSonucu(
@@ -513,4 +576,93 @@ def tahsis_hesapla(
         tl_kritik_veto=tl_paket.kritik_veto,
         tl_ppk_bekle=tl_paket.ppk_bekle,
         tl_ppk_notu=tl_paket.ppk_notu,
+        tl_efektif_tavan=tl_efektif_tavan,
+        rebalance_korundu=rebalance_korundu,
+        agirliklar_makro={k: float(v) for k, v in agirliklar.items()},
+        bist_al_sayisi=0,
+        bist_sinyal_notu="",
     )
+
+
+def al_aday_sayisi(hisseler) -> int:
+    """Signal Engine v2 BUY/STRONG_BUY adet (karantina hariç)."""
+    n = 0
+    for h in hisseler or []:
+        if getattr(h, "veri_quarantine", False):
+            continue
+        if (getattr(h, "signal_v2_code", None) or "") in ("BUY", "STRONG_BUY"):
+            n += 1
+    return n
+
+
+def tahsis_bist_sinyal_ayarla(sonuc: TahsisSonucu, al_sayisi: int) -> bool:
+    """Tarama AL sayısına göre BIST dilimini ince ayarlar (makro iskelet korunur).
+
+    - KRIZ / EM_STRES: dokunulmaz
+    - AL ≥ 1: makro BIST payı korunur (artırılmaz)
+    - AL = 0: BIST ← min(makro×0.5, BIST_SINYAL_YOK_MAX); fazla → EUR/altın
+
+    Returns True if weights or note changed.
+    """
+    al_n = max(0, int(al_sayisi or 0))
+    rejim = getattr(getattr(sonuc, "rejim", None), "rejim", "") or ""
+    base = dict(sonuc.agirliklar_makro) if sonuc.agirliklar_makro else dict(sonuc.agirliklar)
+    if not sonuc.agirliklar_makro:
+        sonuc.agirliklar_makro = {k: float(v) for k, v in base.items()}
+
+    onceki_bist = float(sonuc.agirliklar.get("bist", 0) or 0)
+    onceki_not = sonuc.bist_sinyal_notu or ""
+    onceki_n = int(getattr(sonuc, "bist_al_sayisi", 0) or 0)
+
+    a = {k: float(base.get(k, 0.0)) for k in VARLIKLAR}
+    notu = ""
+    adim = None
+
+    if rejim in ("KRIZ", "EM_STRES"):
+        notu = (
+            f"BIST sinyal ayarı yok — rejim {rejim} (defansif şablon)."
+        )
+    elif al_n >= 1:
+        notu = (
+            f"Tarama: {al_n} AL/GÜÇLÜ AL — BIST dilimi makro öneride korundu "
+            f"(%{a.get('bist', 0)*100:.0f})."
+        )
+    else:
+        carpan = float(getattr(config, "BIST_SINYAL_YOK_CARPAN", 0.50) or 0.50)
+        tavan = float(getattr(config, "BIST_SINYAL_YOK_MAX", 0.04) or 0.04)
+        eski = float(a.get("bist", 0.0) or 0.0)
+        hedef = min(eski * carpan, tavan)
+        if eski > hedef + 1e-9:
+            fark = eski - hedef
+            a["bist"] = hedef
+            a["eur_cash"] = a.get("eur_cash", 0.0) + fark * 0.60
+            a["gold"] = a.get("gold", 0.0) + fark * 0.40
+            notu = (
+                f"Tarama: AL yok — BIST %{eski*100:.0f} → %{hedef*100:.0f} "
+                f"(fazla EUR/altına; hisse onayına kadar temkin)."
+            )
+            adim = f"[Sinyal köprüsü] {notu}"
+        else:
+            notu = (
+                f"Tarama: AL yok — BIST zaten düşük (%{eski*100:.0f}); ek kesinti yok."
+            )
+
+    t = sum(a.values()) or 1.0
+    a = {k: v / t for k, v in a.items()}
+    sonuc.agirliklar = a
+    sonuc.bist_al_sayisi = al_n
+    sonuc.bist_sinyal_notu = notu
+
+    # Adım listesinde tek sinyal satırı tut
+    adimlar = list(sonuc.adimlar or [])
+    adimlar = [x for x in adimlar if not str(x).startswith("[Sinyal köprüsü]")]
+    if adim:
+        adimlar.append(adim)
+    sonuc.adimlar = adimlar
+
+    degisti = (
+        abs(float(a.get("bist", 0)) - onceki_bist) > 1e-9
+        or notu != onceki_not
+        or al_n != onceki_n
+    )
+    return degisti

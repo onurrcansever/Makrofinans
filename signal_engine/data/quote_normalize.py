@@ -26,7 +26,7 @@ class MissingQuoteCurrencyError(ValueError):
     """quote_currency zorunlu — sessiz suffix/PENCE_THRESHOLD tahmini kapalı."""
 
 
-_SETTLEMENT_CCYS = frozenset({"GBP", "USD", "EUR", "TRY"})
+_SETTLEMENT_CCYS = frozenset({"GBP", "USD", "EUR", "TRY", "CHF"})
 
 
 @dataclass
@@ -84,7 +84,9 @@ def resolve_quote_currency(symbol: str, source_currency: Optional[str] = None) -
         return _canonical_quote_currency(mapped)
     if sym.endswith(".IS"):
         return "TRY"
-    if sym.endswith((".DE", ".AS", ".PA", ".MI", ".SW")):
+    if sym.endswith(".SW"):
+        return "CHF"
+    if sym.endswith((".DE", ".AS", ".PA", ".MI")):
         return "EUR"
     if sym.endswith((".L", ".LON")):
         return "GBp"
@@ -302,6 +304,7 @@ def _to_usd_bridge(
     usd_try: float,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> float:
     from fiyat_para_fx import FxUnavailableError
 
@@ -316,6 +319,10 @@ def _to_usd_bridge(
         if eur_usd is None or eur_usd <= 0:
             raise FxUnavailableError("EURUSD gerekli (convert_settlement)")
         return amount * eur_usd
+    if c == "CHF":
+        if chf_usd is None or chf_usd <= 0:
+            raise FxUnavailableError("CHFUSD gerekli (convert_settlement)")
+        return amount * chf_usd
     if c == "TRY":
         if usd_try <= 0:
             raise FxUnavailableError("USDTRY gerekli")
@@ -330,6 +337,7 @@ def _from_usd_bridge(
     usd_try: float,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> float:
     from fiyat_para_fx import FxUnavailableError
 
@@ -344,6 +352,10 @@ def _from_usd_bridge(
         if eur_usd is None or eur_usd <= 0:
             raise FxUnavailableError("EURUSD gerekli (convert_settlement)")
         return usd / eur_usd
+    if c == "CHF":
+        if chf_usd is None or chf_usd <= 0:
+            raise FxUnavailableError("CHFUSD gerekli (convert_settlement)")
+        return usd / chf_usd
     if c == "TRY":
         return usd * usd_try
     return usd
@@ -358,13 +370,17 @@ def convert_settlement(
     usd_try: float,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> float:
     """Settlement para birimleri arası dönüşüm (faktör/giriş seviyesi hattı)."""
     fc = (from_currency or "USD").upper()
     tc = (to_currency or "USD").upper()
     if fc == tc:
         return amount
-    kw = dict(usd_try=usd_try, gbp_usd=gbp_usd, eur_usd=eur_usd)
+    # EURUSD yoksa EURTRY÷USDTRY (Yahoo çaprazı gecikmeli/eksik olabilir)
+    if (eur_usd is None or eur_usd <= 0) and eur_try > 0 and usd_try > 0:
+        eur_usd = float(eur_try) / float(usd_try)
+    kw = dict(usd_try=usd_try, gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd)
     usd = _to_usd_bridge(amount, fc, **kw)
     return _from_usd_bridge(usd, tc, **kw)
 
@@ -378,9 +394,11 @@ def to_display_currency(
     usd_try: float,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> float:
     """FX to display currency (dated rates from caller)."""
     return convert_settlement(
         amount, from_currency, display,
         eur_try=eur_try, usd_try=usd_try, gbp_usd=gbp_usd, eur_usd=eur_usd,
+        chf_usd=chf_usd,
     )

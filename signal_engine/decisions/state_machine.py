@@ -30,11 +30,11 @@ class DecisionResult:
 def _thresholds(cfg: SignalConfig) -> Tuple[float, float, float, float, float]:
     d = cfg.decisions
     return (
-        float(d.get("strong_buy", 78)),
-        float(d.get("buy", 66)),
+        float(d.get("strong_buy", 76)),
+        float(d.get("buy", 64)),
         float(d.get("watch", 52)),
         float(d.get("wait", 42)),
-        float(d.get("hysteresis_margin", 3.0)),
+        float(d.get("hysteresis_margin", 2.0)),
     )
 
 
@@ -221,8 +221,8 @@ def decide(
     if prev_code and prev_code != code and prev_code != raw_code:
         gates.append(f"Histerezis: ham {LEVEL_LABELS.get(raw_code, raw_code)} → {LEVEL_LABELS[code]}")
 
-    if regime.regime == "TRENDING_DOWN" and code == "STRONG_BUY":
-        gates.append("Rejim TRENDING_DOWN: GÜÇLÜ AL → İZLE")
+    if regime.regime == "TRENDING_DOWN" and code in ("STRONG_BUY", "BUY"):
+        gates.append("Rejim TRENDING_DOWN: AL/GÜÇLÜ AL → İZLE")
         code = "WATCH"
 
     label = LEVEL_LABELS[code]
@@ -254,3 +254,21 @@ def format_decision_why(
     if prev_code and code and prev_code != code and not any("Histerezis" in g for g in gates):
         why_parts.append(f"Histerez {prev_code}→{code}")
     return " · ".join(x for x in why_parts if x)
+
+
+def format_score_vs_threshold_line(
+    score: float,
+    code: str,
+    prev_code: str,
+    cfg: SignalConfig,
+) -> str:
+    """Neden? paneli — skor vs AL eşiği / histerezis çıkış satırı."""
+    strong, buy, watch, wait, margin = _thresholds(cfg)
+    del strong, watch, wait
+    label = LEVEL_LABELS.get(code, code or "—")
+    izle_cikis = buy + margin
+    line = f"Teknik skor {float(score):.0f} → AL eşiği {buy:.0f}"
+    if code == "WATCH" or prev_code == "WATCH" or float(score) < buy:
+        line += f" (İZLE'den çıkış ≥{izle_cikis:.0f})"
+    line += f" → {label}"
+    return line

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Temel veri katmanı — Yahoo .info (F/K, büyüme, analist).
-Skora GİRMEZ; yalnızca değerleme notu / Neden? paneli.
+Temel veri katmanı — Yahoo .info + finansal özet (ciro, FCF, bilanço).
+Analist/F/K: Momentum / Neden? paneli.
+Finans özeti: Signal Engine fund_gate ile AL kararını kesebilir.
 """
 from __future__ import annotations
 
@@ -43,12 +44,14 @@ INFO_ALANLAR = (
     "currentPrice",
     "regularMarketPrice",
     "currency",
+    "profitMargins",
 )
 
 TTL_HOURS = 24
 # Yahoo oturumları FD tüketir — yüksek paralellik Errno 24 (too many open files)
 MAX_WORKERS = 3
-SYMBOL_TIMEOUT_SEC = 5.0  # .info + recommendations_summary
+SYMBOL_TIMEOUT_SEC = 8.0  # .info + rec + financials
+FINANS_TTL_HOURS = 48  # bilanço daha seyrek değişir
 
 _cache_io_lock = threading.Lock()
 
@@ -187,8 +190,95 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
+def _df_cell(df, row_names: tuple, col_idx: int = 0) -> Optional[float]:
+    """Yahoo financials DataFrame — satır adı esnek eşleşme."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    try:
+        idx_l = {str(i).strip().lower(): i for i in df.index}
+    except Exception:
+        return None
+    for name in row_names:
+        key = name.lower()
+        if key in idx_l:
+            try:
+                cols = list(df.columns)
+                if col_idx >= len(cols):
+                    return None
+                return _safe_float(df.loc[idx_l[key], cols[col_idx]])
+            except Exception:
+                return None
+        for ik, orig in idx_l.items():
+            if key in ik or ik in key:
+                try:
+                    cols = list(df.columns)
+                    if col_idx >= len(cols):
+                        return None
+                    return _safe_float(df.loc[orig, cols[col_idx]])
+                except Exception:
+                    continue
+    return None
+
+
+def _fetch_finansal_ozet(ticker) -> Dict[str, Any]:
+    """Yıllık + son çeyrek ciro/net/FCF/bilanço — yoksa {}."""
+    out: Dict[str, Any] = {}
+    try:
+        fin = getattr(ticker, "financials", None)
+        qfin = getattr(ticker, "quarterly_financials", None)
+        cf = getattr(ticker, "cashflow", None)
+        qcf = getattr(ticker, "quarterly_cashflow", None)
+        bs = getattr(ticker, "balance_sheet", None)
+        qbs = getattr(ticker, "quarterly_balance_sheet", None)
+    except Exception as e:
+        _log.debug("temel_veri finans erişim: %s", e)
+        return out
+
+    rev_names = ("Total Revenue", "Operating Revenue", "TotalRevenue")
+    ni_names = ("Net Income", "Net Income Common Stockholders", "NetIncome")
+    fcf_names = ("Free Cash Flow", "FreeCashFlow")
+    inv_names = ("Investing Cash Flow", "Cash Flow From Continuing Investing Activities")
+    fin_names = ("Financing Cash Flow", "Cash Flow From Continuing Financing Activities")
+    asset_names = ("Total Assets", "TotalAssets")
+    liab_names = (
+        "Total Liabilities Net Minority Interest",
+        "Total Liabilities",
+        "TotalLiabilitiesNetMinorityInterest",
+    )
+
+    out["revenue_y"] = _df_cell(fin, rev_names, 0)
+    out["revenue_y_prev"] = _df_cell(fin, rev_names, 1)
+    out["net_income_y"] = _df_cell(fin, ni_names, 0)
+    out["revenue_q"] = _df_cell(qfin, rev_names, 0)
+    out["net_income_q"] = _df_cell(qfin, ni_names, 0)
+
+    out["fcf_y"] = _df_cell(cf, fcf_names, 0)
+    out["fcf_q"] = _df_cell(qcf, fcf_names, 0)
+    out["investing_y"] = _df_cell(cf, inv_names, 0)
+    out["investing_q"] = _df_cell(qcf, inv_names, 0)
+    out["financing_y"] = _df_cell(cf, fin_names, 0)
+    out["financing_q"] = _df_cell(qcf, fin_names, 0)
+
+    out["total_assets_y"] = _df_cell(bs, asset_names, 0)
+    out["total_liab_y"] = _df_cell(bs, liab_names, 0)
+    out["total_assets_q"] = _df_cell(qbs, asset_names, 0)
+    out["total_liab_q"] = _df_cell(qbs, liab_names, 0)
+
+    # Boşları temizle
+    out = {k: v for k, v in out.items() if v is not None}
+
+    rev = out.get("revenue_y")
+    ni = out.get("net_income_y")
+    if rev and rev != 0 and ni is not None:
+        out["profit_margin_y"] = ni / rev
+
+    if out:
+        out["finans_guncelleme"] = _bugun()
+    return out
+
+
 def _fetch_one_info(sembol: str) -> Dict[str, Any]:
-    """Tek sembol .info — timeout çağıranda; hata → {}."""
+    """Tek sembol .info + finansal özet — timeout çağıranda; hata → {}."""
     sym = (sembol or "").strip().upper()
     if not sym:
         return {}
@@ -208,7 +298,7 @@ def _fetch_one_info(sembol: str) -> Dict[str, Any]:
         if k in (
             "trailingPE", "forwardPE", "earningsGrowth", "revenueGrowth",
             "targetMeanPrice", "numberOfAnalystOpinions",
-            "currentPrice", "regularMarketPrice",
+            "currentPrice", "regularMarketPrice", "profitMargins",
         ):
             fv = _safe_float(v)
             if fv is not None:
@@ -221,6 +311,14 @@ def _fetch_one_info(sembol: str) -> Dict[str, Any]:
     # Analist dağılımı (strongBuy+buy = al_sayi) — get_recommendations_summary
     rec = _fetch_rec_counts(t)
     out.update(rec)
+    # ETF/emtia: bilanço çekme (gereksiz / yok)
+    qt_u = str(qt or "").upper()
+    if qt_u not in ("ETF", "MUTUALFUND", "INDEX", "CURRENCY", "FUTURE"):
+        try:
+            fin = _fetch_finansal_ozet(t)
+            out.update(fin)
+        except Exception as e:
+            _log.debug("temel_veri %s finans: %s", sym, e)
     out["guncelleme"] = _bugun()
     return out
 
@@ -413,10 +511,22 @@ def temel_veri_cek(
     stats = {"ok": 0, "fail": 0, "etf": 0, "cache_hit": 0, "fetched": 0}
     need: List[str] = []
     rec_patch: List[str] = []
+    def _finans_eksik(ent: dict) -> bool:
+        if (ent.get("quoteType") or "").upper() == "ETF" or _etf_gibi(ent):
+            return False
+        return (
+            ent.get("finans_guncelleme") is None
+            and ent.get("revenue_y") is None
+            and ent.get("fcf_y") is None
+        )
+
     for sym in uniq:
         ent = cache.get(sym)
         # _bos = önceki boş çekim — tarama doldurmada yeniden dene
         if not force and ent and _cache_taze(ent) and not ent.get("_bos"):
+            if _finans_eksik(ent):
+                need.append(sym)
+                continue
             if _rec_counts_eksik(ent):
                 rec_patch.append(sym)
             stats["cache_hit"] += 1
@@ -577,7 +687,7 @@ def _kaynak_pb(currency: Optional[str]) -> str:
         return "GBP"
     if c == "TRY":
         return "TL"
-    if c in ("USD", "EUR", "GBP", "TL"):
+    if c in ("USD", "EUR", "GBP", "TL", "CHF"):
         return c
     return "USD"
 
@@ -602,6 +712,7 @@ def temel_veri_notu(
     usd_try: float = 0.0,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> Dict[str, Any]:
     """UI / Neden? paneli için değerleme notu dict."""
     tur_l = (tur or "hisse").lower()
@@ -654,7 +765,7 @@ def temel_veri_notu(
         try:
             hedef_eur = pb_cevir(
                 target, src, "EUR", eur_try, usd_try,
-                gbp_usd=gbp_usd, eur_usd=eur_usd,
+                gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
             )
         except Exception as e:
             _log.warning("temel_veri %s hedef EUR: %s", sembol, e)
@@ -699,14 +810,14 @@ _SINYAL_PDF = {
     SINYAL_ASAGI: "↓",
 }
 _SINYAL_TOOLTIP_ANALIST = {
-    SINYAL_YUKARI: "Momentum ve analist uyumlu — al/ekle değerlendirin",
-    SINYAL_NOTR: "Sinyal karışık — bekleyin veya tutun",
-    SINYAL_ASAGI: "Momentum ve analist zayıf — azaltmayı değerlendirin",
+    SINYAL_YUKARI: "Momentum ▲ — skor/analist sıcak; bu «Şimdi ne yap?» değildir",
+    SINYAL_NOTR: "Momentum nötr — skor/analist karışık; aksiyon sütununa bakın",
+    SINYAL_ASAGI: "Momentum ▼ — skor/analist zayıf; aksiyon sütununa bakın",
 }
 _SINYAL_TOOLTIP_MOTOR = {
-    SINYAL_YUKARI: "Güçlü momentum (analist verisi yok)",
-    SINYAL_NOTR: "Nötr momentum (analist verisi yok)",
-    SINYAL_ASAGI: "Zayıf momentum (analist verisi yok)",
+    SINYAL_YUKARI: "Güçlü momentum rozeti (analist yok) — «Şimdi ne yap?» değildir",
+    SINYAL_NOTR: "Nötr momentum rozeti (analist yok)",
+    SINYAL_ASAGI: "Zayıf momentum rozeti (analist yok)",
 }
 _ANALIST_BUY = frozenset({"buy", "strong_buy"})
 _ANALIST_HOLD_SELL = frozenset({"hold", "neutral", "sell", "strong_sell"})
@@ -812,6 +923,7 @@ def sinyal_isaret_hisse(h, *, fx=None) -> str:
                 quote_currency=getattr(h, "quote_currency", "") or "",
                 gbp_usd=getattr(fx, "gbp_usd", None),
                 eur_usd=getattr(fx, "eur_usd", None),
+                chf_usd=getattr(fx, "chf_usd", None),
             )
         except Exception:
             fiyat_eur = None
@@ -822,6 +934,7 @@ def sinyal_isaret_hisse(h, *, fx=None) -> str:
         usd_try=(getattr(fx, "usd_try", 0) or 0) if fx else 0,
         gbp_usd=getattr(fx, "gbp_usd", None) if fx else None,
         eur_usd=getattr(fx, "eur_usd", None) if fx else None,
+        chf_usd=getattr(fx, "chf_usd", None) if fx else None,
     )
     return sinyal_isaret(skor, notu)
 
@@ -944,6 +1057,7 @@ def skor_etiket_hisse(h, *, fx=None, pdf_safe: bool = False) -> Any:
                 quote_currency=getattr(h, "quote_currency", "") or "",
                 gbp_usd=getattr(fx, "gbp_usd", None),
                 eur_usd=getattr(fx, "eur_usd", None),
+                chf_usd=getattr(fx, "chf_usd", None),
             )
         except Exception:
             fiyat_eur = None
@@ -954,6 +1068,7 @@ def skor_etiket_hisse(h, *, fx=None, pdf_safe: bool = False) -> Any:
         usd_try=(getattr(fx, "usd_try", 0) or 0) if fx else 0,
         gbp_usd=getattr(fx, "gbp_usd", None) if fx else None,
         eur_usd=getattr(fx, "eur_usd", None) if fx else None,
+        chf_usd=getattr(fx, "chf_usd", None) if fx else None,
     )
     return skor_label(s, p, notu, pdf_safe=pdf_safe)
 

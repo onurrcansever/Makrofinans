@@ -128,10 +128,11 @@ class FavorilerTest(unittest.TestCase):
             _extract_close(df, "GBPUSD=X"),
             _extract_close(df, "EURUSD=X"),
             asof=asof,
+            chf_s=_extract_close(df, "CHFUSD=X"),
         )
         kw = dict(
             eur_try=fx.eur_try, usd_try=fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         with_qc = tablo_fiyat(
             settle_gbp, "EUR", sembol="EQQQ.L", quote_currency="GBP", **kw,

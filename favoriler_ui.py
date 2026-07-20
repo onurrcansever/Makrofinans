@@ -17,6 +17,7 @@ from fiyat_para import (
     tablo_fx_hazirla,
     tablo_getiri,
     tefas_tablo_fiyat,
+    spot_fiyat_veya_live,
 )
 from tefas_universe import tefas_fiyat_kaynak_pb
 from favoriler import (
@@ -191,7 +192,7 @@ def _satir_doldur(
         src_pb = tefas_fiyat_kaynak_pb(f.para_birimi)
         fiyat_val = tefas_tablo_fiyat(
             f.fiyat, gpb, f.para_birimi, fx.eur_try, fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         veri = "—"
         if src_pb is None:
@@ -216,13 +217,16 @@ def _satir_doldur(
     if item.tur == "endeks":
         e = _tarama_endeks(tarama, item.sembol)
         if e:
+            from endeks_yonlendirme import endeks_alanlarini_doldur, ozet_neden
+
+            endeks_alanlarini_doldur([e], fx_ok=True)
             return {
                 **bos,
                 "Ad": (e.ad or item.ad)[:32],
             fiyat_kol: tablo_fiyat(
                 e.fiyat, gpb, fx.eur_try, fx.usd_try, sembol=e.sembol,
                 quote_currency=getattr(e, "quote_currency", ""),
-                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
             ),
                 g1a: _guvenli_tablo_getiri(
                     e.degisim_1ay, gpb, 21, eur_s, usd_s, gbp_s=gbp_s, sembol=e.sembol,
@@ -232,8 +236,14 @@ def _satir_doldur(
                     e.degisim_3ay, gpb, 63, eur_s, usd_s, gbp_s=gbp_s, sembol=e.sembol,
                     bar_dates=getattr(e, "close_bar_dates", None),
                 ),
-                "Sinyal / Öneri": SINYAL_ETIKET.get(e.sinyal, e.sinyal),
-                "Skor": f"{e.skor:.0f}" if e.skor else "—",
+                "Sinyal / Öneri": (
+                    f"{getattr(e, 'aksiyon_etiket', None) or 'Bekle'} — {ozet_neden(e)}"
+                ),
+                "Skor": (
+                    f"{int(getattr(e, 'guven', 0) or 0)}"
+                    if getattr(e, "guven", None) is not None
+                    else (f"{e.skor:.0f}" if e.skor else "—")
+                ),
             }
         g1 = _yf_getiri(item.sembol, 21)
         g3 = _yf_getiri(item.sembol, 63)
@@ -242,12 +252,18 @@ def _satir_doldur(
     h = _tarama_hisse(tarama, item.sembol)
     if h:
         vt = getattr(h, "varlik_turu", "hisse")
-        fiyat_val = tablo_fiyat(
-            h.fiyat, gpb, fx.eur_try, fx.usd_try,
-            sembol=h.sembol, piyasa=h.piyasa, varlik_turu=vt,
-            quote_currency=getattr(h, "quote_currency", ""),
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+        px, qc = spot_fiyat_veya_live(
+            h.sembol, getattr(h, "fiyat", None), getattr(h, "quote_currency", "") or "",
         )
+        try:
+            fiyat_val = tablo_fiyat(
+                px, gpb, fx.eur_try, fx.usd_try,
+                sembol=h.sembol, piyasa=h.piyasa, varlik_turu=vt,
+                quote_currency=qc,
+                gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
+            )
+        except Exception:
+            fiyat_val = None
         yonetici = yonetici_tablo_kolonlari(h, gpb, fx)
         veri = yonetici.get("Veri", "—")
         if getattr(h, "veri_quarantine", False):
@@ -364,10 +380,7 @@ def _favori_izleme_fragment(
     """İzleme listesi — her yıldız tıklamasında diskten yeniden kur (aynı store)."""
     store = favori_store_yenile()
     if not store.items:
-        st.info(
-            "Henüz favori yok. **Hisse & ETF** veya **TEFAS** sayfasından "
-            "⭐ ile ekleyin veya yukarıdan manuel girin."
-        )
+        st.info("Liste boş — Hisse & ETF tablosundan ★ ekleyin.")
         return
 
     render_metric_strip([
@@ -423,11 +436,9 @@ def favoriler_paneli(
     if pending:
         _fav_islem_dialog(pending)
 
-    st.header("Favorilerim")
-    st.caption(
-        "İzlediğiniz hisse, ETF ve TEFAS fonları — **portföy değil**, takip listesi. "
-        "Veriler `.favoriler.json` dosyasına kaydedilir."
-    )
+    from ui_theme import render_page_header
+
+    render_page_header("Favorilerim", "İzleme listesi — portföy değil")
 
     store = favori_store_yenile()
     gpb = session_gosterim_pb()
@@ -452,7 +463,7 @@ def favoriler_paneli(
         except Exception as exc:
             st.warning(f"TEFAS skorları hesaplanamadı — öneri/skor sütunları sınırlı: {exc}")
 
-    with st.expander("➕ Manuel favori ekle", expanded=len(store.items) == 0):
+    with st.expander("Manuel favori ekle", expanded=len(store.items) == 0):
         with st.form("favori_manuel", border=False):
             c1, c2, c3 = st.columns([1, 1, 2])
             with c1:

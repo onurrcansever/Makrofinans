@@ -113,71 +113,76 @@ class DecisionHistoryStorageTest(unittest.TestCase):
 class HysteresisSequenceTest(unittest.TestCase):
 
     def test_eqqq_68_then_64_stays_al(self):
-        """Yaşanan vaka: 68 AL, sonra 64 hâlâ AL (>=63)."""
+        """Yaşanan vaka: 68 AL, sonra 64 hâlâ AL (>=62 hold)."""
         self.assertEqual(_decide(68), "BUY")
         self.assertEqual(_decide(64, "BUY"), "BUY")
         self.assertEqual(LEVEL_LABELS[_decide(64, "BUY")], "AL")
 
-    def test_68_then_62_drops_to_watch(self):
+    def test_68_then_61_drops_to_watch(self):
         self.assertEqual(_decide(68), "BUY")
-        self.assertEqual(_decide(62, "BUY"), "WATCH")
+        self.assertEqual(_decide(61.9, "BUY"), "WATCH")
 
     def test_watch_65_stays_watch(self):
+        """İZLE→AL için ≥66 gerekir; 65 kalır."""
         self.assertEqual(_decide(65, "WATCH"), "WATCH")
 
-    def test_watch_65_then_69_upgrades_to_buy(self):
+    def test_watch_65_then_66_upgrades_to_buy(self):
         self.assertEqual(_decide(65, "WATCH"), "WATCH")
-        self.assertEqual(_decide(69, "WATCH"), "BUY")
+        self.assertEqual(_decide(66, "WATCH"), "BUY")
 
-    def test_cold_start_64_is_watch(self):
-        self.assertEqual(_decide(64), "WATCH")
+    def test_cold_start_64_is_buy(self):
+        self.assertEqual(_decide(64), "BUY")
 
-    def test_reduce_40_then_80_becomes_buy_not_strong(self):
+    def test_cold_start_63_is_watch(self):
+        self.assertEqual(_decide(63), "WATCH")
+
+    def test_reduce_40_then_77_becomes_buy_not_strong(self):
+        """GÜÇLÜ AL çıkışı ≥78; 77 → AL."""
         self.assertEqual(_decide(40), "REDUCE")
-        self.assertEqual(_decide(80, "REDUCE"), "BUY")
+        self.assertEqual(_decide(77, "REDUCE"), "BUY")
 
-    def test_reduce_40_then_82_strong_buy(self):
+    def test_reduce_40_then_78_strong_buy(self):
         self.assertEqual(_decide(40), "REDUCE")
-        self.assertEqual(_decide(82, "REDUCE"), "STRONG_BUY")
+        self.assertEqual(_decide(78, "REDUCE"), "STRONG_BUY")
 
     def test_amat_effective_distance_to_al(self):
-        """İZLE'de 65 — AL için 69 gerekir → -4 puan."""
+        """İZLE'de 65 — AL için 66 gerekir → -1 puan."""
         cfg = load_signal_config()
         up = distance_to_next_upgrade(65, "WATCH", cfg)
         self.assertIsNotNone(up)
         label, dist = up
         self.assertEqual(label, "AL")
-        self.assertAlmostEqual(dist, -4.0)
+        self.assertAlmostEqual(dist, -1.0)
 
     def test_amat_effective_distance_down_to_bekle(self):
-        """İZLE'de 65 — BEKLE'ye düşmek için <49 → +16 puan."""
+        """İZLE'de 65 — BEKLE'ye düşmek için <50 → +15 puan."""
         cfg = load_signal_config()
         down = distance_to_next_downgrade(65, "WATCH", cfg)
         self.assertIsNotNone(down)
         label, dist = down
         self.assertEqual(label, "BEKLE")
-        self.assertAlmostEqual(dist, 16.0)
+        self.assertAlmostEqual(dist, 15.0)
 
-    def test_hysteresis_panel_note_al_held_at_64(self):
+    def test_hysteresis_panel_note_al_held_at_63(self):
         cfg = load_signal_config()
         note = hysteresis_panel_note(
-            64, "BUY", "BUY", cold_start=False, cold_reason="", cfg=cfg,
+            63, "BUY", "BUY", cold_start=False, cold_reason="", cfg=cfg,
         )
         self.assertIn("AL'da tutuluyor", note)
-        self.assertIn("< 63", note)
+        self.assertIn("< 62", note)
 
     def test_hysteresis_panel_note_cold_start(self):
         cfg = load_signal_config()
         note = hysteresis_panel_note(
-            64, "WATCH", "", cold_start=True,
+            63, "WATCH", "", cold_start=True,
             cold_reason="cold start: önceki karar yok", cfg=cfg,
         )
         self.assertIn("cold start", note)
 
-    def test_buy_hold_floor_63(self):
-        """AL'dayken çıkış < 63."""
-        self.assertEqual(_decide(63, "BUY"), "BUY")
-        self.assertEqual(_decide(62.9, "BUY"), "WATCH")
+    def test_buy_hold_floor_62(self):
+        """AL'dayken çıkış < 62."""
+        self.assertEqual(_decide(62, "BUY"), "BUY")
+        self.assertEqual(_decide(61.9, "BUY"), "WATCH")
 
 
 class DecisionPersistGuardTest(unittest.TestCase):

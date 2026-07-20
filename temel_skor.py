@@ -85,11 +85,10 @@ def _hisse_makro_puan(rejim: str, sektor: str) -> float:
 def _momentum_puan(h: "HisseAnaliz", close: pd.Series, max_puan: float = 25.0) -> float:
     puan = 0.0
     y1 = getattr(h, "degisim_1y", None)
-    if y1 is None and len(close) >= 252:
-        eski = float(close.iloc[-252])
-        yeni = float(close.iloc[-1])
-        if eski > 0:
-            y1 = (yeni - eski) / eski * 100
+    if y1 is None and close is not None and len(close.dropna()) >= 2:
+        from signal_engine.data.bars import pct_change_calendar
+
+        y1 = pct_change_calendar(close, 365)
     if y1 is not None:
         if y1 >= config.AL_TEK_HISSE_Y1_MIN:
             puan += 15.0

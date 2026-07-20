@@ -12,6 +12,7 @@ from signal_engine.data.bars import _extract_close
 _FX_SYMBOL = {
     "GBP": "GBPUSD=X",
     "EUR": "EURUSD=X",
+    "CHF": "CHFUSD=X",
 }
 
 _BENCH_SETTLEMENT = {

@@ -16,7 +16,7 @@ from signal_engine.data.bars import (
     truncate_bars_to_asof,
 )
 from signal_engine.decisions.history import get_prev_decision, update_decision_history
-from signal_engine.decisions.state_machine import decide, hysteresis_panel_note
+from signal_engine.decisions.state_machine import LEVEL_LABELS, decide, hysteresis_panel_note
 from signal_engine.entry.levels import compute_entry
 from signal_engine.factors.compute import (
     liquidity_factor,
@@ -50,6 +50,24 @@ def decision_persist_eligible(h: "HisseAnaliz", bars: BarSeries) -> bool:
     )
 
 
+def _makro_karar_tavan(
+    code: str,
+    makro_rejim: str,
+    gates: list,
+) -> str:
+    """
+    Portföy makro rejimi — KRIZ/EM_STRES'te yeni AL yasak (endeks/TEFAS ile uyum).
+    Skor motoruna dokunmaz; yalnızca nihai karar kodunu tavanlar.
+    """
+    rejim = (makro_rejim or "").upper()
+    if rejim not in ("KRIZ", "EM_STRES"):
+        return code
+    if code in ("STRONG_BUY", "BUY"):
+        gates.append(f"Makro {rejim}: AL/GÜÇLÜ AL → İZLE (yeni risk yok)")
+        return "WATCH"
+    return code
+
+
 def signal_engine_v2_uygula(
     hisseler: List["HisseAnaliz"],
     df: pd.DataFrame,
@@ -57,10 +75,12 @@ def signal_engine_v2_uygula(
     cfg: SignalConfig | None = None,
     profil_risk: str = "orta",
     persist_decision_history: bool = False,
+    makro_rejim: str = "",
 ) -> None:
     """V2 sinyal motoru — HisseAnaliz üzerine signal_v2_* yazar.
 
     persist_decision_history: yalnızca ana tarama True — favoriler/testler False (sadece okur).
+    makro_rejim: tahsis rejimi (KRIZ/EM_STRES → AL tavanı).
     """
     cfg = cfg or load_signal_config()
     risk_limit = {"dusuk": 22.0, "orta": 32.0, "yuksek": 45.0}.get(profil_risk, 32.0)
@@ -152,21 +172,66 @@ def signal_engine_v2_uygula(
 
     rank_composites([(h, c) for h, c, *_ in prepared])
 
+    # Sektör F/K peer — tek geçiş (gate soft bayrağı)
+    from signal_engine.quality.peer_valuation import PeerValuation, build_peer_valuation_map
+
+    peer_map: Dict[str, PeerValuation] = {}
+    temel_cache: Dict = {}
+    try:
+        from temel_veri import yukle_cache
+
+        temel_cache = yukle_cache()
+        peer_map = build_peer_valuation_map(hisseler, temel_cache)
+    except Exception:
+        peer_map = {}
+        temel_cache = {}
+
     for h, comp, regime, entry, bars, bench, meta, prev, cold, cold_reason, bar_date in prepared:
         decision = decide(comp.score, comp.percentile, regime, entry, cfg, prev_code=prev)
+        gates = list(decision.gates or [])
+        code = _makro_karar_tavan(decision.code, makro_rejim, gates)
+        sym_u = (h.sembol or "").strip().upper()
+        peer = peer_map.get(sym_u)
+        if peer is not None:
+            h.signal_v2_peer_val = peer.as_dict() if hasattr(peer, "as_dict") else peer
+            h.signal_v2_peer_note = getattr(peer, "note", "") or ""
+        else:
+            h.signal_v2_peer_val = None
+            h.signal_v2_peer_note = ""
+        # Temel finans kapısı — cache hit; yoksa no-op (yanlış İZLE yok)
+        try:
+            from signal_engine.quality.fund_gate import apply_fund_gate_to_code
+
+            temel = temel_cache.get(sym_u, {}) if temel_cache else {}
+            if not temel:
+                from temel_veri import yukle_cache
+
+                temel = yukle_cache().get(sym_u, {})
+            code = apply_fund_gate_to_code(code, temel, h, gates, peer=peer)
+        except Exception:
+            pass
+        label = LEVEL_LABELS.get(code, decision.label)
+        why = decision.why
+        if code != decision.code:
+            why = f"{why} · nihai {decision.code}→{code}"
+
         h.signal_v2_score = comp.score
         h.signal_v2_percentile = comp.percentile
         h.signal_v2_regime = regime.regime
         h.signal_v2_regime_detail = regime.detail
-        h.signal_v2_decision = decision.label
-        h.signal_v2_code = decision.code
-        h.signal_v2_why = decision.why
-        h.signal_v2_decision_gates = decision.gates
+        h.signal_v2_decision = label
+        h.signal_v2_code = code
+        h.signal_v2_why = why
+        h.signal_v2_decision_gates = gates
+        h.signal_v2_fund_note = next(
+            (g for g in gates if str(g).startswith("Temel kapı")),
+            "",
+        )
         h.signal_v2_prev_code = prev
         h.signal_v2_cold_start = cold
         h.signal_v2_cold_reason = cold_reason
         h.signal_v2_hysteresis_note = hysteresis_panel_note(
-            comp.score, decision.code, prev,
+            comp.score, code, prev,
             cold_start=cold, cold_reason=cold_reason, cfg=cfg,
         )
         h.signal_v2_al_price = entry.price
@@ -194,25 +259,26 @@ def signal_engine_v2_uygula(
             continue
         h.skor = comp.score
         h.bilesik_skor = comp.score
-        h.alim_uygun = _map_alim_uygun(decision.code)
-        h.alim_uygun_not = decision.why[:120]
+        h.alim_uygun = _map_alim_uygun(code)
+        h.alim_uygun_not = why[:120]
 
         if entry.price:
             h.yonetici_alim = entry.price
-        h.yonetici_ozet = f"{decision.label} · {regime.regime}"
+        h.yonetici_ozet = f"{label} · {regime.regime}"
 
         if persist_decision_history and bar_date:
             update_decision_history(
-                h.sembol, decision.code, comp.score,
+                h.sembol, code, comp.score,
                 asof=bar_date,
             )
 
 
 def _map_alim_uygun(code: str) -> str:
+    # WATCH = İZLE (SINIRLI/Dikkat değil — yumuşak alım çağrışımı yok)
     return {
         "STRONG_BUY": "UYGUN",
         "BUY": "UYGUN",
-        "WATCH": "SINIRLI",
+        "WATCH": "IZLE",
         "WAIT": "IZLE",
         "REDUCE": "UYGUN_DEGIL",
     }.get(code, "IZLE")

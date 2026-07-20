@@ -116,6 +116,31 @@ NASDAQ_HISSELER: List[Tuple[str, str, str]] = [
     ("REGN", "Regeneron", "defansif"),
 ]
 
+# (sembol, ad, sektör, quote_currency) — Yahoo ticker düzeltmeleri: RO.SW, CS.PA
+AVRUPA_HISSELER: List[Tuple[str, str, str, str]] = [
+    ("ASML.AS", "ASML Holding", "teknoloji", "EUR"),
+    ("SAP.DE", "SAP SE", "teknoloji", "EUR"),
+    ("RHM.DE", "Rheinmetall", "savunma", "EUR"),
+    ("AIR.PA", "Airbus", "savunma", "EUR"),
+    ("NOVN.SW", "Novartis", "saglik", "CHF"),
+    ("RO.SW", "Roche", "saglik", "CHF"),
+    ("SAN.PA", "Sanofi", "saglik", "EUR"),
+    ("MC.PA", "LVMH", "luks", "EUR"),
+    ("OR.PA", "LOreal", "tuketim", "EUR"),
+    ("CS.PA", "AXA", "finans", "EUR"),
+    ("BNP.PA", "BNP Paribas", "finans", "EUR"),
+    ("TTE.PA", "TotalEnergies", "enerji", "EUR"),
+    ("DTE.DE", "Deutsche Telekom", "telekom", "EUR"),
+    ("NESN.SW", "Nestle", "tuketim_zorunlu", "CHF"),
+]
+
+# ABD savunma/uzay hisseleri (ITA ETF → etf_universe)
+SAVUNMA_UZAY: List[Tuple[str, str, str, str]] = [
+    ("LMT", "Lockheed Martin", "savunma_uzay", "USD"),
+    ("NOC", "Northrop Grumman", "savunma_uzay", "USD"),
+    ("RTX", "Raytheon Technologies", "savunma_uzay", "USD"),
+]
+
 ENDEKSLER = {
     "BIST 100": "XU100.IS",
     "NASDAQ Composite": "^IXIC",
@@ -134,6 +159,11 @@ SEKTOR_ETIKET = {
     "savunma": "Savunma",
     "hava": "Havacılık",
     "holding": "Holding",
+    "saglik": "Sağlık",
+    "luks": "Lüks",
+    "telekom": "Telekom",
+    "tuketim_zorunlu": "Tüketim (zorunlu)",
+    "savunma_uzay": "Savunma / Uzay",
     **ETF_ETIKET,
     **EMTIA_ETIKET,
 }
@@ -146,6 +176,7 @@ def tum_hisseler() -> List[Tuple[str, str, str, str]]:
     aksi halde aynı hisse iki kez analiz edilip mükerrer öneri üretir.
     """
     nasdaq_sem = {s for s, _, _ in NASDAQ_HISSELER}
+    sp500_sem = {s for s, _, _ in SP500_HISSELER}
     out: List[Tuple[str, str, str, str]] = []
     for s, a, k in BIST_HISSELER:
         out.append((s, a, "BIST", k))
@@ -154,6 +185,12 @@ def tum_hisseler() -> List[Tuple[str, str, str, str]]:
             out.append((s, a, "SP500", k))
     for s, a, k in NASDAQ_HISSELER:
         out.append((s, a, "NASDAQ", k))
+    for s, a, k, _ccy in AVRUPA_HISSELER:
+        out.append((s, a, "AVRUPA", k))
+    for s, a, k, _ccy in SAVUNMA_UZAY:
+        if s in nasdaq_sem or s in sp500_sem:
+            continue
+        out.append((s, a, "SP500", k))
     return out
 
 
@@ -181,6 +218,12 @@ def sembol_sektor(sembol: str, piyasa: str) -> str:
             return k
     for s, _, k in NASDAQ_HISSELER:
         if s == sembol and piyasa == "NASDAQ":
+            return k
+    for s, _, k, _ in AVRUPA_HISSELER:
+        if s == sembol and piyasa == "AVRUPA":
+            return k
+    for s, _, k, _ in SAVUNMA_UZAY:
+        if s == sembol and piyasa == "SP500":
             return k
     for s, _, k, _, _ in REVOLUT_ETFLER:
         if s == sembol and piyasa == "ETF":

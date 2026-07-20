@@ -411,7 +411,17 @@ def portfoy_pozisyon_tablo_satirlari(
                 oncelik = 2
             elif emir_kod in ("Ekle", "Bekle"):
                 oncelik = 1
-            rows.append((oncelik, abs(pd_.kar_zarar_pct or 0), ad, sinyal, oneri, kz, emir_kod))
+            hedef_h = kol.get("Hedef")
+            hedef_lab = ""
+            if isinstance(hedef_h, dict):
+                hedef_lab = str(hedef_h.get("label") or "")
+            elif hedef_h:
+                hedef_lab = str(hedef_h)
+            if hedef_lab in ("", "—"):
+                hedef_lab = ""
+            rows.append(
+                (oncelik, abs(pd_.kar_zarar_pct or 0), ad, sinyal, oneri, kz, emir_kod, hedef_lab)
+            )
 
         if not rows:
             return []
@@ -421,12 +431,13 @@ def portfoy_pozisyon_tablo_satirlari(
         if cap > 0:
             rows = rows[:cap]
 
-        satirlar = [f"📊 POZİSYONLAR ({gpb})", "Araç · Sinyal · Öneri · K/Z"]
-        for _, __, ad, sinyal, oneri, kz, emir_kod in rows:
+        satirlar = [f"📊 POZİSYONLAR ({gpb})", "Araç · Sinyal · Öneri · K/Z · Hedef"]
+        for _, __, ad, sinyal, oneri, kz, emir_kod, hedef_lab in rows:
             isaret = ""
             if emir_kod in ("Kâr Al", "Sat", "Azalt"):
                 isaret = "⚠ "
-            satirlar.append(f"{isaret}{ad} · {sinyal} · {oneri} · {kz}")
+            ek = f" · H:{_tablo_kisalt(hedef_lab, 12)}" if hedef_lab else ""
+            satirlar.append(f"{isaret}{ad} · {sinyal} · {oneri} · {kz}{ek}")
         return satirlar
     except Exception:
         return []

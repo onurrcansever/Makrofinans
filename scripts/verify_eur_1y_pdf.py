@@ -19,7 +19,7 @@ from stock_scanner import _indir  # noqa: E402
 
 SYMS = [
     "AMAT", "EQQQ.L", "VEUR.L",
-    "EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X",
+    "EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X",
 ]
 
 

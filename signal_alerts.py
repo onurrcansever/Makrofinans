@@ -109,6 +109,8 @@ def alarm_metni_olustur(
     tahsis,
     profil: YatirimProfili,
     hisseler: Optional[list] = None,
+    *,
+    snap=None,
 ) -> str:
     simdi = datetime.now().strftime("%d.%m.%Y %H:%M")
     baslik = {
@@ -117,11 +119,25 @@ def alarm_metni_olustur(
         "SAT": "🔴 SAT / Uzak dur",
         "AL_KALDIRILDI": "⚪ AL kaldırıldı",
     }
+    rejim_etiket = getattr(getattr(tahsis, "rejim", None), "etiket", "") or ""
     satirlar = [
         f"YATIRIM SİNYALİ — {simdi}",
-        f"Profil: {profil.ozet()} · Rejim: {tahsis.rejim.etiket}",
+        f"Profil: {profil.ozet()} · Rejim: {rejim_etiket}",
         "",
     ]
+
+    # Kısa AI özeti (başarısızsa sessiz)
+    try:
+        from bildirim_ai import bildirim_ai_ozet
+
+        vix = getattr(snap, "vix", None) if snap is not None else None
+        ozet = bildirim_ai_ozet(olaylar, rejim=rejim_etiket, vix=vix)
+        if ozet:
+            satirlar.append(f"💬 {ozet}")
+            satirlar.append("")
+    except Exception:
+        pass
+
     for tip, _sym, h in olaylar:
         karar = alim_aksiyon_kisa(getattr(h, "alim_uygun", "IZLE"))
         tek = SINYAL_ETIKET.get(h.sinyal, h.sinyal)
@@ -193,6 +209,6 @@ def kontrol_sinyal_ve_bildir(
     if not bildir:
         return False, olaylar
 
-    metin = alarm_metni_olustur(olaylar, tahsis, profil, tarama.hisseler)
+    metin = alarm_metni_olustur(olaylar, tahsis, profil, tarama.hisseler, snap=snap)
     ok = bildirim_gonder(metin)
     return ok, olaylar

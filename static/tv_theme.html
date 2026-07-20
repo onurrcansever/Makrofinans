@@ -1,6 +1,6 @@
 <div aria-hidden="true" style="display:none!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;">
 <style id="modulcheck-theme-style">
-@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap");
 
 /* ══════════════════════════════════════════
    ModulCheck — Google Finance light theme
@@ -193,35 +193,34 @@ p, li, label,
   background-color: rgba(26,115,232,0.08) !important;
 }
 
-/* ── Sidebar radio navigation — ModulCheck style ── */
+/* ── Sidebar radio navigation — Google Finance pill ── */
 [data-testid="stSidebar"] [data-baseweb="radio"] > div {
-  gap: 1px !important;
+  gap: 2px !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label {
   background: transparent !important;
-  border-left: 3px solid transparent !important;
-  border-radius: 0 5px 5px 0 !important;
-  padding: 9px 14px 9px 12px !important;
-  margin: 1px 0 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 9px 14px !important;
+  margin: 1px 4px !important;
   color: var(--mc-sb-text) !important;
-  width: 100% !important;
+  width: calc(100% - 8px) !important;
   font-size: 13.5px !important;
   font-weight: 400 !important;
-  transition: background 0.15s, border-color 0.15s !important;
+  transition: background 0.12s ease !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label:hover {
-  background: rgba(26,115,232,0.06) !important;
+  background: var(--mc-sidebar2) !important;
   color: var(--mc-text) !important;
   cursor: pointer !important;
 }
 
 [data-testid="stSidebar"] [data-baseweb="radio"] label:has(input:checked) {
-  background: rgba(26,115,232,0.10) !important;
-  border-left-color: var(--mc-accent) !important;
+  background: #e8eaed !important;
   color: var(--mc-text) !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
 }
 
 /* Hide radio circles */
@@ -259,9 +258,10 @@ p, li, label,
   background: var(--mc-accent) !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 5px !important;
-  font-weight: 600 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
   font-size: 13px !important;
+  min-height: 36px !important;
 }
 
 [data-testid="stSidebar"] .stButton > button:hover {
@@ -273,8 +273,9 @@ p, li, label,
   background: var(--mc-accent) !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 5px !important;
-  font-weight: 600 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  min-height: 36px !important;
 }
 
 /* ══════════════════════════════════════════
@@ -475,17 +476,19 @@ div[data-baseweb="notification"] {
   padding-top: 16px !important;
 }
 
-/* ── Buttons — flat ModulCheck style ──────── */
+/* ── Buttons — flat finance style (8px) ───── */
 .stButton > button[kind="primary"],
 .stButton > button[data-testid="baseButton-primary"] {
   background-color: var(--mc-accent) !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 5px !important;
-  font-weight: 600 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
   font-size: 13px !important;
-  padding: 7px 16px !important;
-  transition: background 0.15s !important;
+  font-family: var(--mc-font) !important;
+  padding: 8px 18px !important;
+  min-height: 36px !important;
+  transition: background 0.12s ease !important;
 }
 
 .stButton > button[kind="primary"]:hover {
@@ -496,14 +499,18 @@ div[data-baseweb="notification"] {
   background: var(--mc-card) !important;
   color: var(--mc-text) !important;
   border: 1px solid var(--mc-border) !important;
-  border-radius: 5px !important;
+  border-radius: 8px !important;
   font-weight: 500 !important;
   font-size: 13px !important;
+  font-family: var(--mc-font) !important;
+  padding: 8px 18px !important;
+  min-height: 36px !important;
 }
 
 .stButton > button:not([kind="primary"]):hover {
-  background-color: var(--mc-text) !important;
-  border-color: #cbd5e1 !important;
+  background-color: var(--mc-sidebar2) !important;
+  border-color: #dadce0 !important;
+  color: var(--mc-text) !important;
 }
 
 /* Download button */
@@ -511,8 +518,10 @@ div[data-baseweb="notification"] {
   background-color: var(--mc-accent) !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 5px !important;
-  font-weight: 600 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  font-family: var(--mc-font) !important;
+  min-height: 36px !important;
 }
 
 .stDownloadButton > button:hover {
@@ -524,14 +533,16 @@ div[data-baseweb="notification"] {
   background-color: var(--mc-accent) !important;
   color: #fff !important;
   border: none !important;
-  border-radius: 5px !important;
-  font-weight: 600 !important;
-  transition: box-shadow 0.15s !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  font-family: var(--mc-font) !important;
+  min-height: 36px !important;
+  transition: box-shadow 0.12s ease !important;
 }
 
 [data-testid="stFormSubmitButton"] > button:hover {
   background-color: var(--mc-accent-h) !important;
-  box-shadow: 0 0 0 3px rgba(26,115,232,0.20) !important;
+  box-shadow: 0 0 0 3px rgba(26,115,232,0.18) !important;
 }
 
 /* ── Inputs / Selects ─────────────────────── */
@@ -728,13 +739,37 @@ hr {
 
 /* ── Sayfa başlıkları ─────────────────────── */
 .block-container h1 {
-  font-size: 24px !important;
+  font-size: 22px !important;
   font-weight: 700 !important;
-  color: var(--mc-nav) !important;
-  letter-spacing: -0.025em !important;
-  padding-bottom: 12px !important;
+  color: var(--mc-text) !important;
+  letter-spacing: -0.02em !important;
+  padding-bottom: 0 !important;
   margin-bottom: 4px !important;
-  border-bottom: 2px solid var(--mc-border) !important;
+  border-bottom: none !important;
+}
+
+/* render_page_header — Google Finance sayfa üstü */
+.mc-page-header {
+  margin: 0 0 18px 0;
+  padding: 0 0 14px 0;
+  border-bottom: 1px solid var(--mc-border);
+}
+.mc-page-header .mc-page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--mc-text);
+  font-family: var(--mc-font);
+  line-height: 1.25;
+}
+.mc-page-header .mc-page-sub {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--mc-muted);
+  font-family: var(--mc-font);
+  line-height: 1.4;
 }
 
 [data-testid="stHeading"] {
@@ -788,6 +823,39 @@ div[data-testid="stNotificationContentInfo"],
 #MainMenu { visibility: hidden !important; }
 footer { visibility: hidden !important; }
 [data-testid="stDecoration"] { display: none !important; }
+
+/* Asistan sohbet — sayfa içi form (st.chat_input yerine) */
+.mc-asistan-empty {
+  margin: 12px 0 16px 0;
+  padding: 16px 18px;
+  background: var(--mc-card);
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  color: var(--mc-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.mc-asistan-empty p { margin: 0; }
+.mc-asistan-composer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mc-border);
+}
+.mc-asistan-composer [data-testid="stTextInput"] input {
+  font-size: 15px !important;
+  min-height: 42px !important;
+  border-radius: 8px !important;
+}
+.mc-asistan-composer [data-testid="stFormSubmitButton"] button {
+  min-height: 42px !important;
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+}
+/* Yedek: gizli kalmış chat input'u gösterme (kullanılmasa da) */
+[data-testid="stChatInput"],
+[data-testid="stBottomBlockContainer"] {
+  visibility: visible !important;
+}
 
 /* ── Scrollbar — enterprise feel ─────────── */
 ::-webkit-scrollbar {
@@ -843,5 +911,4 @@ footer { visibility: hidden !important; }
   }, true);
 })();
 </script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 </div>

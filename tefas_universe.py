@@ -60,13 +60,18 @@ def fon_kategorisi(fund_name: str) -> str:
     return "diger"
 
 
+# EUR/EURO/AVRO ayrı token (EUROBOND / EURONEXT false-positive olmasın)
+_EUR_PB_RE = re.compile(r"(?<![A-Z0-9])(?:EUR|EURO|AVRO)(?![A-Z0-9])")
+
+
 def fon_para_birimi(fund_name: str) -> str:
     n = _norm_fon_ad(fund_name)
-    if "AVRO" in n or "(EUR" in n:
+    raw = fund_name or ""
+    if "AVRO" in n or "(EUR" in n or _EUR_PB_RE.search(n) or "€" in raw:
         return "EUR"
-    if "POUND" in n or "GBP" in n:
+    if "POUND" in n or re.search(r"(?<![A-Z0-9])GBP(?![A-Z0-9])", n):
         return "GBP"
-    if "DOVIZ" in n or "DOLAR" in n or "USD" in n:
+    if "DOVIZ" in n or "DOLAR" in n or re.search(r"(?<![A-Z0-9])USD(?![A-Z0-9])", n):
         return "USD"
     if "(TL)" in n or " SERBEST FON)" in n and "DOVIZ" not in n:
         return "TL"

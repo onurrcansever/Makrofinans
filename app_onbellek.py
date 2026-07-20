@@ -10,7 +10,12 @@ from typing import Any, Optional, Set
 import streamlit as st
 
 from advice_engine import DanismanRaporu
-from allocation_engine import TahsisSonucu, tahsis_hesapla
+from allocation_engine import (
+    TahsisSonucu,
+    al_aday_sayisi,
+    tahsis_bist_sinyal_ayarla,
+    tahsis_hesapla,
+)
 from birlesik_oneri import BirlesikOneri, birlesik_oneri_olustur
 from investor_profile import YatirimProfili, profil_mevduat_vadesi
 from kullanici_portfoy import KullaniciPortfoy
@@ -33,15 +38,17 @@ from disk_onbellek import disk_mtime
 
 SAYFA_TARAMA = frozenset({
     "Portföy Tahsisi",
+    "Karar Asistanı",
+    "Asistan",
     "AI Danışman",
     "Hisse & Endeks Taraması",
     "Favorilerim",
 })
-SAYFA_TEFAS = frozenset({"Portföy Tahsisi", "TEFAS Fonları", "Favorilerim"})
+SAYFA_TEFAS = frozenset({"Portföy Tahsisi", "TEFAS Fonları", "Favorilerim", "Asistan"})
 SAYFA_BIRLESIK = frozenset({"Portföy Tahsisi"})
-SAYFA_DANISMAN_TAM = frozenset({"AI Danışman"})
+SAYFA_DANISMAN_TAM = frozenset({"AI Danışman", "Asistan"})
 SAYFA_BACKTEST = frozenset({"Backtest"})
-SAYFA_VARLIK = frozenset({"Varlıklarım"})
+SAYFA_VARLIK = frozenset({"Varlıklarım", "Asistan"})
 
 
 def _varlik_pozisyon_turleri(ob: AppOnbellek) -> Set[str]:
@@ -149,7 +156,7 @@ def _tarama_anahtar(
 ) -> str:
     return (
         f"tarama:{canli_mod}:{rejim}:{haber_tara}:{profil_risk}:{profil_vade}"
-        f":v2={int(use_signal_v2)}:gbx_v3:live_v1"
+        f":v2={int(use_signal_v2)}:gbx_v3:live_v1:endeks_v2"
     )
 
 
@@ -198,7 +205,26 @@ def tarama_disk_senkron(
     ob.tarama_haber = haber_tara
     ob.tarama_disk_mtime = mtime if mtime > 0 else disk_mtime(anahtar)
     st.session_state.tarama_son = fresh
+    _tahsis_sinyal_senkron(ob)
     return True
+
+
+def _tahsis_sinyal_senkron(ob: AppOnbellek) -> bool:
+    """Tarama hazırsa makro BIST dilimini AL sayısına göre ince ayarla."""
+    if ob.tarama is None or tarama_yukleniyor(ob.tarama):
+        return False
+    n = al_aday_sayisi(getattr(ob.tarama, "hisseler", None))
+    degisti = tahsis_bist_sinyal_ayarla(ob.tahsis, n)
+    if degisti:
+        if not getattr(ob.tahsis, "rebalance_korundu", False):
+            st.session_state["tahsis_onceki_agirlik"] = dict(ob.tahsis.agirliklar)
+        # Ağırlık değiştiyse birleşik/danışman bir sonraki hazırlıkta yenilensin
+        ob.yuklenen_sayfalar -= SAYFA_BIRLESIK
+        ob.birlesik_tam = False
+        ob.birlesik_tarama_hazir = False
+        ob.danisman_tam = False
+        ob.yuklenen_sayfalar -= SAYFA_DANISMAN_TAM
+    return degisti
 
 
 def _tarama_yukle(
@@ -210,6 +236,7 @@ def _tarama_yukle(
     haber_tara: bool,
 ) -> None:
     if ob.tarama is not None and not tarama_yukleniyor(ob.tarama):
+        _tahsis_sinyal_senkron(ob)
         return
     ob.tarama = tarama_cek(
         canli_mod,
@@ -231,6 +258,7 @@ def _tarama_yukle(
         )
     )
     st.session_state.tarama_son = ob.tarama
+    _tahsis_sinyal_senkron(ob)
 
 
 def _tefas_yukle(ob: AppOnbellek, *, tick: int) -> None:
@@ -428,21 +456,30 @@ def uygulama_onbellegi_al(
                 profil=profil,
                 haber_tara=haber_tara,
             )
+            _tahsis_sinyal_senkron(cached)
             from signal_engine.data.live_quote import load_live_quotes_disk
+            from macro_data import snap_piyasa_yedekle
 
             load_live_quotes_disk(hydrate_memory=True)
+            # Yahoo miss ile boş kalan VIX/BIST/Altın — disk/canlı yedek
+            if getattr(cached, "snap", None) is not None:
+                cached.snap = snap_piyasa_yedekle(cached.snap)
         except Exception:
             pass
         return cached
 
+    # Film açılış (boot) zaten kur/makro/tarama gösterdi — ikinci 1/3·2/3 çubuğu gereksiz
+    _boot_bitti = bool(st.session_state.get("_sistem_boot_ok"))
     adimlar = [
         "CDS ve makro veriler",
         "Portföy tahsisi ve mevduat faizleri",
         "TL kararı ve makro özet",
     ]
-    progress = st.progress(0.0, text="Temel veriler hazırlanıyor…")
+    progress = None if _boot_bitti else st.progress(0.0, text="Temel veriler hazırlanıyor…")
 
     def _ilerle(i: int) -> None:
+        if progress is None:
+            return
         progress.progress(
             (i + 1) / len(adimlar),
             text=f"{adimlar[i]}… ({i + 1}/{len(adimlar)})",
@@ -452,9 +489,20 @@ def uygulama_onbellegi_al(
     cds_son = cds_kaynak_ozet(tick)
     st.session_state["cds_son_kaynak"] = cds_son
     snap = veri_cek(canli_mod, tick)
+    try:
+        from macro_data import snap_piyasa_yedekle
+
+        snap = snap_piyasa_yedekle(snap)
+    except Exception:
+        pass
 
     _ilerle(1)
-    tahsis = tahsis_hesapla(snap, profil)
+    onceki = st.session_state.get("tahsis_onceki_agirlik")
+    tahsis = tahsis_hesapla(snap, profil, onceki_agirliklar=onceki)
+    if not getattr(tahsis, "rebalance_korundu", False):
+        st.session_state["tahsis_onceki_agirlik"] = dict(tahsis.agirliklar)
+    elif onceki is None:
+        st.session_state["tahsis_onceki_agirlik"] = dict(tahsis.agirliklar)
     profil_mevduat_etiket, profil_mevduat_gun = profil_mevduat_vadesi(profil)
     mevduat_ozet = mevduat_cek(
         snap.enflasyon_tr_yillik or 35.0,
@@ -506,9 +554,11 @@ def uygulama_onbellegi_al(
         zorla=bool(st.session_state.pop("_tarama_zorla", False)),
     )
     ob.tarama = _ob_tarama
+    _tahsis_sinyal_senkron(ob)
 
-    progress.progress(1.0, text="Temel veriler hazır — ağır bölümler sekmede yüklenir")
-    progress.empty()
+    if progress is not None:
+        progress.progress(1.0, text="Temel veriler hazır — ağır bölümler sekmede yüklenir")
+        progress.empty()
 
     st.session_state.app_onbellek = ob
     st.session_state.app_onbellek_key = key

@@ -359,7 +359,7 @@ def _yf_sembolleri(pozisyonlar: List[VarlikPozisyon]) -> List[str]:
         elif p.tur == "nakit_ron":
             out.add("EURTRY=X")
             out.add("EURRON=X")  # RONTRY=X Yahoo'da yok; çapraz kur: ron_try = eur_try / eur_ron
-    out.update(["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"])
+    out.update(["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X"])
     return sorted(out)
 
 
@@ -436,19 +436,53 @@ def portfoy_degerle(
     fx_usd = _close_al(df, "USDTRY=X") if not df.empty else pd.Series(dtype=float)
     fx_gbp = _close_al(df, "GBPUSD=X") if not df.empty else pd.Series(dtype=float)
     fx_eurusd = _close_al(df, "EURUSD=X") if not df.empty else pd.Series(dtype=float)
+    fx_chf = _close_al(df, "CHFUSD=X") if not df.empty else pd.Series(dtype=float)
 
     from fiyat_para_fx import FxUnavailableError, kur_tablo_spot
 
     fx_spot = None
     try:
-        fx_spot = kur_tablo_spot(snap, fx_eur, fx_usd, fx_gbp, fx_eurusd, check_plausibility=False)
+        fx_spot = kur_tablo_spot(
+            snap, fx_eur, fx_usd, fx_gbp, fx_eurusd,
+            chf_s=fx_chf, check_plausibility=False,
+        )
     except FxUnavailableError:
         fiyat_bekleniyor = True
+        # GBPUSD/CHFUSD eksik olsa bile EUR/USD ile değerleme sürsün
+        try:
+            from types import SimpleNamespace
+
+            from fiyat_para_fx import fx_spot_from_series, fx_value_at
+
+            e_y, u_y, g_y, eu_y = fx_spot_from_series(
+                fx_eur, fx_usd, fx_gbp, fx_eurusd,
+            )
+            chf_y = None
+            if fx_chf is not None and not fx_chf.empty:
+                chf_y = fx_value_at(fx_chf, pd.Timestamp(fx_chf.index[-1]))
+            if e_y and u_y and e_y > 0 and u_y > 0:
+                eu = float(eu_y) if eu_y and eu_y > 0 else float(e_y) / float(u_y)
+                fx_spot = SimpleNamespace(
+                    eur_try=float(e_y),
+                    usd_try=float(u_y),
+                    gbp_usd=float(g_y) if g_y and g_y > 0 else None,
+                    eur_usd=eu,
+                    chf_usd=float(chf_y) if chf_y and chf_y > 0 else None,
+                )
+        except Exception:
+            pass
     eur_try = fx_spot.eur_try if fx_spot else (snap.veri.eur_try or 35.0)
     usd_try = fx_spot.usd_try if fx_spot else (snap.veri.usd_try or eur_try * 1.08)
     gbp_usd = fx_spot.gbp_usd if fx_spot else None
     eur_usd = fx_spot.eur_usd if fx_spot else None
-    _fx_kw = dict(gbp_usd=gbp_usd, eur_usd=eur_usd)
+    chf_usd = getattr(fx_spot, "chf_usd", None) if fx_spot else None
+    if eur_usd is None or eur_usd <= 0:
+        snap_eu = getattr(snap, "eur_usd", None)
+        if snap_eu is not None and float(snap_eu) > 0:
+            eur_usd = float(snap_eu)
+        elif eur_try > 0 and usd_try > 0:
+            eur_usd = float(eur_try) / float(usd_try)
+    _fx_kw = dict(gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd)
 
     poz_degerler: List[PozisyonDeger] = []
     for p in portfoy.pozisyonlar:

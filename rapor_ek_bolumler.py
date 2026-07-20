@@ -118,8 +118,8 @@ def birlesik_oneri_pdf_bolumu(
                 _temiz_pdf(s.ust_kategori, 16),
                 _temiz_pdf(s.arac, 10),
                 _temiz_pdf(s.aciklama, 28),
-                f"{s.portfoy_pct:.2f}%",
-                f"{s.kategori_ici_pct:.1f}%",
+                f"%{s.portfoy_pct:.1f}",
+                f"%{s.kategori_ici_pct:.1f}",
                 f"{s.tutar:,.0f} {s.para}",
                 _temiz_pdf(s.etiket, 8),
             ]
@@ -321,8 +321,8 @@ def birlesik_oneri_html_blok(
         arac_rows += (
             f"<tr><td>{esc(s.ust_kategori)}</td><td>{esc(s.arac)}</td>"
             f"<td>{esc((s.aciklama or '')[:55])}</td>"
-            f"<td class='num'>{s.portfoy_pct:.2f}%</td>"
-            f"<td class='num'>{s.kategori_ici_pct:.1f}%</td>"
+            f"<td class='num'>%{s.portfoy_pct:.1f}</td>"
+            f"<td class='num'>%{s.kategori_ici_pct:.1f}</td>"
             f"<td class='num'>{s.tutar:,.0f} {esc(s.para)}</td>"
             f"<td>{esc(s.etiket)}</td></tr>"
         )

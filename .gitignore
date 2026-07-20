@@ -11,6 +11,9 @@
 .live_quotes_cache.json
 .llm_aciklama_cache.json
 .portfoy_yorum_cache.json
+.karar_yorum_cache.json
+.bildirim_ai_cache.json
+.groq_quota.json
 cds_history.jsonl
 market_cache.db
 manual_inputs.json

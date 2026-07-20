@@ -167,7 +167,7 @@
 
       let head = '<th class="star">⭐</th>';
       for (const c of cols) {
-        const hc = c === "Sinyal" ? " class=\"ctr\"" : "";
+        const hc = (c === "Sinyal" || c === "Momentum") ? " class=\"ctr\"" : "";
         head += `<th${hc}>${esc(c)}</th>`;
       }
       if (hasAction) head += '<th class="act">⋯</th>';
@@ -183,7 +183,7 @@
           const cell = cells[ci] || {};
           let align = "";
           if (cell.align === "right") align = "num";
-          else if (cell.align === "center" || c === "Sinyal") align = "ctr";
+          else if (cell.align === "center" || c === "Sinyal" || c === "Momentum") align = "ctr";
           const html = cell.html != null ? cell.html : esc(cell.text ?? "—");
           tds += `<td class="${align}" style="${pad}" title="${esc(cell.title ?? cell.text ?? "")}">${html}</td>`;
         });

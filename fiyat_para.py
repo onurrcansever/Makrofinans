@@ -155,7 +155,7 @@ def assert_fx_cross_sanity(
     return implied
 
 
-_SETTLEMENT_PBS = frozenset({"GBP", "USD", "EUR"})
+_SETTLEMENT_PBS = frozenset({"GBP", "USD", "EUR", "CHF"})
 
 
 def pb_cevir(
@@ -167,6 +167,7 @@ def pb_cevir(
     *,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> float:
     if kaynak_pb == hedef_pb:
         return tutar
@@ -176,7 +177,7 @@ def pb_cevir(
         return convert_settlement(
             tutar, src, dst,
             eur_try=eur_try, usd_try=usd_try,
-            gbp_usd=gbp_usd, eur_usd=eur_usd,
+            gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
         )
     if kaynak_pb == "TL":
         tl = tutar
@@ -199,7 +200,10 @@ def pb_cevir(
             return tutar * _require_eur_usd(eur_usd, "pb_cevir EUR→USD")
         return tl / usd_try if usd_try > 0 else tutar
     if hedef_pb == "GBP":
-        usd_amt = pb_cevir(tutar, kaynak_pb, "USD", eur_try, usd_try, gbp_usd=gbp_usd, eur_usd=eur_usd)
+        usd_amt = pb_cevir(
+            tutar, kaynak_pb, "USD", eur_try, usd_try,
+            gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
+        )
         return usd_amt / _require_gbp_usd(gbp_usd, "pb_cevir →GBP")
     return tutar
 
@@ -252,13 +256,34 @@ def fiyat_donustur(
     *,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> Optional[float]:
     if fiyat is None:
         return None
     return pb_cevir(
         float(fiyat), kaynak_pb, hedef_pb, eur_try, usd_try,
-        gbp_usd=gbp_usd, eur_usd=eur_usd,
+        gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
     )
+
+
+def spot_fiyat_veya_live(
+    sembol: str,
+    fiyat: Optional[float] = None,
+    quote_currency: str = "",
+) -> Tuple[Optional[float], str]:
+    """Tablo fiyatı — tarama boşsa canlı kotasyon (allow_stale)."""
+    qc = (quote_currency or "").strip()
+    if fiyat is not None and float(fiyat) > 0:
+        return float(fiyat), qc
+    try:
+        from signal_engine.data.live_quote import get_live_quote
+
+        live = get_live_quote(sembol, allow_stale=True)
+        if live and live.price and float(live.price) > 0:
+            return float(live.price), (live.settlement or qc).strip()
+    except Exception:
+        pass
+    return None, qc
 
 
 def tablo_fiyat(
@@ -275,6 +300,7 @@ def tablo_fiyat(
     quote_currency: str = "",
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
     check_fx_sanity: bool = True,
     allow_currency_guess: bool = False,
 ) -> Optional[float]:
@@ -285,7 +311,7 @@ def tablo_fiyat(
     if sembol:
         qc = (quote_currency or "").strip()
         kb = (kaynak_pb or "").strip()
-        if not qc and kb in ("GBP", "USD", "EUR", "TRY"):
+        if not qc and kb in ("GBP", "USD", "EUR", "TRY", "CHF"):
             qc = kb
         settled = coerce_settlement_amount(
             sembol, float(fiyat), qc, allow_guess=allow_currency_guess,
@@ -297,7 +323,8 @@ def tablo_fiyat(
         quote_currency=quote_currency,
     )
     v = fiyat_donustur(
-        fiyat, src, gosterim_pb, eur_try, usd_try, gbp_usd=gbp_usd, eur_usd=eur_usd,
+        fiyat, src, gosterim_pb, eur_try, usd_try,
+        gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
     )
     if v is None:
         return None
@@ -324,6 +351,7 @@ def tefas_tablo_fiyat(
     *,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> Optional[float]:
     """TEFAS birim pay fiyatı — fon adından çıkarılan PB ile gösterim PB'sine."""
     from tefas_universe import tefas_fiyat_kaynak_pb
@@ -337,7 +365,7 @@ def tefas_tablo_fiyat(
         return float(fiyat)
     return tablo_fiyat(
         float(fiyat), gosterim_pb, eur_try, usd_try,
-        kaynak_pb=src, gbp_usd=gbp_usd, eur_usd=eur_usd,
+        kaynak_pb=src, gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
     )
 
 
@@ -538,48 +566,59 @@ def getiri_kur_ayarli_ybb(
     )
 
 
-def fx_serileri_yukle(period: str = "1y") -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+def fx_serileri_yukle(
+    period: str = "1y",
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
     try:
         from stock_scanner import _close_al, _indir
 
-        syms = ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X"]
+        syms = ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X"]
         df = _indir(syms, period=period)
         if df.empty:
-            return tuple(pd.Series(dtype=float) for _ in range(4))
+            return tuple(pd.Series(dtype=float) for _ in range(5))
         return (
             _close_al(df, "EURTRY=X"),
             _close_al(df, "USDTRY=X"),
             _close_al(df, "GBPUSD=X"),
             _close_al(df, "EURUSD=X"),
+            _close_al(df, "CHFUSD=X"),
         )
     except Exception:
-        return tuple(pd.Series(dtype=float) for _ in range(4))
+        return tuple(pd.Series(dtype=float) for _ in range(5))
 
 
-def fx_serileri_al(tarama=None) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+def fx_serileri_al(
+    tarama=None,
+) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
     eur = getattr(tarama, "eurtry_seri", None) if tarama is not None else None
     usd = getattr(tarama, "usdtry_seri", None) if tarama is not None else None
     gbp = getattr(tarama, "gbpusd_seri", None) if tarama is not None else None
     eurusd = getattr(tarama, "eurusd_seri", None) if tarama is not None else None
+    chf = getattr(tarama, "chfusd_seri", None) if tarama is not None else None
     if (
         eur is not None and not eur.empty
         and usd is not None and not usd.empty
         and gbp is not None and not gbp.empty
+        and chf is not None and not chf.empty
     ):
         if eurusd is None or eurusd.empty:
             eurusd = pd.Series(dtype=float)
-        return eur, usd, gbp, eurusd
+        return eur, usd, gbp, eurusd, chf
     cache = st.session_state.get("_fx_serileri_cache")
-    if cache and len(cache) >= 3 and not cache[0].empty and not cache[1].empty and not cache[2].empty:
+    if (
+        cache and len(cache) >= 5
+        and not cache[0].empty and not cache[1].empty and not cache[2].empty
+        and not cache[4].empty
+    ):
         eurusd_c = cache[3] if len(cache) >= 4 else pd.Series(dtype=float)
-        return cache[0], cache[1], cache[2], eurusd_c
-    eur, usd, gbp, eurusd = fx_serileri_yukle()
-    st.session_state["_fx_serileri_cache"] = (eur, usd, gbp, eurusd)
-    return eur, usd, gbp, eurusd
+        return cache[0], cache[1], cache[2], eurusd_c, cache[4]
+    eur, usd, gbp, eurusd, chf = fx_serileri_yukle()
+    st.session_state["_fx_serileri_cache"] = (eur, usd, gbp, eurusd, chf)
+    return eur, usd, gbp, eurusd, chf
 
 
 def _fx_spot_snap_fallback(snap) -> "FxSpot":
-    """Yahoo serisi yokken UI düşmesin — SNAP kurları (uyarı ile kullanılmalı)."""
+    """Yahoo serisi yokken UI düşmesin — SNAP EUR/USD TRY (GBP uydurma yok)."""
     from fiyat_para_fx import FxSpot
 
     e, u = kur_al(snap)
@@ -589,15 +628,14 @@ def _fx_spot_snap_fallback(snap) -> "FxSpot":
         eur_usd_f = float(eur_usd) if eur_usd else (float(e) / float(u) if u else 1.08)
     except (TypeError, ValueError):
         eur_usd_f = float(e) / float(u) if u else 1.08
-    # SNAP'ta GBP yok — makul orta bant
-    gbp_usd_f = 1.30
+    # SNAP'ta GBP yok — sabit orta bant yazma; GBP yolları None ile düşer
     return FxSpot(
         eur_try=float(e),
         usd_try=float(u),
-        gbp_usd=gbp_usd_f,
+        gbp_usd=None,
         eur_usd=eur_usd_f,
         asof=str(date.today()),
-        source="SNAP fallback (Yahoo USDTRY yok)",
+        source="SNAP fallback (Yahoo FX yok; GBPUSD yok)",
     )
 
 
@@ -608,7 +646,7 @@ def tablo_fx_hazirla(snap, tarama=None, *, allow_snap_fallback: bool = False):
     """
     from fiyat_para_fx import FxUnavailableError, assert_fx_snap_vs_series, kur_tablo_spot
 
-    eur_s, usd_s, gbp_s, eurusd_s = fx_serileri_al(tarama)
+    eur_s, usd_s, gbp_s, eurusd_s, chf_s = fx_serileri_al(tarama)
     if usd_s is None or getattr(usd_s, "empty", True):
         # Bozuk session cache — bir kez yeniden indir
         try:
@@ -617,17 +655,17 @@ def tablo_fx_hazirla(snap, tarama=None, *, allow_snap_fallback: bool = False):
             st.session_state.pop("_fx_serileri_cache", None)
         except Exception:
             pass
-        eur_s, usd_s, gbp_s, eurusd_s = fx_serileri_yukle()
+        eur_s, usd_s, gbp_s, eurusd_s, chf_s = fx_serileri_yukle()
         try:
             import streamlit as st
 
-            st.session_state["_fx_serileri_cache"] = (eur_s, usd_s, gbp_s, eurusd_s)
+            st.session_state["_fx_serileri_cache"] = (eur_s, usd_s, gbp_s, eurusd_s, chf_s)
         except Exception:
             pass
 
     try:
         assert_fx_snap_vs_series(snap, eur_s, usd_s, gbp_s, eurusd_s)
-        fx = kur_tablo_spot(snap, eur_s, usd_s, gbp_s, eurusd_s)
+        fx = kur_tablo_spot(snap, eur_s, usd_s, gbp_s, eurusd_s, chf_s=chf_s)
         return fx, eur_s, usd_s, gbp_s, eurusd_s
     except FxUnavailableError:
         if not allow_snap_fallback:
@@ -685,10 +723,11 @@ def tutar_goster(
     *,
     gbp_usd: Optional[float] = None,
     eur_usd: Optional[float] = None,
+    chf_usd: Optional[float] = None,
 ) -> str:
     v = pb_cevir(
         float(tutar), kaynak_pb, gosterim_pb, eur_try, usd_try,
-        gbp_usd=gbp_usd, eur_usd=eur_usd,
+        gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
     )
     return tutar_fmt(v, gosterim_pb)
 

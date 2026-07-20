@@ -40,6 +40,9 @@ class RaporEkBolumlerTest(unittest.TestCase):
         self.assertIn("Detaylı Hedef", html)
         self.assertIn("YIV", html)
         self.assertIn("TEFAS fon", html)
+        # Türkçe yüzde öneki — "7.00%" / "18.2%" sızıntısı olmasın
+        self.assertIn("%7.0", html)
+        self.assertNotRegex(html, r"(?<!%)\d+\.\d+%")
 
     @patch("rapor_ek_bolumler.portfoy_degerle")
     def test_varlik_html_pozisyon(self, mock_deger):

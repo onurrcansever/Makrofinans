@@ -490,7 +490,9 @@ def denetim_calistir(
     gold_v = _varlik_bul(varliklar, "gold")
     if gold_v and gold_v.sinyal in ("GUCLU_AL", "AL") and baglam:
         alt_ctx = next((p for p in baglam.parcalar if "Altın" in p.baslik), None)
-        if alt_ctx and "düşüş" in alt_ctx.beklenti.lower() and alt_ctx.ok in ("↘", "↓"):
+        trend_l = (alt_ctx.trend or "").lower() if alt_ctx else ""
+        bek_l = (alt_ctx.beklenti or "").lower() if alt_ctx else ""
+        if alt_ctx and ("düşüş" in trend_l or "düşüş" in bek_l) and alt_ctx.ok in ("↘", "↓"):
             _ekle(bulgular, DenetimBulgusu(
                 "BILGI", "sinyal",
                 "Altın alım önerisi ama kısa vade düşüşte",

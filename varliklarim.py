@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -370,6 +371,7 @@ def yukle_store() -> VarlikStore:
 
 
 def kaydet_store(store: VarlikStore) -> None:
+    """Atomik yazma — tmp + os.replace (favoriler / decision_history deseni)."""
     data = {
         "aktif_id": store.aktif_id,
         "goruntuleme_pb": store.goruntuleme_pb,
@@ -387,8 +389,19 @@ def kaydet_store(store: VarlikStore) -> None:
         "gunluk_snapshot": store.gunluk_snapshot,
         "guncelleme": datetime.now().isoformat(timespec="seconds"),
     }
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    directory = os.path.dirname(os.path.abspath(STATE_PATH)) or "."
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        prefix=".varliklarim.", suffix=".tmp", dir=directory,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, STATE_PATH)
+    except Exception:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
 
 
 def yeni_portfoy(store: VarlikStore, ad: Optional[str] = None) -> VarlikPortfoy:

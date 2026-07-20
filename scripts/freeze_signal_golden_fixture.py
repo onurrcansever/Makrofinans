@@ -27,7 +27,7 @@ SYMS = [
     "AMAT", "CSCO", "MSFT", "EQQQ.L", "CSPX.L", "IS3N.DE", "VEUR.L", "VWRL.L",
     "VUAA.L", "VUSA.L", "VUKE.L",
     "^GSPC", "^IXIC",
-    "GBPUSD=X", "EURUSD=X", "USDTRY=X", "EURTRY=X",
+    "GBPUSD=X", "EURUSD=X", "USDTRY=X", "EURTRY=X", "CHFUSD=X",
 ]
 OUT_PKL = ROOT / "tests/fixtures/signal_golden_20260715.pkl"
 OUT_JSON = ROOT / "tests/fixtures/signal_golden_20260715.json"
@@ -39,12 +39,14 @@ def _pin_snap(df: pd.DataFrame, end: pd.Timestamp) -> dict:
     ut = _extract_close(df, "USDTRY=X").loc[:end]
     et = _extract_close(df, "EURTRY=X").loc[:end]
     gbp = _extract_close(df, "GBPUSD=X").loc[:end]
+    chf = _extract_close(df, "CHFUSD=X").loc[:end]
     return {
         "eur_try": round(float(et.iloc[-1]), 4),
         "usd_try": round(float(ut.iloc[-1]), 4),
         "gbp_usd": round(float(gbp.iloc[-1]), 4),
+        "chf_usd": round(float(chf.iloc[-1]), 4),
         "fx_asof": str(end.date()),
-        "fx_source": "Yahoo EURTRY=X / USDTRY=X / GBPUSD=X (fixture close)",
+        "fx_source": "Yahoo EURTRY=X / USDTRY=X / GBPUSD=X / CHFUSD=X (fixture close)",
     }
 
 

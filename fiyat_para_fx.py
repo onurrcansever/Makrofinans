@@ -9,7 +9,9 @@ import pandas as pd
 
 GBPUSD_BAND = (1.20, 1.45)
 EURUSD_BAND = (1.00, 1.25)
+CHFUSD_BAND = (1.05, 1.40)
 USDTRY_JUMP_WARN_PCT = 5.0
+CHF_EUR_CROSS_TOL_PCT = 0.1
 
 
 class FxUnavailableError(RuntimeError):
@@ -24,10 +26,11 @@ class FxSanityError(ValueError):
 class FxSpot:
     eur_try: float
     usd_try: float
-    gbp_usd: float
+    gbp_usd: Optional[float]  # SNAP fallback'te None — GBP yolları düşer
     eur_usd: float
     asof: str
     source: str
+    chf_usd: Optional[float] = None  # SNAP fallback'te None — CHF yolları düşer
 
 
 def fx_value_at(seri: pd.Series, when: pd.Timestamp) -> Optional[float]:
@@ -144,12 +147,17 @@ def assert_fx_plausibility(
     Örn. GBPUSD=1.27 bant [1.20,1.45] içinde kalır — bu guard tek başına
     eski 1.27 fallback'ini yakalamazdı.
     """
-    lo, hi = GBPUSD_BAND
-    if not lo <= fx.gbp_usd <= hi:
-        raise FxSanityError(f"{label}: GBPUSD={fx.gbp_usd:.4f} bant [{lo},{hi}] dışı")
+    if fx.gbp_usd is not None:
+        lo, hi = GBPUSD_BAND
+        if not lo <= fx.gbp_usd <= hi:
+            raise FxSanityError(f"{label}: GBPUSD={fx.gbp_usd:.4f} bant [{lo},{hi}] dışı")
     lo, hi = EURUSD_BAND
     if not lo <= fx.eur_usd <= hi:
         raise FxSanityError(f"{label}: EURUSD={fx.eur_usd:.4f} bant [{lo},{hi}] dışı")
+    if fx.chf_usd is not None:
+        lo, hi = CHFUSD_BAND
+        if not lo <= fx.chf_usd <= hi:
+            raise FxSanityError(f"{label}: CHFUSD={fx.chf_usd:.4f} bant [{lo},{hi}] dışı")
     if usd_s is not None and not usd_s.empty:
         s = usd_s.dropna()
         if len(s) >= 2:
@@ -161,6 +169,25 @@ def assert_fx_plausibility(
                 )
 
 
+def assert_chf_eur_cross(
+    chf_usd: float,
+    eur_usd: float,
+    chf_eur: float,
+    *,
+    tol_pct: float = CHF_EUR_CROSS_TOL_PCT,
+    label: str = "CHF çapraz",
+) -> None:
+    """CHFUSD / EURUSD ≈ CHFEUR (1 CHF kaç EUR) — sapma tol_pct üstü hata."""
+    if chf_usd <= 0 or eur_usd <= 0 or chf_eur <= 0:
+        raise FxSanityError(f"{label}: geçersiz kur")
+    implied = float(chf_usd) / float(eur_usd)
+    err = abs(float(chf_eur) / implied - 1.0) * 100.0
+    if err > tol_pct:
+        raise FxSanityError(
+            f"{label}: CHFUSD/EURUSD={implied:.6f} CHFEUR={chf_eur:.6f} sapma %{err:.3f}"
+        )
+
+
 def kur_tablo_spot(
     snap,
     eur_s: Optional[pd.Series],
@@ -169,6 +196,8 @@ def kur_tablo_spot(
     eurusd_s: Optional[pd.Series] = None,
     asof: Optional[pd.Timestamp] = None,
     *,
+    chf_s: Optional[pd.Series] = None,
+    chfeur_s: Optional[pd.Series] = None,
     check_plausibility: bool = True,
 ) -> FxSpot:
     """
@@ -181,9 +210,12 @@ def kur_tablo_spot(
         raise FxUnavailableError("EURTRY=X serisi yok")
     if gbp_s is None or gbp_s.empty:
         raise FxUnavailableError("GBPUSD=X serisi yok")
+    if chf_s is None or chf_s.empty:
+        raise FxUnavailableError("CHFUSD=X serisi yok")
 
     when = pd.Timestamp(asof) if asof is not None else pd.Timestamp(usd_s.index[-1])
     eur_y, usd_y, gbp_y, eur_usd_y = fx_spot_from_series(eur_s, usd_s, gbp_s, eurusd_s, asof=when)
+    chf_y = fx_value_at(chf_s, when)
 
     missing = []
     if usd_y is None:
@@ -194,6 +226,8 @@ def kur_tablo_spot(
         missing.append("GBPUSD")
     if eur_usd_y is None:
         missing.append("EURUSD")
+    if chf_y is None:
+        missing.append("CHFUSD")
     if missing:
         raise FxUnavailableError(f"FX spot eksik @ {when.date()}: {', '.join(missing)}")
 
@@ -203,10 +237,15 @@ def kur_tablo_spot(
         gbp_usd=float(gbp_y),
         eur_usd=float(eur_usd_y),
         asof=str(when.date()),
-        source="Yahoo EURTRY=X / USDTRY=X / GBPUSD=X / EURUSD=X",
+        source="Yahoo EURTRY=X / USDTRY=X / GBPUSD=X / EURUSD=X / CHFUSD=X",
+        chf_usd=float(chf_y),
     )
     if check_plausibility:
         assert_fx_plausibility(fx, usd_s)
+        if chfeur_s is not None and not chfeur_s.empty:
+            chf_eur = fx_value_at(chfeur_s, when)
+            if chf_eur is not None:
+                assert_chf_eur_cross(fx.chf_usd, fx.eur_usd, chf_eur)
     return fx
 
 
@@ -275,6 +314,8 @@ def assert_price_cross_consistency(
     if usd is not None and usd > 0:
         _chk(tl / usd, fx.usd_try, "TL/USD vs USDTRY")
     if gbp is not None and gbp > 0:
+        if fx.gbp_usd is None or fx.gbp_usd <= 0:
+            raise FxUnavailableError(f"{label}: GBPUSD yok — çapraz tutarlılık yapılamaz")
         _chk(tl / gbp, fx.usd_try * fx.gbp_usd, "TL/GBP vs USDTRY×GBPUSD")
         if usd is not None and usd > 0:
             _chk(usd / gbp, fx.gbp_usd, "USD/GBP vs GBPUSD")

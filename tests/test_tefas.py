@@ -25,6 +25,10 @@ class TefasUniverseTest(unittest.TestCase):
     def test_para_birimi(self):
         self.assertEqual(fon_para_birimi("SERBEST (DÖVİZ-AVRO) FON"), "EUR")
         self.assertEqual(fon_para_birimi("AKATLAR SERBEST (DÖVİZ) ÖZEL FON"), "USD")
+        self.assertEqual(fon_para_birimi("ABC EUR FON"), "EUR")
+        self.assertEqual(fon_para_birimi("XYZ EURO BONO FONU"), "EUR")
+        # EUROBOND içinde EURO geçse de ayrı token değil → döviz/USD yolu veya KARISIK
+        self.assertNotEqual(fon_para_birimi("EUROBOND BORÇLANMA FONU"), "EUR")
 
     def test_tefas_fiyat_tl_den_eur(self):
         from fiyat_para import tefas_tablo_fiyat

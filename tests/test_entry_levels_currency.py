@@ -82,11 +82,12 @@ class EntryLevelsCurrencyTest(unittest.TestCase):
         ut = _extract_close(self.df, "USDTRY=X")
         gbp = _extract_close(self.df, "GBPUSD=X")
         eurusd = _extract_close(self.df, "EURUSD=X")
-        fx = kur_tablo_spot(self.snap, et, ut, gbp, eurusd)
+        chf = _extract_close(self.df, "CHFUSD=X")
+        fx = kur_tablo_spot(self.snap, et, ut, gbp, eurusd, chf_s=chf)
         gbp_from_usd = convert_settlement(
             677.47, "USD", "GBP",
             eur_try=fx.eur_try, usd_try=fx.usd_try,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=fx.chf_usd,
         )
         self.assertEqual(h.quote_currency, "GBP")
         self.assertAlmostEqual(h.fiyat, gbp_from_usd, delta=1.0)
@@ -103,7 +104,8 @@ class EntryLevelsCurrencyTest(unittest.TestCase):
         ut = _extract_close(self.df, "USDTRY=X")
         gbp = _extract_close(self.df, "GBPUSD=X")
         eurusd = _extract_close(self.df, "EURUSD=X")
-        fx = kur_tablo_spot(self.snap, et, ut, gbp, eurusd)
+        chf = _extract_close(self.df, "CHFUSD=X")
+        fx = kur_tablo_spot(self.snap, et, ut, gbp, eurusd, chf_s=chf)
         with unittest.mock.patch("signal_engine.data.live_quote.get_live_quote", return_value=None):
             signal_engine_v2_uygula([h], self.df, profil_risk="orta")
         txt = _al_seviye_metni(h, "USD", fx)
@@ -111,7 +113,7 @@ class EntryLevelsCurrencyTest(unittest.TestCase):
             h.fiyat, "USD", fx.eur_try, fx.usd_try,
             sembol=h.sembol, piyasa=h.piyasa, varlik_turu="etf",
             quote_currency=h.quote_currency,
-            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd, chf_usd=getattr(fx, "chf_usd", None),
         )
         self.assertIn("spot civarı", txt)
         self.assertIsNotNone(spot_usd)

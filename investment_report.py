@@ -312,9 +312,9 @@ Mevcut rejim ({_esc(rejim.replace("_", " "))}) geçmiş {ay} aylık simülasyond
             tr += (
                 f"<tr><td>{_esc(s.tarih)}</td><td>{_esc(s.rejim_etiket)}</td>"
                 f"<td class='num'>{_fmt_num(s.eur_try, 1)}</td>"
-                f"<td class='num'>{s.agirliklar.get('gold', 0) * 100:.0f}%</td>"
-                f"<td class='num'>{s.agirliklar.get('tl_deposit', 0) * 100:.0f}%</td>"
-                f"<td class='num'>{s.agirliklar.get('bist', 0) * 100:.0f}%</td></tr>"
+                f"<td class='num'>%{s.agirliklar.get('gold', 0) * 100:.0f}</td>"
+                f"<td class='num'>%{s.agirliklar.get('tl_deposit', 0) * 100:.0f}</td>"
+                f"<td class='num'>%{s.agirliklar.get('bist', 0) * 100:.0f}</td></tr>"
             )
         tablo = f"""
         <table>
@@ -411,12 +411,18 @@ def rapor_html_olustur(
     for var in danisman.varliklar:
         nedenler = "".join(f"<li>{_esc(_md_strip(n))}</li>" for n in var.nedenler[:5])
         dikkat = "".join(f"<li>{_esc(_md_strip(d))}</li>" for d in var.dikkat[:3])
+        teknik_html = (
+            f"<p class='muted'><strong>Teknik ({_esc(var.ad)}):</strong> "
+            f"{_esc(_md_strip(var.teknik))}</p>"
+            if getattr(var, "teknik", None) else ""
+        )
         varlik_kartlari += f"""
         <div class="varlik-kart">
             <h4>{_esc(var.ad)} — {_esc(var.sinyal_etiket)} ({_esc(var.ok)})</h4>
             <p><strong>Ağırlık:</strong> %{var.agirlik_pct:.1f} · <strong>Güven:</strong> {var.guven}/100</p>
             <p>{_esc(_md_strip(var.baslik))}</p>
             <ul>{nedenler}</ul>
+            {teknik_html}
             {"<p><strong>Dikkat:</strong></p><ul>" + dikkat + "</ul>" if dikkat else ""}
         </div>"""
 
@@ -526,12 +532,35 @@ def rapor_html_olustur(
 
     tarama_html = ""
     if tarama and (tarama.endeksler or tarama.hisseler):
+        from endeks_yonlendirme import (
+            endeks_alanlarini_doldur,
+            oncelik_ozeti_sade,
+            ozet_neden,
+        )
+        from karar_lejant import endeks_lejant_caption
+
+        makro = (
+            getattr(tarama, "makro_rejim", None)
+            or getattr(getattr(tahsis, "rejim", None), "rejim", None)
+            or "NOTR"
+        )
+        endeks_alanlarini_doldur(
+            tarama.endeksler,
+            fx_ok=True,
+            makro_rejim=makro,
+            snap=snap,
+        )
+        oncelik = oncelik_ozeti_sade(tarama.endeksler)
+        oncelik_html = (
+            f'<p><strong>{_esc(_md_strip(oncelik))}</strong></p>' if oncelik else ""
+        )
         endeks_rows = ""
         for e in tarama.endeksler:
             d1 = f"{e.degisim_1g:+.1f}%" if e.degisim_1g is not None else "—"
             d1a = f"{e.degisim_1ay:+.1f}%" if e.degisim_1ay is not None else "—"
             d3a = f"{e.degisim_3ay:+.1f}%" if e.degisim_3ay is not None else "—"
-            durum = _esc(_sinyal_sade_html(e.sinyal))
+            oneri = _esc(getattr(e, "aksiyon_etiket", None) or "Bekle")
+            neden = _esc(ozet_neden(e))
             endeks_rows += f"""
             <tr>
                 <td>{_esc(e.ad)}</td>
@@ -539,7 +568,8 @@ def rapor_html_olustur(
                 <td class="num">{d1}</td>
                 <td class="num">{d1a}</td>
                 <td class="num">{d3a}</td>
-                <td>{durum}</td>
+                <td><strong>{oneri}</strong></td>
+                <td>{neden}</td>
             </tr>"""
 
         uygun_list = _hisse_sirala_html([
@@ -559,13 +589,14 @@ def rapor_html_olustur(
             al_n = len(uygun_list)
             max_satir = config.TARAMA_KANONIK_MAX_SATIR if al_n == 0 else 35
             trunc_not = ""
+            evren_n = len(tarama.hisseler or [])
             if al_n == 0 and len(kanonik) > max_satir:
                 trunc_not = (
-                    f" <span class='muted'>AL adayı yok — tablo {max_satir} satırla sınırlandı "
-                    f"({len(kanonik)} aday).</span>"
+                    f" <span class='muted'>UYGUN yok — özet tablo {max_satir} satır "
+                    f"(listede {len(kanonik)} sınırlı/ETF; taranan evren {evren_n} sembol).</span>"
                 )
             kanonik_blok = f"""
-            <h3>Yatırım Önerileri — {al_n} Al · {len(sinirli_list)} Dikkat · {len(etf_firsat)} ETF{trunc_not}</h3>
+            <h3>Yatırım Önerileri — {al_n} Alınabilir (UYGUN) · {len(sinirli_list)} Dikkat · {len(etf_firsat)} ETF{trunc_not}</h3>
             <p class="muted">Her satırda "Öneri" sütunu o varlığı şu an almanızın uygun olup olmadığını,
             "Neden?" sütunu ise gerekçeyi sade dilde açıklar.</p>
             {_hisse_tablo_html(kanonik[:max_satir])}"""
@@ -597,9 +628,10 @@ def rapor_html_olustur(
             "BIST": "Borsa İstanbul (BIST)",
             "SP500": "ABD S&P 500",
             "NASDAQ": "ABD NASDAQ",
+            "AVRUPA": "Avrupa hisseleri",
             "ETF": "ETF (Borsa Yatırım Fonu)",
         }
-        for piyasa in ("BIST", "SP500", "NASDAQ", "ETF"):
+        for piyasa in ("BIST", "SP500", "NASDAQ", "AVRUPA", "ETF"):
             grup = _skor_sirala_html([
                 h for h in (tarama.hisseler or [])
                 if h.piyasa == piyasa and h.sinyal not in ("ASIRI_ALIM", "UZAK_DUR", "VERI_YOK")
@@ -635,8 +667,11 @@ def rapor_html_olustur(
         </div>
         {"<ul class='muted'>" + uyarilar + "</ul>" if uyarilar else ""}
         <h3>Ana Endeksler — BIST 100 · NASDAQ · S&amp;P 500</h3>
+        {oncelik_html}
+        <p class="muted">Öneri = pozisyon ağırlığı (Artır / Koru / Bekle / Azalt).
+        Getiriler yerel para biriminde. {_esc(_md_strip(endeks_lejant_caption()))}</p>
         <table>
-            <thead><tr><th>Endeks</th><th>Fiyat</th><th>1 Gün</th><th>1 Ay</th><th>3 Ay</th><th>Durum</th></tr></thead>
+            <thead><tr><th>Endeks</th><th>Fiyat</th><th>1 Gün</th><th>1 Ay</th><th>3 Ay</th><th>Öneri</th><th>Neden</th></tr></thead>
             <tbody>{endeks_rows}</tbody>
         </table>
         {kanonik_blok}
@@ -765,6 +800,12 @@ def rapor_html_olustur(
         {kutu}
         <ul>{liste}</ul>"""
 
+    from vergi_notu import vergi_notu_html_blok
+    vergi_html = (
+        "<h2>2026 Menkul Kıymet Vergi Notu</h2>"
+        + vergi_notu_html_blok(esc=_esc)
+    )
+
     rezerv = (
         "Artıyor" if v.rezerv_artiyor
         else "Azalıyor" if v.rezerv_artiyor is False
@@ -864,6 +905,9 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
 
 {mevduat_html}
 
+<!-- 5b. VERGİ NOTU -->
+{vergi_html}
+
 <!-- 6. MAKRO VERİLER -->
 <h2>Makro Göstergeler</h2>
 <table>
@@ -922,7 +966,9 @@ duygu analizi ağırlıklandırmasından (negatif duygu sayıyı artırır) ve f
 <div class="disclaimer">
     <p><strong>Yasal uyarı:</strong> Bu rapor otomatik üretilmiş bir karar-destek belgesidir.
     Yatırım tavsiyesi niteliği taşımaz. Nihai yatırım kararı yatırımcıya aittir.
-    Geçmiş performans gelecek getirileri garanti etmez.</p>
+    Geçmiş performans gelecek getirileri garanti etmez.
+    Menkul kıymet vergi özeti bilgi amaçlıdır; hisse/ETF/TEFAS getirileri brüt gösterilir,
+    yalnızca mevduat satırlarında stopaj düşülmüş net % kullanılır.</p>
     <p>© {datetime.now().year} Kişisel Portföy Asistanı</p>
 </div>
 </body>

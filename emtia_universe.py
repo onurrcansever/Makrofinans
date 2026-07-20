@@ -48,11 +48,11 @@ def gram_tl_from_oz(oz_usd: float, usd_try: float, *, ons_gram: float = ONS_GRAM
 
 
 def gram_tl_metin(oz_usd: float, usd_try: float, *, nd: int = 0) -> str:
-    """UI hücresi: 'Gram: ~6.031 TL'."""
+    """UI hücresi — binlik belirsizliği yok: 'Gram: ~6086 TL/g'."""
     try:
         g = gram_tl_from_oz(oz_usd, usd_try)
     except (TypeError, ValueError):
         return "—"
     if nd <= 0:
-        return f"Gram: ~{g:,.0f} TL".replace(",", ".")
-    return f"Gram: ~{g:,.{nd}f} TL"
+        return f"Gram: ~{int(round(g))} TL/g"
+    return f"Gram: ~{g:.{nd}f} TL/g"

@@ -83,8 +83,14 @@ def _altin_aciklama(snap, tahsis, profil, baglam: Optional[MakroBaglam]) -> Varl
     alt_ctx = next((p for p in (baglam.parcalar if baglam else []) if "Altın" in p.baslik), None)
     if alt_ctx:
         ok = alt_ctx.ok
-        nedenler.append(f"**Canlı:** {alt_ctx.canli} · {alt_ctx.konum}")
-        nedenler.append(f"**Beklenti:** {alt_ctx.beklenti}")
+        # Alanları ayrı tut — konum/trend/beklenti tek stringde birleşmesin (kart sızıntısı)
+        nedenler.append(f"**Canlı (altın):** {alt_ctx.canli}")
+        if alt_ctx.konum:
+            nedenler.append(f"**Konum:** {alt_ctx.konum}")
+        if alt_ctx.trend:
+            nedenler.append(f"**Trend:** {alt_ctx.trend}")
+        if alt_ctx.beklenti and "orta bölge" not in alt_ctx.beklenti:
+            nedenler.append(f"**Beklenti:** {alt_ctx.beklenti}")
     elif snap.altin_usd_oz:
         nedenler.append(f"Spot altın ~**${snap.altin_usd_oz:,.0f}/oz** — tahsis önerisi portföyün **%{w*100:.0f}**'i.")
 
@@ -139,7 +145,7 @@ def _bist_aciklama(snap, tahsis, profil, tarama: Optional[TaramaSonucu]) -> Varl
     if endeks and endeks.rsi:
         tek = f"BIST 100 RSI **{endeks.rsi:.0f}** · 1 ay {endeks.degisim_1ay or 0:+.1f}%"
         if endeks.rsi < 42:
-            nedenler.append("RSI dipten dönüş bölgesinde — teknik olarak alım penceresi açılabilir.")
+            nedenler.append("RSI dip bölgesinde — dönüş teyidi yok; teknik izleme penceresi.")
         elif endeks.rsi > 65:
             dikkat.append("RSI yüksek — kısa vadede kar realizasyonu baskısı olabilir.")
 

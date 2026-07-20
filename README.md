@@ -26,9 +26,14 @@ görmenizi sağlar.
 
 | Anahtar | Nereden | Süre |
 |---|---|---|
+| `GROQ_API_KEY` | https://console.groq.com (ücretsiz) — Karar Asistanı AI yorum | 2 dk |
 | `FRED_API_KEY` | https://fred.stlouisfed.org/docs/api/api_key.html | 2 dk, e-posta ile |
 | `EVDS_API_KEY` | https://evds3.tcmb.gov.tr (Profilim → API Key) | Ücretsiz, ~5 dk kayıt |
 | Telegram bot | `notifier.py` dosyasının başındaki yorumlara bakın | 5 dk |
+
+Karar Asistanı’nda plan oluştuktan sonra **AI yorum al** butonu makro/tahsis/AL
+özetini Groq’a gönderir; dağılım rakamlarını motor üretir, AI yalnızca açıklar.
+İsteğe bağlı `ANTHROPIC_API_KEY` Groq yoksa yedek olarak kullanılır.
 
 GDELT (siyasi/savaş risk taraması) ve Frankfurter (döviz kuru) için **anahtar
 gerekmez**, otomatik çalışır.

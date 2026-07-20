@@ -87,7 +87,8 @@ class BildirimEkleriTest(unittest.TestCase):
         h = _hisse()
         tahsis = SimpleNamespace(rejim=SimpleNamespace(etiket="Test"))
         profil = SimpleNamespace(ozet=lambda: "Orta risk")
-        metin = alarm_metni_olustur([("AL", h.sembol, h)], tahsis, profil)
+        with patch("bildirim_ai.bildirim_ai_ozet", return_value=None):
+            metin = alarm_metni_olustur([("AL", h.sembol, h)], tahsis, profil)
         self.assertIn("📊 F/K: 5.2x", metin)
         self.assertIn("Analist: 8→ Güçlü Al", metin)
         self.assertIn("Hedef: +18%", metin)
@@ -103,7 +104,8 @@ class BildirimEkleriTest(unittest.TestCase):
         h = _hisse()
         tahsis = SimpleNamespace(rejim=SimpleNamespace(etiket="Test"))
         profil = SimpleNamespace(ozet=lambda: "Orta risk")
-        metin = alarm_metni_olustur([("AL", h.sembol, h)], tahsis, profil)
+        with patch("bildirim_ai.bildirim_ai_ozet", return_value=None):
+            metin = alarm_metni_olustur([("AL", h.sembol, h)], tahsis, profil)
         self.assertIn("YATIRIM SİNYALİ", metin)
         self.assertIn("HALKB.IS", metin)
         self.assertNotIn("📊", metin)

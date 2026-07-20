@@ -46,12 +46,12 @@ def build_star_rows_from_df(
     store=None,
     favori_var_fn=None,
     pct_cols=None,
-    badge_col: str = "Karar",
+    badge_col: str = "Şimdi ne yap?",
     row_ids=None,
     pad_px_by_row: Optional[List[int]] = None,
 ) -> tuple:
     """DataFrame → component rows (⭐ sütunu df'den düşülür)."""
-    from ui_theme import _df_cell_align, _is_pct_col, format_df_cell_html
+    from ui_theme import _MOMENTUM_COLS, _df_cell_align, _is_pct_col, format_df_cell_html
 
     if favori_var_fn is None:
         from favoriler import favori_var as favori_var_fn
@@ -61,6 +61,11 @@ def build_star_rows_from_df(
 
     data = df.drop(columns=["⭐"], errors="ignore")
     cols = [str(c) for c in data.columns]
+    if badge_col not in cols:
+        for cand in ("Şimdi ne yap?", "Karar", "Öneri"):
+            if cand in cols:
+                badge_col = cand
+                break
     pct_cols = pct_cols or {c for c in cols if _is_pct_col(c)}
     rows: List[Dict[str, Any]] = []
     for ri, (_, row) in enumerate(data.iterrows()):
@@ -69,8 +74,8 @@ def build_star_rows_from_df(
         cells = []
         for col in cols:
             val = row[col]
-            align = "center" if col == "Sinyal" else _df_cell_align(col, val, pct_cols)
-            if col == "Sinyal":
+            align = "center" if col in _MOMENTUM_COLS else _df_cell_align(col, val, pct_cols)
+            if col in _MOMENTUM_COLS:
                 from temel_veri import sinyal_tooltip
 
                 skor_h = row["Skor"] if "Skor" in row.index else ""

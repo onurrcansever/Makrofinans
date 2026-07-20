@@ -39,7 +39,21 @@ class RegimeInvariantTest(unittest.TestCase):
         decision = decide(85.0, 90.0, regime, entry, cfg)
         if regime.regime == "TRENDING_DOWN":
             self.assertNotEqual(decision.code, "STRONG_BUY")
+            self.assertNotEqual(decision.code, "BUY")
+            self.assertEqual(decision.code, "WATCH")
 
+    def test_trending_down_gates_buy(self):
+        close = _trend()
+        close = close * np.linspace(1.2, 0.7, len(close))
+        bars = BarSeries.from_series(close)
+        cfg = load_signal_config()
+        regime = classify_regime(bars, cfg)
+        if regime.regime != "TRENDING_DOWN":
+            self.skipTest("not trending down fixture")
+        entry = compute_entry(bars, regime.regime, cfg)
+        decision = decide(70.0, 60.0, regime, entry, cfg)
+        self.assertEqual(decision.code, "WATCH")
+        self.assertTrue(any("TRENDING_DOWN" in g for g in decision.gates))
 
 if __name__ == "__main__":
     unittest.main()

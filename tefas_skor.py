@@ -11,7 +11,7 @@ from tefas_data import FonPerformans, TefasTaramaSonuc
 from tefas_universe import KATEGORILER, tefas_fiyat_kaynak_pb
 
 # Signal Engine v2 karar eşikleri ile aynı skala (0–100)
-_ONERI_AL = 66
+_ONERI_AL = 64
 _ONERI_IZLE = 52
 _ONERI_BEKLE = 42
 MIN_PEER_FOR_RELATIVE = 8
@@ -319,7 +319,7 @@ def fonlari_skorla(
         or getattr(eur_s, "empty", True)
         or getattr(usd_s, "empty", True)
     ):
-        eur_s, usd_s, gbp_loaded, _ = fx_serileri_al()
+        eur_s, usd_s, gbp_loaded, _eurusd, _chf = fx_serileri_al()
         if gbp_s is None:
             gbp_s = gbp_loaded
     if getattr(eur_s, "empty", True) or getattr(usd_s, "empty", True):

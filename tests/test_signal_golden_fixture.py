@@ -134,10 +134,10 @@ class GoldenPanelScoresTest(unittest.TestCase):
         self._assert_panel("EQQQ.L")
 
     def test_veur_panel(self):
-        """VEUR 66→AL artefaktı — settlement asof pin (İZLE, ≤64 bandı)."""
+        """VEUR — settlement asof pin (İZLE, <64 bandı)."""
         self._assert_panel("VEUR.L")
         h = self._run("VEUR.L")
-        self.assertLess(h.signal_v2_score, 66.0)
+        self.assertLess(h.signal_v2_score, 64.0)
         self.assertEqual(h.signal_v2_decision, "İZLE")
 
 

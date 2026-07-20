@@ -60,9 +60,10 @@ _ONERI_KISA = {
 def _tablo_df(sonuc: TefasTaramaSonuc, snap=None) -> pd.DataFrame:
     gpb = session_gosterim_pb()
     eur_try, usd_try = kur_al(snap) if snap is not None else (35.0, 37.8)
-    eur_s, usd_s, gbp_s, eurusd_s = fx_serileri_al()
+    eur_s, usd_s, gbp_s, eurusd_s, chf_s = fx_serileri_al()
     gbp_usd = float(gbp_s.dropna().iloc[-1]) if gbp_s is not None and not gbp_s.empty else None
     eur_usd = float(eurusd_s.dropna().iloc[-1]) if eurusd_s is not None and not eurusd_s.empty else None
+    chf_usd = float(chf_s.dropna().iloc[-1]) if chf_s is not None and not chf_s.empty else None
     fiyat_kol = fiyat_sutun_adi(gpb)
     h1 = getiri_sutun_adi("1H", gpb)
     a1 = getiri_sutun_adi("1A", gpb)
@@ -74,7 +75,7 @@ def _tablo_df(sonuc: TefasTaramaSonuc, snap=None) -> pd.DataFrame:
         src_pb = tefas_fiyat_kaynak_pb(f.para_birimi)
         fiyat_g = tefas_tablo_fiyat(
             f.fiyat, gpb, f.para_birimi, eur_try, usd_try,
-            gbp_usd=gbp_usd, eur_usd=eur_usd,
+            gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
         )
         fiyat_disp = _fmt_fiyat(fiyat_g) if fiyat_g is not None else (
             _fmt_fiyat(f.fiyat) if src_pb == gpb else "—"
@@ -113,12 +114,16 @@ def tefas_paneli(
     mevduat_ozet=None,
     ham_onbellek=None,
 ) -> None:
-    st.header("TEFAS — Yapı Kredi Portföy Fonları")
-    from karar_lejant import tefas_lejant_caption
-    st.caption(
-        "TEFAS resmi verisi · getiri ve skor profiliniz + makro rejime göre "
-        f"({tefas_lejant_caption()} Yatırım tavsiyesi değildir.)"
-    )
+    from karar_lejant import tefas_lejant_caption, tefas_lejant_detay
+    from ui_theme import render_page_header
+    from vergi_notu import vergi_notu_caption, vergi_notu_markdown
+
+    render_page_header("TEFAS Fonları", "Yapı Kredi portföy fonları · resmi TEFAS verisi")
+    st.caption(tefas_lejant_caption())
+    with st.expander("Sözlük / vergi notu", expanded=False):
+        st.caption(tefas_lejant_detay())
+        st.caption(vergi_notu_caption("tefas"))
+        st.markdown(vergi_notu_markdown(kisa=True))
 
     col_a, col_b, col_c = st.columns(3)
     with col_a:
@@ -178,7 +183,7 @@ def tefas_paneli(
         mevduat_reel = mevduat_ozet.profil_vade_reel
 
     gpb = session_gosterim_pb()
-    eur_s, usd_s, gbp_s, _ = fx_serileri_al()
+    eur_s, usd_s, gbp_s, _, _chf_s = fx_serileri_al()
     sonuc = fonlari_skorla(
         ham, profil, rejim=rejim, mevduat_reel=mevduat_reel,
         gosterim_pb=gpb, eur_seri=eur_s, usd_seri=usd_s, gbp_seri=gbp_s,

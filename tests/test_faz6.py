@@ -47,12 +47,12 @@ class Faz6RaporTest(unittest.TestCase):
     def test_hisse_etf_tablo_pdf(self):
         df = pd.DataFrame([{
             "⭐": "☆",
-            "Karar": "İZLE",
+            "Şimdi ne yap?": "İZLE",
             "Sembol": "AAPL",
             "Hisse/ETF": "Apple Inc.",
             "Fiyat (USD)": "198.50",
             "1G % (USD)": float("nan"),
-            "Al": "spot civarı (198.50 USD) / 2: 190.00 USD",
+            "Alım seviyesi": "spot civarı (198.50 USD) / 2: 190.00 USD",
             "Skor": "59 (73%) 💚14/14 +37%",
             "Rejim": '<span>↗ Trend ↑</span><div>1 gündür</div>',
             "Veri": "4/5 · 1 sa",
@@ -70,7 +70,7 @@ class Faz6RaporTest(unittest.TestCase):
         cleaned = _df_pdf_hazirla(df)
         self.assertEqual(cleaned["Skor"].iloc[0], "59 (73%) AL14/14 +37%")
         self.assertEqual(cleaned["Rejim"].iloc[0], "Trend ↑")
-        self.assertEqual(cleaned["Al"].iloc[0], "≈(198.50 USD)")
+        self.assertEqual(cleaned["Al sev."].iloc[0], "≈(198.50 USD)")
         self.assertEqual(cleaned["1G % (USD)"].iloc[0], "—")
         self.assertNotIn("Veri", cleaned.columns)
         # PDF metninde analist sayısı + hedef fark

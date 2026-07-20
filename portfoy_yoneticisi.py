@@ -168,16 +168,22 @@ def _fmt_seviye(
 ) -> str:
     if fiyat is None:
         return "—"
+    from fiyat_para_fx import FxUnavailableError
+
     kaynak = kaynak_para_birimi(
         h.sembol, piyasa=h.piyasa, varlik_turu=getattr(h, "varlik_turu", "hisse"),
         quote_currency=getattr(h, "quote_currency", ""),
     )
-    v = tablo_fiyat(
-        fiyat, gosterim_pb, fx.eur_try, fx.usd_try,
-        sembol=h.sembol, piyasa=h.piyasa, varlik_turu=getattr(h, "varlik_turu", "hisse"),
-        kaynak_pb=kaynak, quote_currency=getattr(h, "quote_currency", ""),
-        gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
-    )
+    try:
+        v = tablo_fiyat(
+            fiyat, gosterim_pb, fx.eur_try, fx.usd_try,
+            sembol=h.sembol, piyasa=h.piyasa, varlik_turu=getattr(h, "varlik_turu", "hisse"),
+            kaynak_pb=kaynak, quote_currency=getattr(h, "quote_currency", ""),
+            gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            chf_usd=getattr(fx, "chf_usd", None),
+        )
+    except FxUnavailableError:
+        return "—"
     if v is None:
         return "—"
     if gosterim_pb == "TL":
@@ -242,17 +248,28 @@ def yonetici_plani_olustur(
 
 def _yonetici_v2_uygula(h: "HisseAnaliz") -> None:
     code = getattr(h, "signal_v2_code", "WAIT")
-    h.yonetici_aksiyon = {
-        "STRONG_BUY": "AL",
-        "BUY": "AL",
-        "WATCH": "KADEMELI",
-        "WAIT": "BEKLE",
-        "REDUCE": "UZAK",
-    }.get(code, "BEKLE")
+    gates = getattr(h, "signal_v2_decision_gates", None) or []
+    gate_txt = " ".join(str(g) for g in gates)
+    # İZLE (WATCH): kademeli alım yok — özellikle TRENDING_DOWN / makro tavan sonrası
+    if code == "WATCH":
+        aksiyon = "BEKLE"
+        ozet_ek = "İzle — kademeli alım yok"
+        if "TRENDING_DOWN" in gate_txt or "Makro" in gate_txt:
+            ozet_ek = "Kapı: alım askıda"
+    else:
+        aksiyon = {
+            "STRONG_BUY": "AL",
+            "BUY": "AL",
+            "WAIT": "BEKLE",
+            "REDUCE": "UZAK",
+        }.get(code, "BEKLE")
+        ozet_ek = ""
+    h.yonetici_aksiyon = aksiyon
     h.yonetici_alim = getattr(h, "signal_v2_al_price", None)
     h.yonetici_destek = _destek(h)
     h.yonetici_iptal = _iptal(h)
-    h.yonetici_ozet = f"{getattr(h, 'signal_v2_decision', '')} · {getattr(h, 'signal_v2_regime', '')}"
+    base = f"{getattr(h, 'signal_v2_decision', '')} · {getattr(h, 'signal_v2_regime', '')}"
+    h.yonetici_ozet = f"{base} · {ozet_ek}" if ozet_ek else base
     h.yonetici_detay = getattr(h, "signal_v2_why", "")
 
 
@@ -294,7 +311,9 @@ def yonetici_tablo_kolonlari(
     gosterim_pb: str,
     fx,
 ) -> dict:
-    """Tablo sütunları — v2: Al/Rejim/Veri (Emir yok; Karar ayrı sütun)."""
+    """Tablo sütunları — v2: Alım seviyesi/Rejim/Veri (Emir yok; aksiyon ayrı sütun)."""
+    from karar_lejant import HISSE_ALIM_SEVIYE_SUTUN
+
     v2 = (
         getattr(h, "signal_v2_decision", "")
         or getattr(h, "signal_v2_regime", "")
@@ -307,7 +326,7 @@ def yonetici_tablo_kolonlari(
         elif getattr(h, "signal_v2_al_price", None):
             al = _al_seviye_metni(h, gosterim_pb, fx)
         return {
-            "Al": al,
+            HISSE_ALIM_SEVIYE_SUTUN: al,
             "Rejim": regime_badge_html(
                 getattr(h, "signal_v2_regime", ""),
                 getattr(h, "signal_v2_regime_detail", ""),
@@ -326,9 +345,9 @@ def yonetici_tablo_kolonlari(
         al = "Parça"
     elif alim and h.fiyat and alim < h.fiyat * 0.995:
         al = _fmt_seviye(alim, h, gosterim_pb, fx)
-    # v1: Emir kaldırıldı — Karar sütunu yeterli (çift gösterim yok)
+    # v1: Emir kaldırıldı — aksiyon sütunu yeterli (çift gösterim yok)
     return {
-        "Al": al,
+        HISSE_ALIM_SEVIYE_SUTUN: al,
         "Rejim": "—",
         "Veri": _veri_hucre(h),
     }
@@ -369,8 +388,9 @@ def yonetici_oncelikli(
     hisseler: List["HisseAnaliz"],
     n: int = 5,
 ) -> List["HisseAnaliz"]:
-    """Özet panel — çekirdek ETF + en iyi adaylar."""
+    """Özet panel — v2 açıksa önce AL; KADEMELİ yumuşak alım önceliği verilmez."""
     sira = {"AL": 0, "KADEMELI": 1, "BEKLE": 2, "UZAK": 3}
+    v2_any = any(getattr(h, "signal_v2_code", None) for h in hisseler)
 
     def key(h):
         return (
@@ -379,7 +399,15 @@ def yonetici_oncelikli(
             -float(getattr(h, "bilesik_skor", 0) or h.skor or 0),
         )
 
-    aday = [h for h in hisseler if h.fiyat is not None and getattr(h, "yonetici_aksiyon", "") != "UZAK"]
+    aday = [
+        h for h in hisseler
+        if h.fiyat is not None and getattr(h, "yonetici_aksiyon", "") != "UZAK"
+    ]
+    if v2_any:
+        # Öncelik: gerçek AL; yoksa boş/az satır — yanlış KADEMELİ fırsat şişirmesin
+        sadece_al = [h for h in aday if getattr(h, "yonetici_aksiyon", "") == "AL"]
+        if sadece_al:
+            aday = sadece_al
     aday.sort(key=key)
     return aday[:n]
 
@@ -701,6 +729,7 @@ def _fmt_poz_birim(
         v = tefas_tablo_fiyat(
             fiyat, gosterim_pb, src, fx.eur_try, fx.usd_try,
             gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
+            chf_usd=getattr(fx, "chf_usd", None),
         )
         if v is None:
             return "—"
@@ -719,7 +748,8 @@ def _fmt_poz_birim(
         sembol=use_sym, varlik_turu=tur,
         kaynak_pb=kaynak, quote_currency=qc_use,
         gbp_usd=fx.gbp_usd, eur_usd=fx.eur_usd,
-        allow_currency_guess=bool(use_sym and not qc_use),
+        chf_usd=getattr(fx, "chf_usd", None),
+        allow_currency_guess=False,
     )
     if v is None:
         return "—"
@@ -736,6 +766,60 @@ def _pozisyon_stop(alis: float, guncel: float) -> float:
     return stop
 
 
+def _yahoo_hedef_hucre(
+    tur: str,
+    sym: str,
+    guncel_birim: float,
+    gosterim_pb: str,
+    fx,
+    *,
+    quote_currency: str = "",
+    kaynak_pb: str = "",
+) -> dict:
+    """Yahoo targetMeanPrice — bilgi amaçlı; emir motoruna bağlanmaz."""
+    bos = {"label": "—", "tip": "Yahoo hedef yok (cache boş, ETF/TEFAS veya veri yok)."}
+    if tur not in ("hisse", "hisse_us") or not (sym or "").strip():
+        return bos
+    if fx is None:
+        return bos
+    try:
+        from temel_veri import get_temel
+
+        temel = get_temel(sym) or {}
+    except Exception:
+        return bos
+    if not temel or temel.get("_bos"):
+        return bos
+    try:
+        hedef = float(temel.get("targetMeanPrice"))
+    except (TypeError, ValueError):
+        return bos
+    if hedef <= 0:
+        return bos
+    cur = str(temel.get("currency") or quote_currency or "").upper()
+    if cur == "TRY":
+        cur = "TL"
+    qc = quote_currency or cur
+    src_pb = kaynak_pb or cur or ("USD" if tur == "hisse_us" else "")
+    label = _fmt_poz_birim(
+        hedef, tur, sym, gosterim_pb, fx,
+        quote_currency=qc, kaynak_pb=src_pb,
+    )
+    if label == "—":
+        return bos
+    tip = (
+        "Yahoo konsensüs hedef (ortalama) · bilgi; otomatik satış / Kâr al sinyali değil."
+    )
+    if guncel_birim and guncel_birim > 0:
+        # Spot ile aynı birimde kıyas (quote); FX sapması küçük kalır
+        upside = (hedef / float(guncel_birim) - 1.0) * 100.0
+        tip = (
+            f"Yahoo konsensüs hedef · spot’a göre ~{upside:+.0f}% · "
+            "bilgi; otomatik satış değil."
+        )
+    return {"label": label, "tip": tip}
+
+
 def yonetici_pozisyon_kolonlari(
     pozisyon,
     pd_,
@@ -746,17 +830,20 @@ def yonetici_pozisyon_kolonlari(
     gosterim_pb: str = "EUR",
     fx=None,
 ) -> dict:
-    """Varlıklarım tablo sütunları — sinyal (v2/TEFAS), pozisyon önerisi, Ekle, Stop."""
+    """Varlıklarım tablo sütunları — sinyal (v2/TEFAS), pozisyon önerisi, Ekle, Stop, Hedef."""
     p = pozisyon
     tur = p.tur
     sym = p.sembol or ""
-    bos = {POZ_COL_SINYAL: "—", POZ_COL_ONERI: "—", "Ekle": "—", "Stop": "—"}
+    bos = {
+        POZ_COL_SINYAL: "—", POZ_COL_ONERI: "—",
+        "Ekle": "—", "Stop": "—", "Hedef": "—",
+    }
 
     if tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
         return {
             POZ_COL_SINYAL: "—",
             POZ_COL_ONERI: pozisyon_oneri_hucre("Tut", "—", 0, tur=tur, gosterim_pb=gosterim_pb),
-            "Ekle": "—", "Stop": "—",
+            "Ekle": "—", "Stop": "—", "Hedef": "—",
         }
     if pd_.guncel_birim <= 0 or pd_.alim_birim <= 0:
         return {
@@ -764,7 +851,7 @@ def yonetici_pozisyon_kolonlari(
             POZ_COL_ONERI: pozisyon_oneri_hucre(
                 "Bekle", "—", pd_.kar_zarar_pct, tur=tur, gosterim_pb=gosterim_pb,
             ),
-            "Ekle": "—", "Stop": "—",
+            "Ekle": "—", "Stop": "—", "Hedef": "—",
         }
 
     kz = pd_.kar_zarar_pct
@@ -803,6 +890,10 @@ def yonetici_pozisyon_kolonlari(
         else "—"
     )
     stop_s = _f(stop)
+    hedef_h = _yahoo_hedef_hucre(
+        tur, sym, guncel, gosterim_pb, fx,
+        quote_currency=qc, kaynak_pb=src_pb,
+    )
 
     return {
         POZ_COL_SINYAL: karar,
@@ -811,6 +902,7 @@ def yonetici_pozisyon_kolonlari(
         ),
         "Ekle": ekle_s,
         "Stop": stop_s,
+        "Hedef": hedef_h,
     }
 
 

@@ -22,7 +22,7 @@ LSE_USD = ["CSPX.L", "VUAA.L"]
 LSE_GBP = ["EQQQ.L", "VUSA.L", "VUKE.L", "VEUR.L", "VWRL.L"]
 US = ["AMAT", "MSFT", "CSCO"]
 BIST = ["FROTO.IS", "EREGL.IS", "THYAO.IS"]
-FX = ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "^GSPC"]
+FX = ["EURTRY=X", "USDTRY=X", "GBPUSD=X", "EURUSD=X", "CHFUSD=X", "^GSPC"]
 
 
 def _dates(df, sym) -> pd.DatetimeIndex:

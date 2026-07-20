@@ -74,9 +74,10 @@ EMIR_STYLES = {
 }
 
 _BADGE_COLS = frozenset({
-    "Karar", "Emir", "Plan", "Öneri",
+    "Karar", "Şimdi ne yap?", "Emir", "Plan", "Öneri",
     "Alım/Satış Sinyali", "Pozisyon Önerisi",
 })
+_MOMENTUM_COLS = frozenset({"Sinyal", "Momentum"})
 _TRUNC_COLS = frozenset({"Fon", "Araç", "ETF", "Hisse", "Ad", "Not", "Kategori", "Sembol", "Teknik sinyal"})
 
 # UI sinyal — emoji → zarif glyph (mantık temel_veri'de)
@@ -95,12 +96,12 @@ _NUM = (
     "font-variant-numeric:tabular-nums;font-feature-settings:'tnum';"
 )
 _CELL = (
-    f"flex:1 1 145px;min-width:135px;max-width:220px;background:{PANEL};"
-    f"border:1px solid {BORDER};border-radius:12px;padding:14px 16px;"
+    f"flex:1 1 140px;min-width:120px;max-width:200px;background:{PANEL};"
+    f"border:1px solid {BORDER};border-radius:8px;padding:12px 14px;"
     f"box-shadow:none;"
-    f"display:flex;flex-direction:column;gap:6px;min-height:88px;"
+    f"display:flex;flex-direction:column;gap:4px;min-height:78px;"
 )
-_STRIP = "display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 18px;"
+_STRIP = "display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 16px;"
 _TH = (
     f"position:sticky;top:0;background:{PANEL};color:{TEXT_MUTED};"
     f"font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;"
@@ -125,6 +126,17 @@ def _esc(val: Any) -> str:
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return "—"
     return html.escape(str(val))
+
+
+def render_page_header(title: str, subtitle: str = "") -> None:
+    """Tüm sayfalarda aynı Google Finance başlık hiyerarşisi."""
+    t = _esc(title)
+    sub = _esc(subtitle) if subtitle else ""
+    sub_html = f'<p class="mc-page-sub">{sub}</p>' if sub else ""
+    st.markdown(
+        f'<div class="mc-page-header"><h1 class="mc-page-title">{t}</h1>{sub_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _delta_style(pos: bool) -> str:
@@ -207,7 +219,7 @@ def render_metric_strip(metrics: Sequence[Dict[str, Any]]) -> None:
             f'<div style="{_CELL}">'
             f'<div style="font-size:12px;color:{TEXT_MUTED};font-weight:400;'
             f'font-family:{_FONT};">{label}</div>'
-            f'<div style="{_NUM}font-size:22px;font-weight:400;color:{TEXT};line-height:1.25;">{value}</div>'
+            f'<div style="{_NUM}font-size:20px;font-weight:500;color:{TEXT};line-height:1.25;">{value}</div>'
             f'<div style="min-height:20px;line-height:1.3;">{delta_html}</div>'
             f"</div>"
         )
@@ -286,10 +298,12 @@ def _format_cell(col: str, val: Any) -> str:
         code = str(val.get("code") or label)
         tip = str(val.get("tip") or "")
         return _badge_html(label, EMIR_STYLES, title=tip, style_key=code)
+    if isinstance(val, dict) and col == "Hedef":
+        return _esc(val.get("label") or "—")
     if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
         return score_sparkline_svg(val)
     if col in _BADGE_COLS:
-        if col in ("Karar", "Alım/Satış Sinyali"):
+        if col in ("Karar", "Şimdi ne yap?", "Alım/Satış Sinyali"):
             raw = str(val).strip()
             key = raw.upper().replace("DIKKAT", "DİKKAT").replace("GUCLU", "GÜÇLÜ")
             # Tam etiket eşleşmesi (GÜÇLÜ AL parçalanmasın)
@@ -314,7 +328,7 @@ def _format_cell(col: str, val: Any) -> str:
         if _is_pct_col(col):
             with_pct = "%" in col or "reel" in col.lower()
             return _pct_pill(val, with_pct=with_pct)
-        if col in ("Fiyat", "EUR/TRY"):
+        if col in ("Fiyat", "EUR/TRY") or col.startswith("Fiyat ("):
             return f"{val:,.2f}"
         if col in ("Skor", "RSI", "Peer %"):
             return f"{val:.0f}" if col != "RSI" else f"{val:.1f}"
@@ -336,7 +350,7 @@ def format_df_cell_html(
             f'<span style="color:#111827;font-size:17px;font-weight:700;" '
             f'title="Favori">{star}</span>'
         )
-    if col == "Sinyal":
+    if col in _MOMENTUM_COLS:
         from temel_veri import sinyal_tooltip
 
         mark = str(val).strip() if val is not None else "⏸"
@@ -344,7 +358,7 @@ def format_df_cell_html(
         return _sinyal_cell_html(mark, tip)
     if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
         return score_sparkline_svg(val)
-    if col == "Rejim" and isinstance(val, str) and "<span" in val:
+    if col in ("Rejim", "Özet") and isinstance(val, str) and "<span" in val:
         return val
     if col in _BADGE_COLS or col == badge_col:
         return _format_cell(col, val)
@@ -385,8 +399,8 @@ def build_df_table_html(
     nav_attr = f' data-qnav="{html.escape(nav_page)}"' if nav_page else ""
 
     head = "".join(
-        f'<th style="{_TH}{"text-align:center;" if c in ("⭐", "İşlem", "Sinyal") else ""}'
-        f'{"width:36px;" if c == "Sinyal" else ""}">{_esc(c)}</th>'
+        f'<th style="{_TH}{"text-align:center;" if c in ("⭐", "İşlem", "Sinyal", "Momentum") else ""}'
+        f'{"width:36px;" if c in ("Sinyal", "Momentum") else ""}">{_esc(c)}</th>'
         for c in display_cols
     )
     rows = []
@@ -421,7 +435,7 @@ def build_df_table_html(
                     f'title="Favori ekle/çıkar">{star}</a>'
                 )
                 tip = "Favori"
-            elif col == "Sinyal":
+            elif col in _MOMENTUM_COLS:
                 from temel_veri import sinyal_tooltip
 
                 td_style += "text-align:center;width:36px;"
@@ -438,6 +452,8 @@ def build_df_table_html(
                     tip = str(val["tip"])
                 elif isinstance(val, dict):
                     tip = str(val.get("label") or "")
+                elif col == "Özet" and isinstance(val, str) and "<span" in val:
+                    tip = "Özet: T teknik · A analist · H haber (AL kararını değiştirmez)"
                 else:
                     tip = "" if val is None else str(val)
             td_title = "" if (col == "Pozisyon Önerisi" and isinstance(val, dict)) else _esc(tip)
@@ -484,18 +500,18 @@ def render_df_table(
 
 
 def plotly_base_layout(**extra) -> dict:
-    grid_color = "#e2e8f0"
+    grid_color = "#e8eaed"
     layout = dict(
         template="plotly_white",
         paper_bgcolor=PANEL,
         plot_bgcolor=PANEL,
-        font=dict(family="Inter, sans-serif", color=TEXT, size=12),
-        margin=dict(l=48, r=24, t=36, b=40),
+        font=dict(family="Roboto, sans-serif", color=TEXT, size=12),
+        margin=dict(l=40, r=20, t=28, b=32),
         hovermode="x unified",
         hoverlabel=dict(
             bgcolor=PANEL,
             bordercolor=BORDER,
-            font=dict(family="JetBrains Mono, monospace", color=TEXT, size=12),
+            font=dict(family="Roboto, sans-serif", color=TEXT, size=12),
         ),
         xaxis=dict(gridcolor=grid_color, zerolinecolor=grid_color, linecolor=grid_color),
         yaxis=dict(gridcolor=grid_color, zerolinecolor=grid_color, linecolor=grid_color),
