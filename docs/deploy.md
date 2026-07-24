@@ -22,6 +22,21 @@ Blueprint: [`render.yaml`](../render.yaml)
 streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
 ```
 
+### Site şifresi (giriş kapısı)
+
+Canlı sitede basit bir giriş ekranı vardır. Tek paylaşımlı şifre:
+
+| Ortam değişkeni | Açıklama |
+|-----------------|----------|
+| `MAKROFINANS_SITE_PASSWORD` | Birincil — Render’da ayarlayın |
+| `APP_PASSWORD` | Alternatif (ikisi de tanımlıysa birincil kullanılır) |
+
+- **Render:** Dashboard → `modulfinans` → Environment → `MAKROFINANS_SITE_PASSWORD` ekleyin, redeploy edin.
+- **Yerel geliştirme:** Değişken boş/unset ise kapı **devre dışı** kalır; şifre istemez.
+- Oturum `st.session_state` ile saklanır; sidebar’daki **Çıkış** ile sıfırlanır.
+
+`render.yaml` içinde anahtar placeholder olarak listelenir (`sync: false` — gerçek şifre repoya yazılmaz).
+
 ## DNS kayıtları
 
 | Tip   | Host        | Değer                       |

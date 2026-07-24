@@ -85,8 +85,8 @@ def render_boot_frame(
   50% {{ opacity: 0.65; }}
 }}
 </style>
-<div style="max-width:560px;margin:8vh auto 0;padding:28px 32px 24px;
-  background:{PANEL};border:1px solid {BORDER};border-radius:16px;
+<div class="mc-boot-frame" style="max-width:min(560px,calc(100vw - 2rem));margin:8vh auto 0;
+  padding:28px 32px 24px;background:{PANEL};border:1px solid {BORDER};border-radius:16px;
   box-shadow:0 12px 40px rgba(0,0,0,0.35);font-family:{_FONT};">
   <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
     color:{TEXT_MUTED};font-weight:600;">Sistem açılışı</div>
@@ -203,7 +203,7 @@ def render_boot_strip(
   50% {{ transform: scale(1.35); opacity: 0.55; }}
 }}
 </style>
-<div style="margin:0 0 12px;padding:12px 16px;background:{PANEL};
+<div class="mc-boot-strip" style="margin:0 0 12px;padding:12px 16px;background:{PANEL};
   border:1px solid {BORDER};border-radius:12px;font-family:{_FONT};">
   <div style="display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;
     justify-content:space-between;">

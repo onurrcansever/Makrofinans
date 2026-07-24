@@ -283,6 +283,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_tradingview_theme()
+
+from site_auth import gate_site_entry, render_logout_control
+
+if not gate_site_entry():
+    st.stop()
+
 restore_nav_from_query()
 
 with st.sidebar:
@@ -471,6 +477,7 @@ with st.sidebar:
         "Açılışta aşama ekranı verileri doğrular. Sonra: fiyatlar 15 dk · tarama 15 dk · "
         "TEFAS/faiz 6 sa. Anlık taze için **Şimdi yenile** (açılış + zorla tarama)."
     )
+    render_logout_control()
 
 kullanici_portfoy = st.session_state.kullanici_portfoy
 config.TOPLAM_EUR = kullanici_portfoy.toplam  # form submit sonrası session'dan okunur

@@ -42,3 +42,6 @@ services:
         value: orta
       - key: INVESTOR_VADE
         value: kisa_6
+      # Site giriş şifresi — Render Dashboard'dan gerçek değeri girin (sync: false)
+      - key: MAKROFINANS_SITE_PASSWORD
+        sync: false

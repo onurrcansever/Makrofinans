@@ -912,6 +912,167 @@ footer { visibility: hidden !important; }
 [data-testid="stSidebar"] ::-webkit-scrollbar-thumb {
   background: #3a4149 !important;
 }
+
+/* ── MOBİL (≤768px — Pixel 10 Pro sınıfı telefon) ─────────────── */
+@media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden !important;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .block-container {
+    padding-left: max(0.75rem, env(safe-area-inset-left)) !important;
+    padding-right: max(0.75rem, env(safe-area-inset-right)) !important;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+  }
+
+  [data-testid="stHeader"] {
+    height: 48px !important;
+    padding-top: env(safe-area-inset-top) !important;
+  }
+
+  /* Sidebar hamburger — dokunma alanı */
+  [data-testid="stSidebarCollapsedControl"],
+  [data-testid="collapsedControl"],
+  button[data-testid="baseButton-header"] {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  [data-testid="stSidebar"] {
+    max-width: min(88vw, 320px) !important;
+  }
+
+  [data-testid="stSidebar"] [data-baseweb="radio"] label {
+    padding: 12px 14px !important;
+    min-height: 44px !important;
+    font-size: 14px !important;
+  }
+
+  /* Yan yana kolonları alta yığ */
+  [data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  [data-testid="stHorizontalBlock"] > [data-testid="column"],
+  [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Üçlü metrik şeritleri — 2 sütun */
+  [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(3):last-child)
+    > [data-testid="column"] {
+    flex: 1 1 calc(50% - 4px) !important;
+    width: calc(50% - 4px) !important;
+  }
+
+  h1, .block-container h1, .mc-page-header .mc-page-title {
+    font-size: 20px !important;
+  }
+
+  p, li, label,
+  [data-testid="stMarkdownContainer"] p {
+    font-size: 15px !important;
+  }
+
+  .stButton > button,
+  .stButton > button[kind="secondary"],
+  .stButton > button[kind="primary"],
+  button[data-testid="baseButton-primary"],
+  button[data-testid="baseButton-secondary"],
+  [data-testid="stFormSubmitButton"] > button,
+  .stDownloadButton > button,
+  [data-testid="stSidebar"] .stButton > button {
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 10px 16px !important;
+  }
+
+  .stTabs [data-baseweb="tab"] {
+    font-size: 13px !important;
+    padding: 10px 12px !important;
+    min-height: 44px !important;
+  }
+
+  .stTabs [data-baseweb="tab-list"] {
+    flex-wrap: wrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-testid="stMetricValue"] {
+    font-size: 18px !important;
+  }
+
+  [data-testid="stExpander"] details > summary {
+    padding: 14px 12px !important;
+    min-height: 44px !important;
+  }
+
+  [data-testid="stTextInput"] input,
+  [data-testid="stNumberInput"] input {
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .mc-df-table {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    border-radius: 10px !important;
+  }
+
+  .mc-df-table table {
+    font-size: 12px !important;
+  }
+
+  .mc-df-table th,
+  .mc-df-table td {
+    padding: 8px 8px !important;
+  }
+
+  .mc-live-banner {
+    font-size: 12px !important;
+    padding: 10px 12px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .mc-page-header {
+    margin-bottom: 12px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .mc-page-header .mc-page-sub {
+    font-size: 12px !important;
+  }
+
+  /* Açılış ekranı — tam genişlik, küçük kart değil */
+  .mc-boot-frame {
+    max-width: calc(100vw - 1.5rem) !important;
+    margin: 4vh auto 0 !important;
+    padding: 20px 18px 18px !important;
+    border-radius: 14px !important;
+  }
+
+  .mc-boot-strip {
+    padding: 10px 12px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .mc-login-card {
+    padding: 20px 18px 6px !important;
+  }
+
+  [data-testid="stPlotlyChart"] {
+    overflow-x: auto !important;
+  }
+
+  .mc-asistan-composer [data-testid="stTextInput"] input {
+    min-height: 44px !important;
+  }
+}
 </style>
 <script>
 (function () {
