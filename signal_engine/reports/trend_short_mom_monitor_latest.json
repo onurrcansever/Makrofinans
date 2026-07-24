@@ -1,0 +1,11 @@
+{
+  "ts": "2026-07-24T11:32:18.744240+00:00",
+  "enabled": true,
+  "preset": "siki",
+  "flips": 0,
+  "steps": 288,
+  "whipsaw_rate": 0.0,
+  "limit": 0.002128,
+  "suggest_rollback": false,
+  "criterion": "İlk/her izlemede whipsaw_rate > backtest_ref×2.0 → enabled:false"
+}

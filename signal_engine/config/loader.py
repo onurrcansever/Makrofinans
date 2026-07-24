@@ -20,6 +20,7 @@ class SignalConfig:
     decisions: Dict[str, float] = field(default_factory=dict)
     benchmarks: Dict[str, str] = field(default_factory=dict)
     asset_classes: Dict[str, List[str]] = field(default_factory=dict)
+    short_momentum: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_signal_config(path: Path | None = None) -> SignalConfig:
@@ -34,4 +35,5 @@ def load_signal_config(path: Path | None = None) -> SignalConfig:
         decisions={k: float(v) for k, v in (raw.get("decisions") or {}).items()},
         benchmarks=dict(raw.get("benchmarks") or {}),
         asset_classes=dict(raw.get("asset_classes") or {}),
+        short_momentum=dict(raw.get("short_momentum") or {}),
     )

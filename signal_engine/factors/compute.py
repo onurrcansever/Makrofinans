@@ -29,7 +29,105 @@ def _clip_score(x: float) -> float:
     return max(0.0, min(100.0, x))
 
 
-def trend_factor(bars: BarSeries) -> FactorResult:
+# Backtest / flag için hazır presets (yaml ile override edilebilir)
+_SHORT_MOM_PRESETS = {
+    "small": {
+        "m1_hi": (8.0, 6.0),
+        "m1_mid": (3.0, 3.0),
+        "m1_lo": (-5.0, -4.0),
+        "m3_hi": (12.0, 5.0),
+        "m3_mid": (5.0, 2.0),
+        "m3_lo": (-8.0, -4.0),
+    },
+    "temkinli": {
+        "m1_hi": (8.0, 2.0),
+        "m1_mid": (3.0, 1.0),
+        "m1_lo": (-5.0, -2.0),
+        "m3_hi": (12.0, 6.0),
+        "m3_mid": (5.0, 3.0),
+        "m3_lo": (-8.0, -4.0),
+    },
+    # Claude önerisi: +4 ile whipsaw baskısını düşür, upgrade'in bir kısmını koru
+    "siki": {
+        "m1_hi": (8.0, 2.0),
+        "m1_mid": (3.0, 1.0),
+        "m1_lo": (-5.0, -2.0),
+        "m3_hi": (12.0, 4.0),
+        "m3_mid": (5.0, 2.0),
+        "m3_lo": (-8.0, -3.0),
+    },
+}
+
+
+def _pair(raw, default: tuple) -> tuple:
+    if raw is None:
+        return default
+    try:
+        return (float(raw[0]), float(raw[1]))
+    except (TypeError, ValueError, IndexError):
+        return default
+
+
+def resolve_short_mom_preset(
+    preset: Optional[str] = None,
+    *,
+    cfg_block: Optional[dict] = None,
+) -> Optional[dict]:
+    """None = kısa mom kapalı. cfg_block = signal_config.short_momentum."""
+    block = cfg_block or {}
+    name = (preset if preset is not None else block.get("preset")) or "temkinli"
+    name = str(name).strip().lower()
+    if name in ("off", "none", ""):
+        return None
+    base = dict(_SHORT_MOM_PRESETS.get(name) or _SHORT_MOM_PRESETS["temkinli"])
+    overrides = (block.get("presets") or {}).get(name) or {}
+    out = {}
+    for k, default in base.items():
+        out[k] = _pair(overrides.get(k), default if isinstance(default, tuple) else tuple(default))
+    return out
+
+
+def short_mom_adjustment(close: pd.Series, preset: dict) -> tuple:
+    """(puan, detay). 1A/3A pct_change ile küçük bonus/ceza."""
+    if not preset:
+        return 0.0, ""
+    adj = 0.0
+    parts = []
+    m1 = pct_change_n(close, 21)
+    m3 = pct_change_n(close, 63)
+    if m1 is not None:
+        hi, mid, lo = preset["m1_hi"], preset["m1_mid"], preset["m1_lo"]
+        if m1 > hi[0]:
+            adj += hi[1]
+            parts.append(f"1A {m1:+.0f}%→{hi[1]:+.0f}")
+        elif m1 > mid[0]:
+            adj += mid[1]
+            parts.append(f"1A {m1:+.0f}%→{mid[1]:+.0f}")
+        elif m1 < lo[0]:
+            adj += lo[1]
+            parts.append(f"1A {m1:+.0f}%→{lo[1]:+.0f}")
+    if m3 is not None:
+        hi, mid, lo = preset["m3_hi"], preset["m3_mid"], preset["m3_lo"]
+        if m3 > hi[0]:
+            adj += hi[1]
+            parts.append(f"3A {m3:+.0f}%→{hi[1]:+.0f}")
+        elif m3 > mid[0]:
+            adj += mid[1]
+            parts.append(f"3A {m3:+.0f}%→{mid[1]:+.0f}")
+        elif m3 < lo[0]:
+            adj += lo[1]
+            parts.append(f"3A {m3:+.0f}%→{lo[1]:+.0f}")
+    return adj, "; ".join(parts)
+
+
+def trend_factor(
+    bars: BarSeries,
+    *,
+    short_mom_preset: Optional[str] = None,
+    short_mom_cfg: Optional[dict] = None,
+    apply_short_mom: Optional[bool] = None,
+) -> FactorResult:
+    """Trend faktörü. Kısa mom: apply_short_mom=True veya cfg.enabled; preset ile A/B."""
     c = bars.close
     if bars.bars < 60:
         return FactorResult(50.0, False, "yetersiz bar")
@@ -66,6 +164,26 @@ def trend_factor(bars: BarSeries) -> FactorResult:
         if ccy:
             mom_lbl += f" ({ccy})"
         parts.append(mom_lbl)
+
+    cfg_block = short_mom_cfg
+    if cfg_block is None:
+        try:
+            from signal_engine.config.loader import load_signal_config
+            cfg_block = load_signal_config().short_momentum or {}
+        except Exception:
+            cfg_block = {}
+    use = apply_short_mom
+    if use is None:
+        use = bool(cfg_block.get("enabled"))
+    if use:
+        preset = resolve_short_mom_preset(short_mom_preset, cfg_block=cfg_block)
+        if preset:
+            adj, det = short_mom_adjustment(c, preset)
+            if adj:
+                score += adj
+            if det:
+                parts.append(det)
+
     return FactorResult(_clip_score(score), True, "; ".join(parts))
 
 
