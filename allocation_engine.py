@@ -108,10 +108,11 @@ def _varlik_skorlari(
     v = snap.veri
     skor = dict(config.TEMEL_SKORLAR)
 
+    from reel_hesap import reel_getiri
     cds = v.cds_5y_bp or 300
     enflasyon = snap.enflasyon_tr_yillik or 35.0
     tcmb = v.tcmb_politika_faizi or (v.tl_mevduat_brut_faiz or 0.4) * 100
-    reel_faiz = tcmb - enflasyon
+    reel_faiz = reel_getiri(tcmb, enflasyon)
     vix = snap.vix or 20.0
 
     # EUR — güvenli liman, krizde artar

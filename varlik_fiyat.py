@@ -170,6 +170,9 @@ def _getiriler_portfoy(
         else:
             ref = max(alim, bugun - timedelta(days=gun))
             out[et] = _getiri_tarih_arasi(seri, ref, bugun)
+    # YBB (yılbaşından bu yana) — tutma süresine saygılı: alım yıl içindeyse alımdan.
+    yil_basi = date(bugun.year, 1, 1)
+    out["YBB"] = _getiri_tarih_arasi(seri, max(alim, yil_basi), bugun)
     return out
 
 
@@ -372,20 +375,70 @@ def _tefas_serileri(kodlar: List[str], gun: int = 90, *, aninda: bool = False) -
 
     from disk_onbellek import TTL, disk_getir_aninda, disk_getir_swr
 
+    def _seriye_cevir(df) -> Dict[str, pd.Series]:
+        seriler: Dict[str, pd.Series] = {}
+        if df is None or df.empty or "fund_code" not in df.columns:
+            return seriler
+        if "date_dt" not in df.columns:
+            df = df.copy()
+            df["date_dt"] = pd.to_datetime(df["date"])
+        for kod in kodlar:
+            sub = df[df["fund_code"].str.upper() == kod.upper()].sort_values("date_dt")
+            if not sub.empty:
+                seriler[kod.upper()] = sub.set_index("date_dt")["price"].astype(float)
+        return seriler
+
+    def _diskten_evren():
+        # TEFAS sekmesi tam evreni diske yazdıysa oradan oku — anında, tam tarihçe
+        # (6A/YBB dahil). Ağa çıkmaz, yalnız mevcut disk cache'i tarar.
+        try:
+            from disk_onbellek import disk_getir as _dg
+
+            for g in (365, 250, 210, 200, 180, 150, 120, 90, 60, 30, 14):
+                df, _ = _dg(f"tefas_ham:{g}", TTL["tefas"], bayat_kabul=True)
+                if df is not None and not df.empty:
+                    seriler = _seriye_cevir(df)
+                    if seriler:
+                        return seriler
+        except Exception:
+            pass
+        return None
+
+    def _fon_basina():
+        # Sadece portföydeki fon kodlarını çek (fund_code) — tüm evreni (2000+ fon,
+        # ~3 dk) çekmek yerine fon başına ~0.3 sn (tek 28 günlük parça). Böylece
+        # güncel NAV hızlı gelir; alışa düşüp K/Z=0 kalmaz.
+        try:
+            from pytefas import Crawler
+        except ImportError:
+            return _uret_toplu()
+        try:
+            end = date.today()
+            start = end - timedelta(days=min(max(int(gun), 14), 28))  # tek parça = hızlı
+            cr = Crawler()
+            seriler: Dict[str, pd.Series] = {}
+            for kod in kodlar:
+                try:
+                    df = cr.fetch(start, end, kind="YAT", columns="info", fund_code=kod.upper())
+                except Exception:
+                    df = None
+                s = _seriye_cevir(df)
+                seriler.update(s)
+            return seriler or _uret_toplu()
+        except Exception:
+            return _uret_toplu()
+
     def _uret():
+        return _diskten_evren() or _fon_basina()
+
+    def _uret_toplu():
+        # Son yedek: fon başına da başarısızsa eski toplu yol (yavaş).
         try:
             from tefas_data import _ham_veri_cek
-            # 90 gün TEFAS'ta 45+ sn sürebilir; 30 gün ~8 sn, 1A getiri için yeterli
             df, _ = _ham_veri_cek(min(gun, 30), timeout=25.0)
             if df is None:
                 return None
-            seriler = {}
-            for kod in kodlar:
-                sub = df[df["fund_code"].str.upper() == kod.upper()].sort_values("date_dt")
-                if sub.empty:
-                    continue
-                seriler[kod.upper()] = sub.set_index("date_dt")["price"].astype(float)
-            return seriler or None
+            return _seriye_cevir(df) or None
         except Exception:
             return None
 

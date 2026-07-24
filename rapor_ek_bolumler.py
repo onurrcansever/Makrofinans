@@ -431,3 +431,232 @@ Rapor bu farkı öneriler içinde açıkça ele almıyor.</p>
 <thead><tr><th>Tür</th><th>Araç</th><th>Sembol</th><th>Maliyet</th><th>Güncel</th><th>K/Z</th><th>1G</th><th>1A</th></tr></thead>
 <tbody>{poz_rows}</tbody>
 </table>"""
+
+
+_TEFAS_ONERI_SIRASI = {
+    "GÜÇLÜ AL": 0,
+    "AL": 1,
+    "IZLE": 2,
+    "İZLE": 2,
+    "BEKLE": 3,
+    "AZALT": 4,
+}
+
+
+def _tefas_fon_listesi(
+    tefas_ham,
+    *,
+    limit: int = 20,
+    profil=None,
+    rejim: str = "NOTR",
+    mevduat_reel=None,
+    gosterim_pb: str = "EUR",
+):
+    """Skorlu üst fonlar; KAP disk cache ile Yön/TGO (ağ yok). Ham cache mutate edilmez."""
+    if tefas_ham is None or not getattr(tefas_ham, "fonlar", None):
+        return []
+
+    from copy import deepcopy
+
+    kaynak = None
+    if profil is not None:
+        try:
+            from tefas_skor import tefas_skorlu_kopya
+
+            kaynak = tefas_skorlu_kopya(
+                tefas_ham,
+                profil,
+                rejim=rejim or "NOTR",
+                mevduat_reel=mevduat_reel,
+                gosterim_pb=gosterim_pb or "EUR",
+            )
+        except Exception:
+            kaynak = None
+    if kaynak is None:
+        kaynak = deepcopy(tefas_ham)
+
+    fonlar = list(getattr(kaynak, "fonlar", None) or [])
+    if not fonlar:
+        return []
+    try:
+        from tefas_fon_meta import fon_gider_meta_cache_oku, gider_meta_uygula
+
+        kodlar = [f.kod for f in fonlar if getattr(f, "kod", None)]
+        if kodlar:
+            gider_meta_uygula(fonlar, fon_gider_meta_cache_oku(kodlar, limit=len(kodlar)))
+    except Exception:
+        pass
+    try:
+        from tefas_stopaj import tefas_stopaj_sinifi
+
+        for f in fonlar:
+            if getattr(f, "stopaj_etiket", None):
+                continue
+            etiket, _o, _n = tefas_stopaj_sinifi(
+                ad=getattr(f, "ad", "") or "",
+                kategori=getattr(f, "kategori", "") or "",
+                hisse_pct=getattr(f, "hisse_pct", None),
+            )
+            f.stopaj_etiket = etiket
+    except Exception:
+        pass
+    fonlar = sorted(
+        fonlar,
+        key=lambda f: (
+            _TEFAS_ONERI_SIRASI.get(getattr(f, "oneri", "") or "", 5),
+            -(getattr(f, "skor", 0) or 0),
+            -(getattr(f, "getiri_3a", None) or -999),
+        ),
+    )
+    return fonlar[: max(1, limit)]
+
+
+def _pct_cell(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):+.2f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fee_cell(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def tefas_fonlari_pdf_bolumu(
+    doc: "RaporPDF",
+    tefas_ham,
+    *,
+    limit: int = 18,
+    profil=None,
+    rejim: str = "NOTR",
+    mevduat_reel=None,
+    gosterim_pb: str = "EUR",
+) -> None:
+    """TEFAS üst fonlar — profil skorlu Öneri/Skor, Yön%/TGO, stopaj, 1A/3A/YBB."""
+    fonlar = _tefas_fon_listesi(
+        tefas_ham,
+        limit=limit,
+        profil=profil,
+        rejim=rejim,
+        mevduat_reel=mevduat_reel,
+        gosterim_pb=gosterim_pb,
+    )
+    if not fonlar:
+        doc.bolum("TEFAS Fon Özeti (Yön / TGO / Getiri)")
+        doc.paragraf(
+            "TEFAS verisi bu raporda yok (henüz yüklenmedi veya hata). "
+            "TEFAS sayfasını açıp Yenile sonrası raporu yeniden oluşturun."
+        )
+        return
+
+    n_al = sum(1 for f in fonlar if (getattr(f, "oneri", "") or "") == "AL")
+    doc.bolum("TEFAS Fon Özeti (Yön / TGO / Getiri)")
+    doc.paragraf(
+        f"Kaynak: {_temiz_pdf(getattr(tefas_ham, 'kaynak', '') or 'TEFAS', 40)} · "
+        f"fiili tarihçe ~{getattr(tefas_ham, 'gun', '—')} gün · "
+        f"üst {len(fonlar)} fon (profil skor) · AL: {n_al}. "
+        "Yön.%/TGO disk KAP önbelleğinden; ağ yok. "
+        "Getiriler fon PB native; 3A/YBB tarihçe yoksa —."
+    )
+    w = doc._w()
+    rows = []
+    for f in fonlar:
+        g1 = getattr(f, "getiri_gosterim_1a", None)
+        if g1 is None:
+            g1 = getattr(f, "getiri_1a", None)
+        g3 = getattr(f, "getiri_gosterim_3a", None)
+        if g3 is None:
+            g3 = getattr(f, "getiri_3a", None)
+        gy = getattr(f, "getiri_gosterim_ybb", None)
+        if gy is None:
+            gy = getattr(f, "getiri_ybb", None)
+        rows.append([
+            _temiz_pdf(getattr(f, "oneri", "") or "—", 8),
+            _temiz_pdf(f.kod, 6),
+            _temiz_pdf(getattr(f, "kisa_ad", None) or f.ad, 22),
+            _fee_cell(getattr(f, "yonetim_ucreti_pct", None)),
+            _fee_cell(getattr(f, "tgo_pct", None)) if getattr(f, "tgo_pct", None) is not None else "KAP yok",
+            _temiz_pdf(getattr(f, "stopaj_etiket", "") or "—", 8),
+            _pct_cell(g1),
+            _pct_cell(g3),
+            _pct_cell(gy),
+            f"{getattr(f, 'skor', 0) or 0:.0f}",
+        ])
+    doc.tablo(
+        ["Öneri", "Kod", "Fon", "Yön.%", "TGO%", "Stopaj", "1A", "3A", "YBB", "Skor"],
+        rows,
+        col_w=[w * x for x in (0.07, 0.06, 0.18, 0.07, 0.08, 0.08, 0.09, 0.09, 0.09, 0.07)],
+        font_boyut=6.5,
+        satir_yuk=3.5,
+    )
+
+
+def tefas_fonlari_html_blok(
+    tefas_ham,
+    *,
+    esc,
+    limit: int = 18,
+    profil=None,
+    rejim: str = "NOTR",
+    mevduat_reel=None,
+    gosterim_pb: str = "EUR",
+) -> str:
+    fonlar = _tefas_fon_listesi(
+        tefas_ham,
+        limit=limit,
+        profil=profil,
+        rejim=rejim,
+        mevduat_reel=mevduat_reel,
+        gosterim_pb=gosterim_pb,
+    )
+    if not fonlar:
+        return """
+<h2>TEFAS Fon Özeti (Yön / TGO / Getiri)</h2>
+<p class="muted">TEFAS verisi bu raporda yok (henüz yüklenmedi veya hata).
+TEFAS sayfasını açıp Yenile sonrası raporu yeniden oluşturun.</p>"""
+    rows = ""
+    for f in fonlar:
+        g1 = getattr(f, "getiri_gosterim_1a", None)
+        if g1 is None:
+            g1 = getattr(f, "getiri_1a", None)
+        g3 = getattr(f, "getiri_gosterim_3a", None)
+        if g3 is None:
+            g3 = getattr(f, "getiri_3a", None)
+        gy = getattr(f, "getiri_gosterim_ybb", None)
+        if gy is None:
+            gy = getattr(f, "getiri_ybb", None)
+        tgo = getattr(f, "tgo_pct", None)
+        tgo_s = _fee_cell(tgo) if tgo is not None else "KAP yok"
+        rows += (
+            f"<tr><td>{esc(getattr(f, 'oneri', '') or '—')}</td>"
+            f"<td>{esc(f.kod)}</td>"
+            f"<td>{esc(getattr(f, 'kisa_ad', None) or f.ad)}</td>"
+            f"<td class='num'>{esc(_fee_cell(getattr(f, 'yonetim_ucreti_pct', None)))}</td>"
+            f"<td class='num'>{esc(tgo_s)}</td>"
+            f"<td>{esc(getattr(f, 'stopaj_etiket', '') or '—')}</td>"
+            f"<td class='num'>{esc(_pct_cell(g1))}</td>"
+            f"<td class='num'>{esc(_pct_cell(g3))}</td>"
+            f"<td class='num'>{esc(_pct_cell(gy))}</td>"
+            f"<td class='num'>{getattr(f, 'skor', 0) or 0:.0f}</td></tr>"
+        )
+    n_al = sum(1 for f in fonlar if (getattr(f, "oneri", "") or "") == "AL")
+    return f"""
+<h2>TEFAS Fon Özeti (Yön / TGO / Getiri)</h2>
+<p class="muted">Kaynak: {esc(getattr(tefas_ham, 'kaynak', '') or 'TEFAS')} ·
+fiili ~{esc(getattr(tefas_ham, 'gun', '—'))} gün · üst {len(fonlar)} fon (profil skor) · AL: {n_al}.
+Yön.%/TGO disk KAP önbelleğinden (ağ yok).</p>
+<table>
+<thead><tr>
+<th>Öneri</th><th>Kod</th><th>Fon</th><th>Yön.%</th><th>TGO%</th>
+<th>Stopaj</th><th>1A</th><th>3A</th><th>YBB</th><th>Skor</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table>"""
+

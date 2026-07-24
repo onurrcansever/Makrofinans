@@ -46,6 +46,7 @@ from favoriler_widgets import (
     favori_row_keys,
     favori_yildiz_sutunu,
     render_df_table_favorili,
+    render_df_table_with_star_buttons,
     restore_nav_from_query,
 )
 from favoriler_ui import favoriler_paneli
@@ -68,6 +69,42 @@ from ui_theme import (
 )
 
 _UYGUN_SIRA = {"UYGUN": 0, "SINIRLI": 1, "IZLE": 2, "UYGUN_DEGIL": 3}
+
+
+def _canli_fiyat_disk_token() -> float:
+    """Canlı kotasyon disk dosyasının mtime — df önbelleği için değişim jetonu.
+
+    Daemon yeni fiyat yazınca değişir; arada sabit kalır → tablo gereksiz
+    yeniden kurulmaz (menü geçişi hızlanır)."""
+    try:
+        import os
+
+        from signal_engine.data.live_quote import live_quotes_disk_path
+
+        p = live_quotes_disk_path()
+        return os.path.getmtime(p) if os.path.isfile(p) else 0.0
+    except Exception:
+        return 0.0
+
+
+def _hisse_tablo_imza(hisseler, gpb, fx, detay: bool) -> str:
+    """Tablo girdilerinin imzası — değişmedikçe df yeniden kurulmaz.
+
+    Karar/skor + FX + gösterim PB + detay + fiyat jetonu birlikte; fiyat jetonu
+    daemon fiyatı tazeleyince değişir, böylece fiyatlar da güncel kalır."""
+    parcalar = [
+        f"{getattr(h, 'sembol', '')}:{getattr(h, 'skor', 0)}:"
+        f"{getattr(h, 'alim_uygun', '')}:{getattr(h, 'sinyal', '')}"
+        for h in hisseler
+    ]
+    fxkey = (
+        f"{getattr(fx, 'eur_try', 0)}:{getattr(fx, 'usd_try', 0)}:"
+        f"{getattr(fx, 'gbp_usd', 0)}:{getattr(fx, 'eur_usd', 0)}"
+    )
+    return (
+        f"{gpb}|{int(bool(detay))}|{fxkey}|{len(parcalar)}|"
+        f"{hash(tuple(parcalar))}|{_canli_fiyat_disk_token()}"
+    )
 
 
 def _tablo_fiyat_fx(fiyat, gpb, fx, *, sembol="", piyasa="", varlik_turu="", quote_currency="", kaynak_pb=""):
@@ -143,6 +180,41 @@ def _1g_onceki_kapanis(sembol: str, fiyat: Optional[float], r_native: Optional[f
     return r_native
 
 
+def _premarket_tablo_hucre(h, gpb, fx) -> str:
+    """ABD Premarket — yalnızca tablo; skora / karar motoruna girmez."""
+    from signal_engine.data.live_quote import get_live_quote, premarket_cell_parts
+    from ui_theme import format_premarket_pill_html
+
+    piyasa = getattr(h, "piyasa", "") or ""
+    if piyasa not in ("SP500", "NASDAQ"):
+        return "—"
+    try:
+        live = get_live_quote(h.sembol, allow_stale=True)
+    except Exception:
+        live = None
+    pre = getattr(live, "premarket_price", None) if live else None
+    # %: Yahoo preMarketChangePercent; yoksa PRE’de son regular (live.price)
+    change_pct = getattr(live, "premarket_change_pct", None) if live else None
+    ref = None
+    if live is not None and (live.market_state or "").upper() == "PRE":
+        if live.price and float(live.price) > 0:
+            ref = float(live.price)
+    display = None
+    if pre is not None:
+        display = _hisse_tablo_fiyat(h, gpb, fx, fiyat=pre)
+    parts = premarket_cell_parts(
+        piyasa,
+        pre,
+        display_price=display,
+        change_pct=change_pct,
+        ref_price_native=ref,
+    )
+    if parts is None:
+        return "—"
+    px, pct = parts
+    return format_premarket_pill_html(f"{px:,.2f}", pct)
+
+
 def _hisse_tablo_getiri(h, r_native, gpb, gun, eur_s, usd_s, gbp_s):
     """Kur ayarlı getiri — FX yoksa native'e düşmez (None)."""
     from fiyat_para_fx import FxUnavailableError
@@ -215,7 +287,40 @@ restore_nav_from_query()
 
 with st.sidebar:
     st.markdown("## Makrofinans")
-    st.caption("Portföy karar destek")
+    st.caption("Portföy karar destek · koyu panel")
+    st.divider()
+    st.subheader("Ana menü")
+    sayfa = st.radio(
+        "Bölüm",
+        ["Portföy Tahsisi", "Karar Asistanı", "Asistan", "Varlıklarım", "Favorilerim", "AI Danışman", "TL Mevduat Faizleri", "TEFAS Fonları", "Hisse & Endeks Taraması", "Backtest"],
+        key="nav_sayfa",
+        format_func=lambda s: {
+            "Portföy Tahsisi": "Portföy Tahsisi",
+            "Karar Asistanı": "Karar Asistanı",
+            "Asistan": "Asistan",
+            "Varlıklarım": "Varlıklarım",
+            "Favorilerim": "Favorilerim",
+            "AI Danışman": "AI Danışman",
+            "TL Mevduat Faizleri": "TL Mevduat",
+            "TEFAS Fonları": "TEFAS Fonları",
+            "Hisse & Endeks Taraması": "Hisse & ETF",
+            "Backtest": "Backtest",
+        }.get(s, s),
+        label_visibility="collapsed",
+    )
+    # Sayfa değişince geçici diyalog bayraklarını temizle — aksi halde Varlıklarım'da
+    # açık bırakılan "Yeni pozisyon ekle" / "Düzenle" penceresi başka sekmeye gidip
+    # dönünce kendiliğinden yeniden açılıyordu.
+    if st.session_state.get("_onceki_nav_sayfa") != sayfa:
+        if st.session_state.get("_onceki_nav_sayfa") is not None:
+            for _k in [
+                k for k in list(st.session_state.keys())
+                if k in ("poz_ekle_acik", "poz_edit_id")
+                or k.startswith("varlik_poz_ekle_dlg")
+                or k.startswith("varlik_poz_dlg_")
+            ]:
+                st.session_state.pop(_k, None)
+        st.session_state["_onceki_nav_sayfa"] = sayfa
     st.divider()
     st.subheader("Profil")
     risk_etiket = st.selectbox(
@@ -240,25 +345,6 @@ with st.sidebar:
     profil = YatirimProfili(risk=risk_etiket, vade=vade_etiket, amac=amac_etiket)
     st.caption(profil.ozet())
     st.divider()
-    st.subheader("Bölümler")
-    sayfa = st.radio(
-        "Bölüm",
-        ["Portföy Tahsisi", "Karar Asistanı", "Asistan", "Varlıklarım", "Favorilerim", "AI Danışman", "TL Mevduat Faizleri", "TEFAS Fonları", "Hisse & Endeks Taraması", "Backtest"],
-        key="nav_sayfa",
-        format_func=lambda s: {
-            "Portföy Tahsisi": "Portföy Tahsisi",
-            "Karar Asistanı": "Karar Asistanı",
-            "Asistan": "Asistan",
-            "Varlıklarım": "Varlıklarım",
-            "Favorilerim": "Favorilerim",
-            "AI Danışman": "AI Danışman",
-            "TL Mevduat Faizleri": "TL Mevduat",
-            "TEFAS Fonları": "TEFAS Fonları",
-            "Hisse & Endeks Taraması": "Hisse & ETF",
-            "Backtest": "Backtest",
-        }.get(s, s),
-        label_visibility="collapsed",
-    )
     mod = st.radio("Veri modu", ["Canlı veri", "Demo (senaryo)"], index=0)
     sidebar_gosterim_pb_secici()
     st.session_state.hisse_haber_tara = st.checkbox(
@@ -427,7 +513,10 @@ def _tarama_param(profil: YatirimProfili) -> dict:
 
 def _karar_etiket(h) -> str:
     if getattr(h, "signal_v2_decision", ""):
-        return h.signal_v2_decision
+        lab = h.signal_v2_decision
+        if getattr(h, "signal_v2_small_size", False) and lab == "AL":
+            return "AL · küçük"
+        return lab
     return alim_aksiyon_kisa(getattr(h, "alim_uygun", "IZLE"))
 
 
@@ -449,10 +538,11 @@ def _hisse_satir_oncelik(
         HISSE_AKSIYON_SUTUN,
         HISSE_ALIM_SEVIYE_SUTUN,
         HISSE_MOMENTUM_SUTUN,
+        HISSE_TEMEL_SUTUN,
     )
 
     yon = yonetici_tablo_kolonlari(h, gpb, fx)
-    return {
+    row = {
         HISSE_AKSIYON_SUTUN: _karar_etiket(h),
         HISSE_MOMENTUM_SUTUN: _sinyal_etiket(h, fx=fx),
         "Özet": ozet_chip_html(h),
@@ -462,6 +552,21 @@ def _hisse_satir_oncelik(
         fiyat_kol: fiyat_val,
         HISSE_ALIM_SEVIYE_SUTUN: yon.get(HISSE_ALIM_SEVIYE_SUTUN, yon.get("Al", "—")),
     }
+    try:
+        from signal_engine.quality.fund_score_ui import fund_score_ui_enabled
+
+        if fund_score_ui_enabled():
+            lab = getattr(h, "signal_v2_fund_label", None) or "—"
+            sc = getattr(h, "signal_v2_fund_score", None)
+            if lab in ("—", "ETF"):
+                row[HISSE_TEMEL_SUTUN] = "—"
+            elif sc is not None:
+                row[HISSE_TEMEL_SUTUN] = f"{lab} ({sc:.0f})"
+            else:
+                row[HISSE_TEMEL_SUTUN] = lab or "YETERSİZ"
+    except Exception:
+        pass
+    return row
 
 
 def _hisse_veri_kolonu(h, gpb, fx) -> str:
@@ -603,7 +708,9 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
         )
         from signal_engine.data.live_quote import load_live_quotes_disk
 
-        load_live_quotes_disk(hydrate_memory=True)
+        # Bayat dahil tüm kotasyonları bir kez belleğe al — satır döngüsünde
+        # get_live_quote(allow_stale=True) diski tekrar tekrar okumasın.
+        load_live_quotes_disk(ttl_sec=48 * 3600, hydrate_memory=True)
         if tarama is not None and not tarama_yukleniyor(tarama):
             _analist_syms = analist_hisse_sembolleri(getattr(tarama, "hisseler", None) or [])
         if not _analist_syms:
@@ -694,15 +801,16 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                 eksik_n = len(analist_eksik_semboller(_analist_syms))
                 st.session_state["_analist_ok_count"] = ok
                 if eksik_n:
+                    # İlerleme sırasında full rerun YOK (tablo komple yanıp sönerdi);
+                    # yalnız caption güncellenir. Tablo tamamlanınca bir kez tazelenir.
                     st.caption(
                         f"Analist arka planda… **{ok}/{tot}** (kalan {eksik_n})"
                     )
-                    if prev >= 0 and ok >= prev + 8:
-                        st.rerun()
-                elif prev >= 0 and ok > prev:
-                    st.rerun()
                 elif tot and ok >= tot:
                     st.caption(f"Analist hazır · **{ok}/{tot}**")
+                    # Yükleniyor→hazır geçişi: tabloyu bir kez tazele (tek rerun).
+                    if 0 <= prev < tot:
+                        st.rerun()
             except Exception:
                 pass
 
@@ -753,7 +861,16 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
     e1a = getiri_sutun_adi("1 Ay %", gpb)
     e3a = getiri_sutun_adi("3 Ay %", gpb)
 
-    st.subheader("Endeksler")
+    _eh1, _eh2 = st.columns([4.2, 1.1])
+    with _eh1:
+        st.subheader("Endeksler")
+    with _eh2:
+        _endeks_ai_tik = st.button(
+            "EndeksAI",
+            key="endeks_ai_btn",
+            help="Endeks tablosunu yorumlar — ağırlık vs hisse AL (cache 24 saat)",
+            use_container_width=True,
+        )
     from endeks_yonlendirme import (
         endeks_alanlarini_doldur,
         oncelik_ozeti_sade,
@@ -766,18 +883,24 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
         fx_ok_ui = eur_s is not None and not getattr(eur_s, "empty", True)
     except Exception:
         fx_ok_ui = True
+    _makro_rejim_ui = (
+        getattr(tarama, "makro_rejim", None)
+        or getattr(getattr(tahsis, "rejim", None), "rejim", None)
+        or "NOTR"
+    )
     endeks_alanlarini_doldur(
         tarama.endeksler,
         fx_ok=fx_ok_ui,
-        makro_rejim=getattr(tarama, "makro_rejim", None)
-        or getattr(getattr(tahsis, "rejim", None), "rejim", None)
-        or "NOTR",
+        makro_rejim=_makro_rejim_ui,
         snap=snap,
     )
 
     oncelik = oncelik_ozeti_sade(tarama.endeksler)
     if oncelik:
         st.caption(oncelik)
+
+    _endeks_gosterim: dict = {}
+    _endeks_neden: dict = {}
 
     def _endeks_satir(e):
         qc = getattr(e, "quote_currency", "") or ("TRY" if e.sembol.endswith(".IS") else "USD")
@@ -790,6 +913,17 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
             e.degisim_3ay, gpb, 63, eur_s, usd_s, gbp_seri=gbp_s, sembol=e.sembol,
             quote_currency=qc, bar_dates=bd,
         )
+        _endeks_gosterim[e.sembol] = {
+            "1a": g1a_v if isinstance(g1a_v, (int, float)) else None,
+            "3a": g3a_v if isinstance(g3a_v, (int, float)) else None,
+        }
+        neden_txt = ozet_neden(
+            e,
+            gosterim_1ay=g1a_v if isinstance(g1a_v, (int, float)) else None,
+            gosterim_3ay=g3a_v if isinstance(g3a_v, (int, float)) else None,
+            gosterim_pb=gpb,
+        )
+        _endeks_neden[e.sembol] = neden_txt
         return {
             **favori_yildiz_sutunu("endeks", e.sembol),
             "Endeks": e.ad,
@@ -802,12 +936,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
             e1a: g1a_v,
             e3a: g3a_v,
             "Öneri": getattr(e, "aksiyon_etiket", None) or "Bekle",
-            "Neden": ozet_neden(
-                e,
-                gosterim_1ay=g1a_v if isinstance(g1a_v, (int, float)) else None,
-                gosterim_3ay=g3a_v if isinstance(g3a_v, (int, float)) else None,
-                gosterim_pb=gpb,
-            ),
+            "Neden": neden_txt,
             "Güven": int(getattr(e, "guven", 0) or 0),
         }
 
@@ -818,9 +947,45 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
         endeks_lejant_caption,
         endeks_lejant_detay,
         hisse_lejant_caption,
+        hisse_playbook_caption,
         hisse_sozluk_expander_markdown,
     )
     st.caption(endeks_lejant_caption())
+
+    if _endeks_ai_tik or st.session_state.get("endeks_ai_metin"):
+        if _endeks_ai_tik:
+            from llm_endeks import endeks_aciklamasi, format_endeks_ai_markdown
+            from signal_engine.explain.endeks_snapshot import build_endeks_snapshot
+
+            snap_e = build_endeks_snapshot(
+                tarama.endeksler,
+                oncelik=oncelik or "",
+                gosterim_pb=gpb,
+                makro_rejim=str(_makro_rejim_ui or ""),
+                gosterim_getiriler=_endeks_gosterim,
+                nedenler=_endeks_neden,
+            )
+            with st.spinner("EndeksAI yorumluyor…"):
+                _ai_metin, _ai_meta = endeks_aciklamasi(
+                    snap_e, gosterim_pb=gpb,
+                )
+            st.session_state["endeks_ai_metin"] = _ai_metin
+            st.session_state["endeks_ai_meta"] = _ai_meta
+        from llm_endeks import format_endeks_ai_markdown
+
+        st.markdown(
+            format_endeks_ai_markdown(
+                st.session_state.get("endeks_ai_metin") or "",
+                st.session_state.get("endeks_ai_meta") or {},
+            )
+        )
+        if (st.session_state.get("endeks_ai_meta") or {}).get("cache_hit"):
+            st.caption("cache hit")
+        st.caption(
+            "Yasal uyarı: Bu metin otomatik üretilmiştir; yatırım tavsiyesi değildir. "
+            "Endeks önerisi pozisyon ağırlığıdır — hisse AL’den ayrı okunur."
+        )
+
     with st.expander("Endeks detay", expanded=False):
         st.caption(endeks_lejant_detay())
         detay_df = pd.DataFrame([{
@@ -855,6 +1020,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
 
     _v2_ui = _v2_aktif()
     st.caption(hisse_lejant_caption())
+    st.caption(hisse_playbook_caption())
     with st.expander("Sözlük / nasıl okunur?", expanded=False):
         st.markdown(hisse_sozluk_expander_markdown())
 
@@ -965,6 +1131,21 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
     st.subheader("Tüm varlıklar (hisse + ETF)")
     st.caption("Tablodaki **★/☆** yıldıza tıklayın — favori ekle/çıkar (aynı bölümde kalır).")
     st.caption(hisse_lejant_caption())
+    st.caption(hisse_playbook_caption())
+    try:
+        from signal_engine.quality.fund_score_ui import fund_score_banner_text
+
+        _fs_banner = fund_score_banner_text()
+        if _fs_banner:
+            st.caption(_fs_banner)
+    except Exception:
+        pass
+    if _v2_aktif():
+        st.caption(
+            "**Şimdi ne yap?** birleşik karardır (teknik + temel + pahalı uyarı + "
+            "alım mesafesi + Ichimoku bölgesi). Ichimoku kesin dönüş vaat etmez. "
+            "Yatırım tavsiyesi değildir."
+        )
     _tum_n = len(tarama.hisseler or [])
     _ozet = getattr(tarama, "tarama_ozet", "") or ""
     if _ozet:
@@ -1046,10 +1227,13 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
         tur = favori_hisse_turu(h)
         emtia = getattr(h, "piyasa", "") == "EMTIA" or getattr(h, "varlik_turu", "") == "emtia"
         gram = "—"
-        spot_px, _spot_qc = _hisse_spot_fiyat(h)
-        if emtia and spot_px and fx.usd_try:
-            from emtia_universe import gram_tl_metin
-            gram = gram_tl_metin(float(spot_px), float(fx.usd_try))
+        # Spot fiyat yalnızca emtia (Gram TL) için gerekli — emtia dışı satırlarda
+        # boşa kotasyon aramasın (_hisse_tablo_fiyat zaten kendi spotunu alır).
+        if emtia:
+            spot_px, _spot_qc = _hisse_spot_fiyat(h)
+            if spot_px and fx.usd_try:
+                from emtia_universe import gram_tl_metin
+                gram = gram_tl_metin(float(spot_px), float(fx.usd_try))
         temel = {
             **favori_yildiz_sutunu(tur, h.sembol),
             **_hisse_satir_oncelik(
@@ -1062,6 +1246,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                 fiyat_val=_hisse_tablo_fiyat(h, gpb, fx),
             ),
             "Skor": _skor_etiket(h, fx=fx),
+            "Premarket": _premarket_tablo_hucre(h, gpb, fx),
             g1: _hisse_tablo_getiri(h, h.degisim_1g, gpb, 1, eur_s, usd_s, gbp_s),
             g1a: _hisse_tablo_getiri(h, h.degisim_1ay, gpb, 21, eur_s, usd_s, gbp_s),
             g3a: _hisse_tablo_getiri(h, h.degisim_3ay, gpb, 63, eur_s, usd_s, gbp_s),
@@ -1094,28 +1279,67 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
         })
         return temel
 
-    hisse_df = pd.DataFrame([_satir(h, detay_sutun) for h in filtrelenmis])
-    if "Emir" in hisse_df.columns:
-        hisse_df = hisse_df.drop(columns=["Emir"])
-    # Gram TL yalnızca emtia satırı varken göster
-    if "Gram TL" in hisse_df.columns and not hisse_df["Gram TL"].astype(str).str.startswith("Gram").any():
-        hisse_df = hisse_df.drop(columns=["Gram TL"])
     tum_meta = [(favori_hisse_turu(h), h.sembol, h.ad or h.sembol) for h in filtrelenmis]
+
+    def _hisse_df_kur() -> pd.DataFrame:
+        df = pd.DataFrame([_satir(h, detay_sutun) for h in filtrelenmis])
+        if "Emir" in df.columns:
+            df = df.drop(columns=["Emir"])
+        # Gram TL yalnızca emtia satırı varken göster
+        if "Gram TL" in df.columns and not df["Gram TL"].astype(str).str.startswith("Gram").any():
+            df = df.drop(columns=["Gram TL"])
+        return df
+
     from karar_lejant import HISSE_AKSIYON_SUTUN, karar_dagilim_ozeti
     _karar_ozet = karar_dagilim_ozeti(
         [_karar_etiket(h) for h in filtrelenmis]
     ) if filtrelenmis else ""
     if _karar_ozet:
         st.caption(f"**{HISSE_AKSIYON_SUTUN} dağılımı (tabloda):** {_karar_ozet}")
+    st.caption(
+        "Premarket = ABD seans öncesi (Yahoo); bilgilendirme — skora / «Şimdi ne yap?»a girmez."
+    )
 
-    # Tablo ÖNCE — PDF her rerun'da üretilmesin (boş ekran sebebi)
-    render_df_table_favorili(hisse_df, tum_meta, key_prefix="hisse_tum", max_height=560)
+    # Fiyat tablosu kendi fragment'inde — otomatik yenileme açıkken yalnızca bu
+    # blok tazelenir (sayfa geri kalanı sabit, komple yanıp sönme olmaz). df
+    # önbelleği: fiyat/karar/filtre değişmedikçe yeniden kurulmaz.
+    _tablo_re = (aralik_dk * 60) if otoyenile else None
+
+    @st.fragment(run_every=_tablo_re)
+    def _hisse_tablo_fragment():
+        try:
+            from signal_engine.data.live_quote import load_live_quotes_disk
+
+            load_live_quotes_disk(ttl_sec=48 * 3600, hydrate_memory=True)
+        except Exception:
+            pass
+        imza = _hisse_tablo_imza(filtrelenmis, gpb, fx, detay_sutun)
+        cache = st.session_state.get("_hisse_tum_df_cache")
+        if cache and cache[0] == imza:
+            df = cache[1]
+        else:
+            df = _hisse_df_kur()
+            st.session_state["_hisse_tum_df_cache"] = (imza, df)
+        st.session_state["hisse_tum_df"] = df
+        from favoriler_widgets import _default_badge_col
+
+        render_df_table_with_star_buttons(
+            df, tum_meta, key_prefix="hisse_tum", max_height=560,
+            badge_col=_default_badge_col(df),
+        )
+
+    _hisse_tablo_fragment()
+    hisse_df = st.session_state.get("hisse_tum_df")
+    if hisse_df is None:
+        hisse_df = _hisse_df_kur()
+        st.session_state["hisse_tum_df"] = hisse_df
 
     _pdf_sol, _pdf_sag = st.columns([1.35, 5])
     with _pdf_sol:
         if st.button(
             "PDF hazırla",
             key="hisse_tum_pdf_hazirla",
+            type="secondary",
             disabled=hisse_df.empty,
             help="Filtrelenmiş tabloyu PDF üretir — sonra indir.",
         ):
@@ -1178,7 +1402,28 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                     key="signal_v2_neden_sembol",
                 )
                 secili = next(h for h in v2_list if h.sembol == sembol)
-                st.markdown(why_markdown(secili))
+                st.markdown(why_markdown(secili), unsafe_allow_html=True)
+                try:
+                    from signal_engine.quality.fund_score_ui import (
+                        fund_score_banner_text,
+                        fund_score_ui_allowed,
+                        fund_score_ui_enabled,
+                    )
+
+                    if fund_score_ui_enabled():
+                        banner = fund_score_banner_text()
+                        if banner:
+                            st.caption(banner)
+                        # dual satır why_markdown içinde; st.info açık kutu + kontrast bozuyordu
+                    else:
+                        _, gate_reason = fund_score_ui_allowed()
+                        with st.expander("Temel skor (deneysel — kapalı)", expanded=False):
+                            st.caption(
+                                "Temel skor kapalı. "
+                                f"Gate: {gate_reason}. Geliştirme: `FUND_SCORE_UI_FORCE=1`."
+                            )
+                except Exception:
+                    pass
                 # Aşama 2A — değerleme notu (skora girmez)
                 try:
                     from temel_veri import (
@@ -1235,9 +1480,12 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                     if st.button(
                         "✨ AI Analiz",
                         key=f"ai_analiz_{secili.sembol}",
-                        help="Claude ile 2–3 cümlelik not (cache 24 saat)",
+                        help="Detaylı yorumcu notu — teknik + analist + Ichimoku + seviye (cache 24 saat)",
                     ):
                         from llm_aciklama import format_ai_markdown, hisse_aciklamasi
+                        from signal_engine.explain.tech_snapshot import (
+                            tech_snapshot_from_hisse,
+                        )
 
                         faktorler = getattr(secili, "signal_v2_factors", None) or {}
                         karar = getattr(secili, "signal_v2_decision", "") or _karar_etiket(secili)
@@ -1249,6 +1497,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                             tahsis, "rejim", None
                         )
                         rejim_s = getattr(rejim, "rejim", None) or str(rejim or "—")
+                        snap = tech_snapshot_from_hisse(secili)
                         with st.spinner("AI analiz üretiliyor…"):
                             metin, meta = hisse_aciklamasi(
                                 secili.sembol,
@@ -1259,6 +1508,7 @@ def _hisse_tarama_icerik(tarama, snap, tahsis, profil=None, *, guncelleniyor: bo
                                 float(fiyat_eur or 0),
                                 float(g1y or 0),
                                 rejim_s,
+                                tech_snapshot=snap,
                             )
                         st.markdown(format_ai_markdown(metin, meta))
                         if meta.get("cache_hit"):
@@ -1319,7 +1569,16 @@ if otoyenile:
     tick = st_autorefresh(interval=aralik_dk * 60 * 1000, key="piyasa_autorefresh")
     if tick > st.session_state.son_yenileme_sayaci:
         st.session_state.son_yenileme_sayaci = tick
-        _onbellek_temizle()
+        # Eskiden _onbellek_temizle() tüm boot+önbelleği silerdi → her yenilemede
+        # açılış ekranı + boş→dolu tablo (komple yanıp sönme). Artık yalnız canlı
+        # fiyat arka planda tazelenir; tablo fragment'i yeni fiyatları gösterir,
+        # ağır tarama/makro önbelleği korunur (menü/veri sabit kalır).
+        try:
+            from background_cache import ensure_quotes_daemon
+
+            ensure_quotes_daemon()
+        except Exception:
+            pass
 
 if yenile:
     st.session_state.son_yenileme_sayaci += 1
@@ -1346,51 +1605,116 @@ if st.session_state.get("tarama_profil_key") != _profil_anahtar:
     st.session_state.tarama_profil_key = _profil_anahtar
     onbellek_gecersiz_kil()
 
-# ── Film tarzı açılış: her dilimde UI yenilenir (analist sabit kalmaz) ──
+# ── Soft açılış: disk sıcaksa UI hemen; soğuk/force → film boot ──
 if not st.session_state.get("_sistem_boot_ok"):
-    from boot_sequence import _new_ctx, advance_boot, boot_ui_state
+    from boot_sequence import _new_ctx, advance_boot, boot_ui_state, disk_boot_hazir
     from boot_ui import boot_placeholders, update_boot
 
-    if "_boot_ctx" not in st.session_state:
-        st.session_state["_boot_ctx"] = _new_ctx(
-            canli=canli_mod,
-            force=bool(st.session_state.pop("_boot_force", False)),
-            profil_risk=profil.risk,
-            profil_vade=profil.vade,
-            use_signal_v2=bool(st.session_state.get("use_signal_v2", True)),
-        )
+    _force_boot = bool(st.session_state.get("_boot_force", False))
+    _disk_ok = (not _force_boot) and disk_boot_hazir(
+        canli=canli_mod,
+        profil_risk=profil.risk,
+        profil_vade=profil.vade,
+        use_signal_v2=bool(st.session_state.get("use_signal_v2", True)),
+    )
 
-    _boot_ctx = st.session_state["_boot_ctx"]
-    _boot_frame = boot_placeholders()
-    def _paint(ui: dict) -> None:
-        update_boot(
-            _boot_frame,
+    if _disk_ok:
+        # Son kayıtla hemen aç — boot arka planda (şerit)
+        st.session_state["_sistem_boot_ok"] = True
+        st.session_state["_soft_boot"] = True
+        st.session_state.pop("_boot_force", None)
+        if "_boot_ctx" not in st.session_state:
+            st.session_state["_boot_ctx"] = _new_ctx(
+                canli=canli_mod,
+                force=False,
+                soft=True,
+                profil_risk=profil.risk,
+                profil_vade=profil.vade,
+                use_signal_v2=bool(st.session_state.get("use_signal_v2", True)),
+            )
+        # Fall through — sayfalar açık
+    else:
+        if "_boot_ctx" not in st.session_state:
+            st.session_state["_boot_ctx"] = _new_ctx(
+                canli=canli_mod,
+                force=bool(st.session_state.pop("_boot_force", False)),
+                soft=False,
+                profil_risk=profil.risk,
+                profil_vade=profil.vade,
+                use_signal_v2=bool(st.session_state.get("use_signal_v2", True)),
+            )
+
+        _boot_ctx = st.session_state["_boot_ctx"]
+        _boot_frame = boot_placeholders()
+
+        def _paint(ui: dict) -> None:
+            update_boot(
+                _boot_frame,
+                active_id=ui["active_id"],
+                done_ids=ui["done_ids"],
+                detail=ui["detail"],
+                pct=ui["pct"],
+                counter=ui.get("counter") or "",
+                counter_label=ui.get("counter_label") or "",
+            )
+
+        _paint(boot_ui_state(_boot_ctx))
+        _boot_ctx = advance_boot(_boot_ctx)
+        st.session_state["_boot_ctx"] = _boot_ctx
+        _paint(boot_ui_state(_boot_ctx))
+
+        if _boot_ctx.get("complete"):
+            st.session_state["_sistem_boot_ok"] = True
+            st.session_state["_soft_boot"] = False
+            st.session_state["_boot_summary"] = _boot_ctx.get("summary") or {}
+            st.session_state.pop("_boot_ctx", None)
+            st.rerun()
+        else:
+            st.rerun()
+
+# Soft boot şeridi — sayfalar açıkken arka plan ilerlemesi
+if st.session_state.get("_soft_boot") and st.session_state.get("_boot_ctx"):
+    from boot_sequence import advance_boot, boot_ui_state
+    from boot_ui import render_boot_strip
+
+    @st.fragment(run_every=2)
+    def _soft_boot_serit():
+        ctx = st.session_state.get("_boot_ctx")
+        if not ctx:
+            st.session_state["_soft_boot"] = False
+            return
+        if not ctx.get("complete"):
+            ctx = advance_boot(ctx)
+            st.session_state["_boot_ctx"] = ctx
+        ui = boot_ui_state(ctx)
+        render_boot_strip(
             active_id=ui["active_id"],
             done_ids=ui["done_ids"],
             detail=ui["detail"],
             pct=ui["pct"],
             counter=ui.get("counter") or "",
-            counter_label=ui.get("counter_label") or "",
         )
+        if ctx.get("complete"):
+            st.session_state["_boot_summary"] = ctx.get("summary") or {}
+            st.session_state.pop("_boot_ctx", None)
+            st.session_state["_soft_boot"] = False
+            st.session_state["_soft_boot_done"] = True
+            st.rerun()
 
-    _paint(boot_ui_state(_boot_ctx))
-    _boot_ctx = advance_boot(_boot_ctx)
-    st.session_state["_boot_ctx"] = _boot_ctx
-    _paint(boot_ui_state(_boot_ctx))
-
-    if _boot_ctx.get("complete"):
-        st.session_state["_sistem_boot_ok"] = True
-        st.session_state["_boot_summary"] = _boot_ctx.get("summary") or {}
-        st.session_state.pop("_boot_ctx", None)
-        st.rerun()
-    else:
-        # Sonraki dilim — yüzde / sembol satırı hareket eder
-        st.rerun()
+    _soft_boot_serit()
 
 _bs = st.session_state.get("_boot_summary") or {}
 _mod_lbl = "Canlı" if canli_mod else "Demo"
 _status_bits = [f"**{_mod_lbl}**", profil.ozet()]
-if _bs.get("elapsed_sec") is not None:
+if st.session_state.get("_soft_boot"):
+    _status_bits.append("Son kayıt · arka planda tazeleniyor")
+elif _bs.get("soft") or st.session_state.pop("_soft_boot_done", False):
+    _elapsed = _bs.get("elapsed_sec")
+    if _elapsed is not None:
+        _status_bits.append(f"Güncel · {_elapsed:.0f}s")
+    else:
+        _status_bits.append("Güncel")
+elif _bs.get("elapsed_sec") is not None:
     _status_bits.append(f"açılış {_bs['elapsed_sec']:.0f}s")
 st.caption(" · ".join(_status_bits))
 
@@ -1444,6 +1768,27 @@ def _tutar_pb(eur_tutar: float) -> tuple:
     return eur_tutar, "EUR"
 
 def _rapor_paketi_hazirla(tarama_rapor):
+    from app_veri import tefas_ham_cek, tefas_yukleniyor
+
+    _tefas = getattr(_ob, "tefas_ham", None)
+    _need = (
+        _tefas is None
+        or tefas_yukleniyor(_tefas)
+        or not getattr(_tefas, "fonlar", None)
+    )
+    if _need:
+        try:
+            # Rapor PDF TEFAS bölümü için placeholder yetmez — blokla çek
+            _cand = tefas_ham_cek(120, _tick, zorla=True)
+            if (
+                _cand is not None
+                and not tefas_yukleniyor(_cand)
+                and getattr(_cand, "fonlar", None)
+            ):
+                _tefas = _cand
+                _ob.tefas_ham = _cand
+        except Exception:
+            pass
     return rapor_paketi_olustur(
         snap,
         tahsis,
@@ -1458,12 +1803,13 @@ def _rapor_paketi_hazirla(tarama_rapor):
         varlik_store=_ob.varlik_store,
         kullanici_portfoy=kullanici_portfoy,
         para_birimi=kullanici_portfoy.para_birimi,
+        tefas_ham=_tefas,
     )
 
 with st.sidebar:
     st.divider()
     st.subheader("Anlık yatırım raporu")
-    st.caption("Makro + tarama + öneri detayı + Varlıklarım pozisyonları")
+    st.caption("Makro + tarama + TEFAS (Yön/TGO/getiri) + öneri + Varlıklarım")
 
     if st.button(
         "Yatırım raporu oluştur",
@@ -1541,6 +1887,35 @@ if sayfa == "Portföy Tahsisi":
         "Portföy Tahsisi",
         f"{'Canlı' if canli_mod else 'Demo'} · {VADE_SECENEKLERI.get(profil.vade, profil.vade)}",
     )
+    # Global makro çıpaları — diğer metrikler gibi kart olarak (bilgi amaçlı; henüz
+    # karara bağlı değil). Yükseliş = enflasyon/risk-off rüzgârı → delta_inverse (kırmızı).
+    _capa_kartlari = []
+    if snap.brent_usd is not None:
+        _capa_kartlari.append({
+            "label": "Brent",
+            "value": f"${snap.brent_usd:,.1f}",
+            "delta": snap.brent_1g_degisim,
+            "delta_inverse": True,
+        })
+    if snap.dxy is not None:
+        _capa_kartlari.append({
+            "label": "DXY",
+            "value": f"{snap.dxy:,.1f}",
+            "delta": snap.dxy_1g_degisim,
+            "delta_inverse": True,
+        })
+    if snap.abd_10y is not None:
+        _capa_kartlari.append({
+            "label": "ABD 10Y",
+            "value": f"%{snap.abd_10y:.2f}",
+            "delta": snap.abd_10y_1g_degisim,
+            "delta_inverse": True,
+        })
+    if snap.abd_30y is not None:
+        _capa_kartlari.append({
+            "label": "ABD 30Y",
+            "value": f"%{snap.abd_30y:.2f}",
+        })
     render_metric_strip([
         {"label": "Makro rejim", "value": tahsis.rejim.etiket.replace("_", " ")},
         {
@@ -1595,7 +1970,16 @@ if sayfa == "Portföy Tahsisi":
             "delta_fmt": "pp",
             "delta_inverse": True,
         },
+        *_capa_kartlari,
     ])
+    # Petrol → enflasyon riski danışman notu (advisory-only; karar motorunu değiştirmez)
+    from petrol_enflasyon_uyari import petrol_enflasyon_uyarisi
+    _petrol_uyari = petrol_enflasyon_uyarisi(getattr(snap, "brent_3a_degisim", None))
+    if _petrol_uyari:
+        if _petrol_uyari["seviye"] == "yüksek":
+            st.warning("⛽ " + _petrol_uyari["mesaj"])
+        else:
+            st.caption("⛽ " + _petrol_uyari["mesaj"])
     if not vade_kisa_mi(profil.vade):
         btc_delta = _gunluk_delta(snap.btc_1g_degisim)
         btc_line = f"BTC: ${snap.btc_usd:,.0f}" if snap.btc_usd is not None else "BTC: —"
@@ -2197,7 +2581,7 @@ elif sayfa == "TL Mevduat Faizleri":
 
 # ══════════════════════════════════════════════════════════════
 elif sayfa == "TEFAS Fonları":
-    @st.fragment(run_every=15)
+    @st.fragment(run_every=2)
     def _tefas_otoyenile():
         ob = st.session_state.get("app_onbellek")
         if ob is None or not tefas_yukleniyor(ob.tefas_ham):
@@ -2324,7 +2708,12 @@ elif sayfa == "Backtest":
             st.caption("Tam rapor: `signal_engine/reports/signal_backtest_report.md`")
 
     bt = _ob.backtest
-    if bt:
+    from app_veri import backtest_hazir_mi, backtest_yukleniyor_mu
+
+    if backtest_yukleniyor_mu(bt):
+        st.info(bt.get("hata") or "Backtest arka planda yükleniyor…")
+        st.caption("Sayfa birkaç saniye sonra otomatik yenilenebilir; veya Yenile’ye basın.")
+    elif backtest_hazir_mi(bt):
         kars = backtest_karsilastirma_uret(
             bt, tahsis.rejim.rejim, bugun_agirliklar=tahsis.agirliklar, profil=profil
         )

@@ -70,6 +70,26 @@ class PeerValuationMapTest(unittest.TestCase):
         self.assertTrue(m["T4"].expensive)
         self.assertNotIn("B1", m)
 
+    def test_abs_pe_soft_when_thin_peers(self):
+        """İnce akran + yüksek F/K → mutlak pahalı soft."""
+        pairs = [("X1", 55.0), ("X2", 12.0)]
+        hisseler = [_h(s, sektor="savunma", piyasa="SP500") for s, _ in pairs]
+        m = build_peer_valuation_map(hisseler, _cache_pe(pairs))
+        self.assertIn("X1", m)
+        self.assertTrue(m["X1"].expensive)
+        self.assertIn("Mutlak", m["X1"].note)
+        self.assertNotIn("X2", m)
+
+    def test_sektor_global_fills_thin_market(self):
+        """Aynı sektör, farklı piyasa birleşince n≥4 → peer çalışır."""
+        us = [("U1", 10), ("U2", 12), ("U3", 40)]
+        eu = [("E1", 11)]
+        hisseler = [_h(s, piyasa="NASDAQ", sektor="teknoloji") for s, _ in us]
+        hisseler += [_h(s, piyasa="EU", sektor="teknoloji") for s, _ in eu]
+        m = build_peer_valuation_map(hisseler, _cache_pe(us + eu))
+        self.assertIn("U3", m)
+        self.assertTrue(m["U3"].expensive)
+
 
 class PeerFundGateTest(unittest.TestCase):
     def test_peer_soft_tek_kesmez(self):

@@ -5,10 +5,14 @@ port = 8502
 address = "127.0.0.1"
 enableCORS = true
 enableXsrfProtection = false
-fileWatcherType = "none"
 # Uzun canlı veri çekiminde WebSocket kopmasını azaltır
 enableWebsocketCompression = true
 maxUploadSize = 400
+# Dosya kaydında otomatik yeniden çalıştır (elle çık-gir gerekmez).
+# app.py gibi ana script anında yansır; import edilen modüller (ör.
+# signal_engine/*) değişince yine bir kez süreç restart gerekebilir.
+fileWatcherType = "auto"
+runOnSave = true
 
 [runner]
 fastReruns = true
@@ -18,10 +22,12 @@ gatherUsageStats = false
 serverAddress = "127.0.0.1"
 serverPort = 8502
 
+# Native Streamlit bileşenleri (buton, tablo, info) bu paleti kullanır.
+# base=light iken PDF hazırla beyaz zemin + CSS açık yazı = okunmazdı.
 [theme]
-base = "light"
-backgroundColor = "#eef1f5"
-secondaryBackgroundColor = "#162032"
-textColor = "#1e293b"
-primaryColor = "#2563eb"
+base = "dark"
+backgroundColor = "#181A20"
+secondaryBackgroundColor = "#1E2329"
+textColor = "#EAECEF"
+primaryColor = "#14B8A6"
 font = "sans serif"

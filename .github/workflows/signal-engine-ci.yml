@@ -1,0 +1,32 @@
+name: Signal Engine CI
+
+on:
+  push:
+    paths:
+      - "signal_engine/**"
+      - "tests/test_signal_engine.py"
+      - "scripts/generate_signal_backtest_report.py"
+      - ".github/workflows/signal-engine-ci.yml"
+  pull_request:
+    paths:
+      - "signal_engine/**"
+      - "tests/test_signal_engine.py"
+      - "scripts/generate_signal_backtest_report.py"
+      - ".github/workflows/signal-engine-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Unit tests
+        run: python -m pytest tests/test_signal_engine.py -q
+      - name: Degeneracy + quote tests
+        run: python -m pytest tests/test_degeneracy.py tests/test_quote_normalize.py tests/test_regime_invariants.py tests/test_regime_badge.py -q
+      - name: Backtest report CI check
+        run: python -c "from signal_engine.backtest.full_report import ci_check; assert ci_check(), 'Run scripts/generate_signal_backtest_report.py'"

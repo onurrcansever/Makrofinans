@@ -68,9 +68,17 @@ def _truncate_df(df: pd.DataFrame, end: pd.Timestamp) -> pd.DataFrame:
 
 
 def main() -> None:
-    raw = _indir(SYMS, period="2y")
-    df = _truncate_df(raw, ASOF)
-    snap_vals = _pin_snap(df, ASOF)
+    # Girdi kayması olmasın: mevcut fixture'daki dondurulmuş df yeniden kullanılır
+    # (yalnız eşikler değişince kararları yeniden hesapla). Fixture yoksa indir.
+    if OUT_PKL.exists():
+        with OUT_PKL.open("rb") as f:
+            _prev = pickle.load(f)
+        df = _prev["df"]
+        snap_vals = _prev["snap"]
+    else:
+        raw = _indir(SYMS, period="2y")
+        df = _truncate_df(raw, ASOF)
+        snap_vals = _pin_snap(df, ASOF)
     snap = MacroSnapshot(veri=PiyasaVerisi(
         eur_try=snap_vals["eur_try"],
         usd_try=snap_vals["usd_try"],
@@ -101,12 +109,14 @@ def main() -> None:
             bars = BarSeries.from_df(df, sym)
             mom = momentum_12_1(bars.close)
             from fiyat_para import tablo_getiri, tablo_fiyat, try_per_gbp
-            from signal_engine.data.bars import _extract_close, pct_change_n
+            from signal_engine.data.bars import _extract_close, pct_change_calendar, pct_change_n
 
             ut = _extract_close(df, "USDTRY=X")
             gbp_fx = _extract_close(df, "GBPUSD=X")
             et = _extract_close(df, "EURTRY=X")
-            d1y = pct_change_n(bars.close, 252)
+            # test_signal_golden_fixture ile aynı yöntem (takvim 365g) — golden
+            # sunum katmanı testiyle tutarlı olmalı.
+            d1y = pct_change_calendar(bars.close, 365)
             d1a = pct_change_n(bars.close, 21)
             tl_1y = tablo_getiri(
                 d1y, "TL", 252, et, ut, gbp_seri=gbp_fx, asset_pb="GBP",
@@ -148,9 +158,10 @@ def main() -> None:
             "snap": snap_vals,
             "golden": golden,
             "hysteresis": {
+                # AL eşiği 68, histerezis 3 → AL'a giriş ≥68; AL'ı korumak ≥65.
                 "EQQQ.L": [
-                    {"score": 68, "code": "BUY", "decision": "AL"},
-                    {"score": 64, "prev": "BUY", "code": "BUY", "decision": "AL"},
+                    {"score": 72, "code": "BUY", "decision": "AL"},
+                    {"score": 66, "prev": "BUY", "code": "BUY", "decision": "AL"},
                 ],
             },
         }

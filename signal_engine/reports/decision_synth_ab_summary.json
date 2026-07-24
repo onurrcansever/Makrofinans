@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-07-21T11:35:02.239160+00:00",
+  "lookahead_ok": true,
+  "step": 5,
+  "scenarios": {
+    "NÖTR": {
+      "confidence_note": "Örneklem: base_AL=91, synth_AL=91, upgrade=0, downgrade=0. Synth 1M ort (0.5%) base'e yakın/üstün (0.5%) — sentez 'felaket değil' kapısından geçti (fiyat-only).",
+      "fund_mode": "price_only_NÖTR",
+      "aggregate": {
+        "base": {
+          "n": 91,
+          "avg_ret_1m": 0.47627414934066165,
+          "avg_ret_3m": 2.2989764346198984,
+          "avg_ret_6m": 12.554860474155223,
+          "hit_rate_1m": 0.23076923076923078
+        },
+        "synth": {
+          "n": 91,
+          "avg_ret_1m": 0.47627414934066165,
+          "avg_ret_3m": 2.2989764346198984,
+          "avg_ret_6m": 12.554860474155223,
+          "hit_rate_1m": 0.23076923076923078
+        },
+        "both_buy": {
+          "n": 91,
+          "avg_ret_1m": 0.47627414934066165,
+          "avg_ret_3m": 2.2989764346198984,
+          "avg_ret_6m": 12.554860474155223,
+          "hit_rate_1m": 0.23076923076923078
+        },
+        "synth_upgrade": {
+          "n": 0,
+          "avg_ret_1m": null,
+          "avg_ret_3m": null,
+          "avg_ret_6m": null,
+          "hit_rate_1m": null
+        },
+        "synth_downgrade": {
+          "n": 0,
+          "avg_ret_1m": null,
+          "avg_ret_3m": null,
+          "avg_ret_6m": null,
+          "hit_rate_1m": null
+        }
+      },
+      "totals": {
+        "n_base_buy": 91,
+        "n_synth_buy": 91,
+        "n_upgrade": 0,
+        "n_downgrade": 0
+      }
+    },
+    "SAĞLAM": {
+      "confidence_note": "Örneklem: base_AL=91, synth_AL=429, upgrade=338, downgrade=0. Synth 1M ort (1.0%) base'e yakın/üstün (0.5%) — sentez 'felaket değil' kapısından geçti (fiyat-only). Upgrade kolları 1M pozitif (1.1%, n=338) — bölge teşviki en azından yıkıcı görünmüyor.",
+      "fund_mode": "price_only_SAĞLAM",
+      "aggregate": {
+        "base": {
+          "n": 91,
+          "avg_ret_1m": 0.47627414934066165,
+          "avg_ret_3m": 2.2989764346198984,
+          "avg_ret_6m": 12.554860474155223,
+          "hit_rate_1m": 0.23076923076923078
+        },
+        "synth": {
+          "n": 429,
+          "avg_ret_1m": 0.9678475340898962,
+          "avg_ret_3m": 3.4366912236852984,
+          "avg_ret_6m": 9.940393306259553,
+          "hit_rate_1m": 0.8391608391608392
+        },
+        "both_buy": {
+          "n": 91,
+          "avg_ret_1m": 0.47627414934066165,
+          "avg_ret_3m": 2.2989764346198984,
+          "avg_ret_6m": 12.554860474155223,
+          "hit_rate_1m": 0.23076923076923078
+        },
+        "synth_upgrade": {
+          "n": 338,
+          "avg_ret_1m": 1.1001942145993056,
+          "avg_ret_3m": 3.7429990515105978,
+          "avg_ret_6m": 9.236498299518413,
+          "hit_rate_1m": 1.0
+        },
+        "synth_downgrade": {
+          "n": 0,
+          "avg_ret_1m": null,
+          "avg_ret_3m": null,
+          "avg_ret_6m": null,
+          "hit_rate_1m": null
+        }
+      },
+      "totals": {
+        "n_base_buy": 91,
+        "n_synth_buy": 429,
+        "n_upgrade": 338,
+        "n_downgrade": 0
+      }
+    }
+  }
+}

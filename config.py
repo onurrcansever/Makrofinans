@@ -327,6 +327,22 @@ ALTIN_MOMENTUM_ESIK = float(os.getenv("ALTIN_MOMENTUM_ESIK", "-8"))
 ALTIN_MOMENTUM_MAX_ORAN = float(os.getenv("ALTIN_MOMENTUM_MAX", "0.18"))
 ALTIN_MOMENTUM_SKOR_TAVAN = float(os.getenv("ALTIN_MOMENTUM_SKOR", "55"))
 
+# Dinamik araç seçici — maliyet / makas / dilim payları (yüzde puan veya oran)
+ALTIN_FIZIKI_MAKAS_PCT = float(os.getenv("ALTIN_FIZIKI_MAKAS_PCT", "2.0"))
+FX_CEVIRIM_MAKAS_PCT = float(os.getenv("FX_CEVIRIM_MAKAS_PCT", "0.30"))
+ETF_TER_VARSAYILAN = float(os.getenv("ETF_TER_VARSAYILAN", "0.07"))
+ETF_SGLD_TER = float(os.getenv("ETF_SGLD_TER", "0.12"))
+ARAC_MIN_FARK_PCT = float(os.getenv("ARAC_MIN_FARK_PCT", "0.50"))
+# Sınıf içi dilimler (tl_deposit / eur+usd içinden kesilir — çift sayım yok)
+TEFAS_DILIM_PAY = float(os.getenv("TEFAS_DILIM_PAY", "0.35"))
+ETF_DILIM_PAY = float(os.getenv("ETF_DILIM_PAY", "0.45"))
+# TEFAS stopaj varsayılan iktisap dilimi (matris: tefas_stopaj.py)
+TEFAS_STOPAJ_VARSAYILAN_DONEM = os.getenv(
+    "TEFAS_STOPAJ_VARSAYILAN_DONEM", "yeni_20250709"
+)
+# ETF sinyal köprüsü: zayıf rejimde hisse-ETF payını FX mevduata geri it
+ETF_SINYAL_YOK_CARPAN = float(os.getenv("ETF_SINYAL_YOK_CARPAN", "0.40"))
+
 # Hisse taraması — AL adayı yokken kanonik tablo üst sınırı
 TARAMA_KANONIK_MAX_SATIR = int(os.getenv("TARAMA_KANONIK_MAX", "15"))
 
@@ -343,6 +359,13 @@ BILESKE_TEKNIK_AGIRLIK = float(os.getenv("BILESKE_TEKNIK_AGIRLIK", "0.40"))
 BILESKE_TEMEL_AGIRLIK = float(os.getenv("BILESKE_TEMEL_AGIRLIK", "0.60"))
 BILESKE_AL_ESIK = float(os.getenv("BILESKE_AL_ESIK", "80"))
 BILESKE_DIkkat_ESIK = float(os.getenv("BILESKE_DIkkat_ESIK", "65"))
+
+# Temel skor UI — geliştirme varsayılanı FORCE=1 (deneysel banner).
+# Prod: FUND_SCORE_UI_FORCE=0 ve yalnızca FAZ5 gate + FUND_SCORE_UI=1.
+FUND_SCORE_UI = os.getenv("FUND_SCORE_UI", "0").strip().lower() in ("1", "true", "yes")
+FUND_SCORE_UI_FORCE = os.getenv("FUND_SCORE_UI_FORCE", "1").strip().lower() in (
+    "1", "true", "yes",
+)
 BILESKE_BEKLE_ESIK = float(os.getenv("BILESKE_BEKLE_ESIK", "50"))
 
 # Tek hisse AL — trend/momentum hikâye filtresi (portföy + Karar=AL)

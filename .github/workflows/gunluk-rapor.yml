@@ -21,7 +21,13 @@ jobs:
       INVESTOR_RISK: orta
       INVESTOR_VADE: kisa_6
       OZET_ALARM_HER_ZAMAN: "1"
+      OZET_POZISYON_TABLO: "1"
+      OZET_GOSTERIM_PB: EUR
       GITHUB_ACTIONS: "true"
+      # Secret'lardan scripts/github_ci_restore.sh ile dosyaya yazılır
+      VARLIKLARIM_JSON: ${{ secrets.VARLIKLARIM_JSON }}
+      TEMEL_VERI_CACHE_JSON: ${{ secrets.TEMEL_VERI_CACHE_JSON }}
+      PORTFOY_YORUM_CACHE_JSON: ${{ secrets.PORTFOY_YORUM_CACHE_JSON }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,5 +46,11 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Portföy + cache geri yükle (GitHub Secrets)
+        run: bash scripts/github_ci_restore.sh
+
       - name: Günlük özet alarm (10/13/15/18 TR)
         run: python main.py --ozet-alarm --notify
+
+      - name: AL/SAT değişim alarmı (aynı tur)
+        run: python main.py --sinyal-alarm --notify

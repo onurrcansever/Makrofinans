@@ -1,0 +1,252 @@
+{
+  "generated_at": "2026-07-21T10:56:11Z",
+  "look_ahead_clean": true,
+  "indicative_only": true,
+  "sample_adequate": false,
+  "n_symbols": 21,
+  "n_pit_symbols": 0,
+  "n_cross_section": 0,
+  "min_pit_symbols": 30,
+  "min_cross_section": 4,
+  "live_only_excluded": [
+    "al_sayi",
+    "buy",
+    "currentPrice",
+    "currentRatio",
+    "debtToEquity",
+    "earningsGrowth",
+    "ebitda",
+    "enterpriseToEbitda",
+    "enterpriseValue",
+    "forwardPE",
+    "grossMargins",
+    "hold",
+    "interestCoverage",
+    "marketCap",
+    "numberOfAnalystOpinions",
+    "operatingMargins",
+    "pegRatio",
+    "priceToBook",
+    "priceToSalesTrailing12Months",
+    "profitMargins",
+    "quickRatio",
+    "recommendationKey",
+    "regularMarketPrice",
+    "returnOnAssets",
+    "returnOnEquity",
+    "revenueGrowth",
+    "sell",
+    "strongBuy",
+    "strongSell",
+    "targetMeanPrice",
+    "totalCash",
+    "totalDebt",
+    "trailingPE"
+  ],
+  "metric_inventory": [
+    {
+      "metric": "al_sayi",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "buy",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "currentPrice",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "currentRatio",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "debtToEquity",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "earningsGrowth",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "ebitda",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "enterpriseToEbitda",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "enterpriseValue",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "fcf_q",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "fcf_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "financing_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "forwardPE",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "grossMargins",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "hold",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "interestCoverage",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "investing_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "marketCap",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "net_income_q",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "net_income_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "numberOfAnalystOpinions",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "operatingMargins",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "pegRatio",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "priceToBook",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "priceToSalesTrailing12Months",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "profitMargins",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "profit_margin_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "quickRatio",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "recommendationKey",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "regularMarketPrice",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "returnOnAssets",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "returnOnEquity",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "revenueGrowth",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "revenue_q",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "revenue_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "revenue_y_prev",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "sell",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "strongBuy",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "strongSell",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "targetMeanPrice",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "totalCash",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "totalDebt",
+      "class": "excluded_live_only"
+    },
+    {
+      "metric": "total_assets_q",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "total_assets_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "total_liab_q",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "total_liab_y",
+      "class": "publish_lag"
+    },
+    {
+      "metric": "trailingPE",
+      "class": "excluded_live_only"
+    }
+  ],
+  "bucket_returns": {},
+  "weights_note": "Ağırlıklar %30/25/25/20 geçmesi optimal değil; yalnızca 'felaket değil' kapısı.",
+  "restatement_warning": "Restatement riski: Finansal kalemler bugünkü Yahoo/finansal tablo snapshot’ından; o dönemde yayınlanan ilk rakam olmayabilir.",
+  "notes": [
+    "Tarihsel point-in-time filing arşivi yok; mevcut cache snapshot restatement riski taşır.",
+    "Bu nedenle indicative_only=true — FUND_SCORE_UI prod’da açılmaz.",
+    "Backtest modunda skor üretilebilen sembol (snapshot): 11.",
+    "Publish-lag (+45ç / +90y) ve live-only dışlama kodda zorunlu."
+  ],
+  "publish_lag": {
+    "quarter_days": 45,
+    "annual_days": 90,
+    "available_asof_example": "2025-03-31"
+  },
+  "n_scored_backtest_mode": 11,
+  "live_leak_count": 0
+}

@@ -53,7 +53,7 @@ _tanimla("vix", "VIX (ABD)", lambda s: s.vix, 48, "Küresel rejim ve CDS proxy i
 _tanimla("bist_vol", "BIST Vol (30G)", lambda s: s.bist_vol_30g, 48, "XU100 realize vol — yerel stres proxy (resmi TR VIX değil).")
 _tanimla("bist100", "BIST 100", lambda s: s.bist100, 48, "Yahoo gecikmeli; BIST tahsisi etkilenir.")
 _tanimla("btc", "Bitcoin", lambda s: s.btc_usd, 48, "Kripto tahsisi etkilenir.")
-_tanimla("cds", "CDS 5Y (bp)", lambda s: s.veri.cds_5y_bp, 6, "Çapraz doğrulama (Investing + manual); tek kaynak PROXY.")
+_tanimla("cds", "CDS 5Y (bp)", lambda s: s.veri.cds_5y_bp, 6, "Investing/WGB/Bloomberg; disk yalnızca otomatik yedek.")
 _tanimla("enflasyon", "Enflasyon TR (%)", lambda s: s.enflasyon_tr_yillik, 720, "EVDS/TÜİK aylık; yoksa son bilinen.")
 _tanimla("tl_mevduat", "TL mevduat (brüt)", lambda s: s.veri.tl_mevduat_brut_faiz, 168, "Yapı Kredi yoksa TCMB türetilmiş.")
 _tanimla("fed_faizi", "Fed fon faizi", lambda s: s.veri.fed_faizi, 168, "FRED yoksa ^IRX veya sabit yedek.")
@@ -93,14 +93,25 @@ def _siniflandir(kaynak: str, deger: Any, anahtar: str = "") -> str:
             return "MANUEL"
 
     if anahtar == "cds":
-        if any(x in k for x in ("çapraz teyit yok", "çapraz kontrol", "sıçrama", "çelişki", "piyasa modeli")):
+        if any(x in k for x in ("piyasa modeli", "çapraz teyit yok", "çapraz kontrol", "sıçrama", "çelişki")):
             return "PROXY"
-        if "manual" in k or "manuel" in k:
+        # Elle girilmiş (otomatik senkron değil) — nadir
+        if ("manual_inputs" in k or "manuel giriş" in k) and "otomatik" not in k and "senkron" not in k:
             return "MANUEL"
+        if any(x in k for x in ("disk yedek", "önceki canlı", "otomatik yedek", "otomatik api")):
+            return "YEDEK"
+        if "worldgovernmentbonds" in k or "wgb" in k or "world government" in k:
+            return "GECIKMELI"
+        if "investing" in k:
+            if "çapraz doğrulandı" in k or "doğrulandı" in k or "uyumlu" in k:
+                return "CANLI" if "önbellek" not in k else "GECIKMELI"
+            return "GECIKMELI"
+        if "bloomberg" in k:
+            return "CANLI" if "önbellek" not in k else "GECIKMELI"
         if "çapraz doğrulandı" in k or "doğrulandı" in k:
             return "CANLI" if "önbellek" not in k else "GECIKMELI"
-        if "investing" in k and "çapraz" not in k:
-            return "PROXY"
+        if "önbellek" in k:
+            return "GECIKMELI"
 
     if any(x in k for x in ("manuel", "manual", "manual_inputs")):
         return "MANUEL"

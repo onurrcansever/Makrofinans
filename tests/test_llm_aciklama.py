@@ -117,6 +117,63 @@ class LlmAciklamaTest(unittest.TestCase):
         )
         self.assertIn("ETF — temel analiz verisi yok", seen["p"])
 
+    def test_tech_snapshot_in_prompt_no_macd_invent(self):
+        seen = {"p": ""}
+
+        def mock_call(prompt, **kw):
+            seen["p"] = prompt
+            return (
+                "Kısa vadede fiyat SMA20’nin altında; RSI hafif baskıda. "
+                "Uzun vadede SMA50/200 destekliyor. "
+                "Motor AL skoru eşiği geçmiş olabilir ama Ichimoku kapalıysa "
+                "listede AL ile hemen almak aynı şey değildir. "
+                "Seviyeyi ve Ichimoku teyidini izleyin."
+            )
+
+        snap = {
+            "rows": [
+                ["Fiyat", "326.00", "Spot"],
+                ["RSI(14)", "53.1", "Nötr orta"],
+                ["SMA20", "331.71", "Baskı (Sat) — fiyat ortalamanın altında"],
+                ["SMA50", "315.34", "Destek (Al) — fiyat ortalamanın üstünde"],
+                ["SMA200", "300.54", "Destek (Al) — fiyat ortalamanın üstünde"],
+            ],
+            "kisa_okuma": "RSI nötr; kısa ortalama (SMA20) baskısı var",
+            "uzun_okuma": "Nötr-yukarı — fiyat SMA50 ve SMA200 üstünde",
+            "ozet": "Kısa vadede baskı görünüyor; orta/uzun vadede ortalamalar hâlâ destekleyici.",
+            "al_seviyesi": 314.5,
+            "al_method": "spot civarı",
+            "spot_near": True,
+            "ichimoku_buy_zone": False,
+            "ichimoku_note": "TK zayıf",
+            "aksiyon_okuma": "Motor seviyesi 314.5; Ichimoku bekle diyor.",
+        }
+        metin, _ = llm.hisse_aciklamasi(
+            "THYAO.IS", "AL", 66,
+            {"trend": 60, "mean_reversion": 50},
+            {
+                "tur": "hisse",
+                "analist": "strong_buy",
+                "analist_sayi": 12,
+                "hedef_fark_pct": 15.0,
+            },
+            10.0, 5.0, "RANGE",
+            tech_snapshot=snap,
+            _call_fn=mock_call,
+        )
+        p = seen["p"]
+        self.assertIn("RSI(14)", p)
+        self.assertIn("SMA50", p)
+        self.assertIn("Ichimoku", p)
+        self.assertIn("Alım seviyesi", p)
+        self.assertIn("öğretmenisin", p)
+        self.assertIn("gerekçeleriyle öğretmek", p)
+        self.assertIn("Şimdi ne yap", p)
+        self.assertIn("hemen al", p)
+        self.assertIn("fiyat SMA20", p)
+        self.assertIn("strong_buy", p)
+        self.assertNotIn("MACD", metin)
+
     def test_format_ai_markdown(self):
         md = llm.format_ai_markdown(
             "Örnek not.",

@@ -5,10 +5,11 @@ Birleşik portföy önerisi — makro tahsis + TEFAS + ETF + BIST + kıymetli ma
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import config
 from allocation_engine import TahsisSonucu, VARLIKLAR
+from arac_secici import DilimKarari, dinamik_arac_kararlari
 from bist_sepet import bist_sepet_sec
 from etf_universe import ETF_ETIKET, REVOLUT_ETFLER, etf_oncelik
 from investor_profile import VADE_GUN, YatirimProfili, profil_mevduat_vadesi, vade_cok_kisa_mi, vade_kisa_mi
@@ -57,6 +58,7 @@ class BirlesikOneri:
     vade: List[OneriSatir] = field(default_factory=list)
     hedef_tablo: List[HedefSatir] = field(default_factory=list)
     arac_dagilim: List[AracDagilimSatir] = field(default_factory=list)
+    dilim_kararlari: List[DilimKarari] = field(default_factory=list)
     mevcut_notlar: List[str] = field(default_factory=list)
     grafik_mevcut: Dict[str, float] = field(default_factory=dict)
     grafik_hedef: Dict[str, float] = field(default_factory=dict)
@@ -210,18 +212,41 @@ def _hedef_tablo_olustur(
     arac_dagilim: List[AracDagilimSatir],
     tarama_yapildi: bool = False,
     agirliklar: Optional[Dict[str, float]] = None,
+    *,
+    tl_mevduat_w: Optional[float] = None,
+    gold_arac_ozet: Optional[str] = None,
 ) -> List[HedefSatir]:
+    """Makro sınıf ağırlıkları + sınıf içinden kesilmiş TEFAS/ETF satırları (%≈100)."""
     by_kat: Dict[str, List[AracDagilimSatir]] = {}
     for s in arac_dagilim:
         by_kat.setdefault(s.ust_kategori, []).append(s)
 
     _, vade_gun = profil_mevduat_vadesi(profil)
+    w_map = dict(agirliklar if agirliklar is not None else tahsis.agirliklar)
 
-    w_map = agirliklar if agirliklar is not None else tahsis.agirliklar
+    tefas_grp = by_kat.get("TEFAS fon", [])
+    etf_grp = by_kat.get("ETF (hisse senedi)", [])
+    _, _, tefas_pct = _dagilim_toplam(tefas_grp, pb, eur_try) if tefas_grp else (0, pb, 0.0)
+    _, _, etf_pct = _dagilim_toplam(etf_grp, pb, eur_try) if etf_grp else (0, pb, 0.0)
+    tefas_frac = tefas_pct / 100.0
+    etf_frac = etf_pct / 100.0
+
+    # ETF payını EUR/USD'den orantılı düş (hedef satırlarında çift sayım olmasın)
+    eur0 = float(w_map.get("eur_cash", 0) or 0)
+    usd0 = float(w_map.get("usd_cash", 0) or 0)
+    fx0 = eur0 + usd0
+    if etf_frac > 0 and fx0 > 1e-9:
+        w_map["eur_cash"] = max(0.0, eur0 - etf_frac * (eur0 / fx0))
+        w_map["usd_cash"] = max(0.0, usd0 - etf_frac * (usd0 / fx0))
 
     rows: List[HedefSatir] = []
     for key in VARLIKLAR:
-        w = w_map.get(key, 0)
+        w = float(w_map.get(key, 0) or 0)
+        if key == "tl_deposit":
+            if tl_mevduat_w is not None:
+                w = float(tl_mevduat_w)
+            else:
+                w = max(0.0, w - tefas_frac)
         if w < 0.005:
             continue
         kat = config.VARLIK_ETIKETLERI.get(key, key)
@@ -245,7 +270,7 @@ def _hedef_tablo_olustur(
             bist_d = by_kat.get("BIST 100 (hisse)", [])
             arac = _bist_hedef_arac_metni(bist_d, tarama_yapildi=tarama_yapildi)
         elif key == "gold":
-            arac = "Altın (ons / gram)"
+            arac = gold_arac_ozet or "Altın (ons / gram)"
         elif key == "silver":
             arac = "Gümüş"
         elif key == "crypto":
@@ -263,8 +288,8 @@ def _hedef_tablo_olustur(
             )
         )
 
-    for kat_adi in ("TEFAS fon", "ETF (hisse senedi)"):
-        grp = by_kat.get(kat_adi, [])
+    # TEFAS / ETF — sınıf içinden kesilmiş dilimler (ek makro yük değil)
+    for kat_adi, grp in (("TEFAS fon", tefas_grp), ("ETF (hisse senedi)", etf_grp)):
         if not grp:
             continue
         tut, p, pct = _dagilim_toplam(grp, pb, eur_try)
@@ -313,22 +338,25 @@ def birlesik_oneri_olustur(
     *,
     tefas_istek: bool = True,
     varlik_store=None,
+    mevduat_ozet: Any = None,
 ) -> BirlesikOneri:
     eur_try = snap.veri.eur_try or 35.0
     toplam_eur = kp.toplam_eur(eur_try)
     rejim = tahsis.rejim.rejim
     vade_gun = VADE_GUN.get(profil.vade, 365)
     pb = kp.para_birimi
+    kisa = vade_cok_kisa_mi(profil.vade)
 
     sonuc = BirlesikOneri()
     sonuc.grafik_mevcut = _mevcut_grafik(kp, eur_try)
     arac_dagilim: List[AracDagilimSatir] = []
     agirlik_efektif = dict(tahsis.agirliklar)
 
-    tl_w = tahsis.agirliklar.get("tl_deposit", 0)
-    bist_w = tahsis.agirliklar.get("bist", 0)
-    eur_w = tahsis.agirliklar.get("eur_cash", 0)
-    usd_w = tahsis.agirliklar.get("usd_cash", 0)
+    tl_w = float(tahsis.agirliklar.get("tl_deposit", 0) or 0)
+    bist_w = float(tahsis.agirliklar.get("bist", 0) or 0)
+    eur_w = float(tahsis.agirliklar.get("eur_cash", 0) or 0)
+    usd_w = float(tahsis.agirliklar.get("usd_cash", 0) or 0)
+    gold_w = float(tahsis.agirliklar.get("gold", 0) or 0)
 
     # Mevcut pozisyon değerlendirme
     mev = kp.mevcut_tl_mevduat()
@@ -360,13 +388,15 @@ def birlesik_oneri_olustur(
                 "Vade bitince aşağıdaki **hedef dağılıma** göre yeniden değerlendirme yapılabilir."
             )
 
-    # TEFAS — skor ağırlıklı kategori içi dağılım (ağır; yalnızca tefas_istek=True)
+    fon_aday: List[Any] = []
+    scored = None
+    # TEFAS skor — araç seçici + dilim için
     if tefas_istek:
         try:
             ham = tefas_ham if tefas_ham is not None else yk_fonlari_performans(gun=90, sadece_yk=True)
             if not ham.hata:
                 scored = fonlari_skorla(ham, profil, rejim=rejim, mevduat_reel=mevduat_reel)
-                if vade_cok_kisa_mi(profil.vade):
+                if kisa:
                     fon_aday = top_oneri(
                         scored,
                         n=3,
@@ -380,72 +410,123 @@ def birlesik_oneri_olustur(
                         )
                 else:
                     fon_aday = top_oneri(scored, n=3)
-                if fon_aday:
-                    tefas_pay = max(tl_w, 0.05) * 0.35
-                    tefas_tutar_eur = toplam_eur * tefas_pay
-                    tefas_pct = tefas_pay * 100
-                    adaylar = []
-                    for f in fon_aday:
-                        det = f.kisa_ad
-                        if f.dagilim_ozet:
-                            det += f" · {f.dagilim_ozet}"
-                        adaylar.append((f.kod, det, f.skor or 10.0, f.oneri))
-                    tefas_satirlar = _skorla_bol(
-                        adaylar, tefas_tutar_eur, tefas_pct, pb, eur_try, "TEFAS fon",
-                    )
-                    arac_dagilim.extend(tefas_satirlar)
-                    for s in tefas_satirlar:
-                        sonuc.vade.append(
-                            OneriSatir(
-                                sinif="tefas",
-                                baslik=s.arac,
-                                detay=s.aciklama,
-                                tutar=s.tutar,
-                                para=s.para,
-                                donem="VADE",
-                                oncelik=1 if s.etiket == "AL" else 2,
-                                etiket=s.etiket,
-                            )
-                        )
         except Exception:
-            pass
+            fon_aday = []
 
-    # ETF — öncelik sırasına göre 55/45 (çok kısa vadede hisse ETF kapalı)
-    if eur_w + usd_w >= 0.08 and not vade_cok_kisa_mi(profil.vade):
-        etf_list = _etf_oneri(rejim, n=2)
-        if etf_list:
-            etf_pay = max(eur_w, usd_w) * 0.45
-            etf_tutar_eur = toplam_eur * etf_pay
-            etf_pct = etf_pay * 100
-            adaylar = [
-                (ticker, f"{ad} ({ETF_ETIKET.get(sektor, sektor)})", 10 - i, "ETF")
-                for i, (ticker, ad, sektor) in enumerate(etf_list)
-            ]
-            agirliklar = [0.55, 0.45][: len(adaylar)]
-            etf_satirlar = _sira_bol(
-                adaylar, etf_tutar_eur, etf_pct, pb, eur_try,
-                "ETF (hisse senedi)", agirliklar=agirliklar,
-            )
-            arac_dagilim.extend(etf_satirlar)
-            for s in etf_satirlar:
-                sonuc.vade.append(
-                    OneriSatir(
-                        sinif="etf",
-                        baslik=f"ETF {s.arac}",
-                        detay=s.aciklama,
-                        tutar=s.tutar,
-                        para=s.para,
-                        donem="VADE",
-                        oncelik=2,
-                        etiket="ETF",
-                    )
+    etf_list = _etf_oneri(rejim, n=2) if (eur_w + usd_w) >= 0.08 and not kisa else []
+    altin_mom = None
+    try:
+        altin_mom = getattr(snap.veri, "altin_3a", None) or getattr(snap, "altin_3a", None)
+    except Exception:
+        altin_mom = None
+
+    sonuc.dilim_kararlari = dinamik_arac_kararlari(
+        agirliklar=agirlik_efektif,
+        mevduat_ozet=mevduat_ozet,
+        tefas_fonlar=fon_aday or (scored.fonlar[:8] if scored and getattr(scored, "fonlar", None) else []),
+        etf_list=etf_list,
+        kisa_vade=kisa,
+        altin_3a_momentum=float(altin_mom) if altin_mom is not None else None,
+    )
+    karar_by = {k.dilim: k for k in sonuc.dilim_kararlari}
+
+    # TEFAS dilimi — araç seçici fon seçtiyse; yalnızca tl_deposit içinden (çift sayım yok)
+    tefas_pay = 0.0
+    k_tl = karar_by.get("tl_deposit")
+    if fon_aday and tl_w >= 0.005 and k_tl and k_tl.kazanan.tur == "tefas":
+        tefas_pay = tl_w * float(getattr(config, "TEFAS_DILIM_PAY", 0.35))
+    elif fon_aday and tl_w >= 0.005 and mevduat_ozet is None and (
+        k_tl is None or k_tl.kazanan.tur == "tefas"
+    ):
+        tefas_pay = tl_w * float(getattr(config, "TEFAS_DILIM_PAY", 0.35))
+
+    if fon_aday and tefas_pay >= 0.002:
+        tefas_tutar_eur = toplam_eur * tefas_pay
+        tefas_pct = tefas_pay * 100
+        adaylar = []
+        for f in fon_aday:
+            det = f.kisa_ad
+            if f.dagilim_ozet:
+                det += f" · {f.dagilim_ozet}"
+            adaylar.append((f.kod, det, f.skor or 10.0, f.oneri))
+        tefas_satirlar = _skorla_bol(
+            adaylar, tefas_tutar_eur, tefas_pct, pb, eur_try, "TEFAS fon",
+        )
+        arac_dagilim.extend(tefas_satirlar)
+        for s in tefas_satirlar:
+            sonuc.vade.append(
+                OneriSatir(
+                    sinif="tefas",
+                    baslik=s.arac,
+                    detay=s.aciklama,
+                    tutar=s.tutar,
+                    para=s.para,
+                    donem="VADE",
+                    oncelik=1 if s.etiket == "AL" else 2,
+                    etiket=s.etiket,
                 )
-    elif vade_cok_kisa_mi(profil.vade) and (eur_w + usd_w) >= 0.08:
+            )
+    elif fon_aday and tl_w >= 0.005 and k_tl and k_tl.kazanan.tur == "mevduat":
+        sonuc.mevcut_notlar.append(
+            f"Araç seçici (TL): **mevduat** önde — TEFAS dilimi açılmadı "
+            f"({k_tl.gerekce})."
+        )
+
+    # ETF — EUR+USD içinden; araç seçici ETF demediyse ve kısa vade değilse yine
+    # hafif dilim (rejim RISK_ON/TL_FIRSAT) veya seçici etf ise tam pay
+    fx_w = eur_w + usd_w
+    etf_pay = 0.0
+    k_eur = karar_by.get("eur_cash")
+    if etf_list and fx_w >= 0.08:
+        if k_eur and k_eur.kazanan.tur == "etf":
+            etf_pay = fx_w * float(getattr(config, "ETF_DILIM_PAY", 0.45))
+        elif rejim in ("RISK_ON", "TL_FIRSAT") and (k_eur is None or k_eur.kazanan.tur != "tefas"):
+            # Seçici mevduat dese bile büyüme rejiminde küçük ETF payı
+            carpan = float(getattr(config, "ETF_SINYAL_YOK_CARPAN", 0.40))
+            if k_eur and k_eur.kazanan.tur == "mevduat":
+                etf_pay = fx_w * float(getattr(config, "ETF_DILIM_PAY", 0.45)) * carpan
+            else:
+                etf_pay = fx_w * float(getattr(config, "ETF_DILIM_PAY", 0.45))
+        elif mevduat_ozet is None and k_eur is None:
+            etf_pay = fx_w * float(getattr(config, "ETF_DILIM_PAY", 0.45))
+
+    if etf_list and etf_pay >= 0.005:
+        etf_tutar_eur = toplam_eur * etf_pay
+        etf_pct = etf_pay * 100
+        adaylar = [
+            (ticker, f"{ad} ({ETF_ETIKET.get(sektor, sektor)})", 10 - i, "ETF")
+            for i, (ticker, ad, sektor) in enumerate(etf_list)
+        ]
+        agirliklar_etf = [0.55, 0.45][: len(adaylar)]
+        etf_satirlar = _sira_bol(
+            adaylar, etf_tutar_eur, etf_pct, pb, eur_try,
+            "ETF (hisse senedi)", agirliklar=agirliklar_etf,
+        )
+        arac_dagilim.extend(etf_satirlar)
+        for s in etf_satirlar:
+            sonuc.vade.append(
+                OneriSatir(
+                    sinif="etf",
+                    baslik=f"ETF {s.arac}",
+                    detay=s.aciklama,
+                    tutar=s.tutar,
+                    para=s.para,
+                    donem="VADE",
+                    oncelik=2,
+                    etiket="ETF",
+                )
+            )
+    elif kisa and fx_w >= 0.08:
         sonuc.mevcut_notlar.append(
             "Profil vadesi **0–6 ay**: hisse ETF (CSPX/VUAA vb.) önerilmez — "
             "EUR/USD payı **nakit veya kısa vadeli mevduat** olarak tutulmalı; "
             "BIST/kripto ile aynı vade mantığı."
         )
+
+    gold_arac_ozet = None
+    k_g = karar_by.get("gold")
+    if k_g and gold_w >= 0.005:
+        gold_arac_ozet = f"{k_g.kazanan.ad} — {k_g.gerekce}"
 
     # BIST — Karar=AL (UYGUN) hisseler, skor sırası (Varlıklarım'dan bağımsız)
     bist_aday_var = False
@@ -482,6 +563,10 @@ def birlesik_oneri_olustur(
 
     if tarama_hazir and bist_w >= 0.005 and not bist_aday_var:
         agirlik_efektif = _bist_payini_dagit(agirlik_efektif)
+        # BIST dağıtıldıktan sonra tl/eur ağırlıkları değişir — tefas_pay oranını koru
+        tl_w = float(agirlik_efektif.get("tl_deposit", 0) or 0)
+        eur_w = float(agirlik_efektif.get("eur_cash", 0) or 0)
+        usd_w = float(agirlik_efektif.get("usd_cash", 0) or 0)
         sonuc.mevcut_notlar.append(
             f"Uygun BIST hissesi olmadığı için makro BIST payı (**%{bist_w * 100:.1f}**) "
             "mevduat, altın ve dövize yeniden dağıtıldı."
@@ -493,9 +578,10 @@ def birlesik_oneri_olustur(
         if agirlik_efektif.get(k, 0) >= 0.005
     }
 
-    # TL mevduat hedef (4 kapı) — makro satır, araç dağılımı yok
-    if tl_w >= 0.05 and tahsis.tl_tavan_oran > 0.01:
-        tut_eur = toplam_eur * min(tl_w, tahsis.tl_tavan_oran)
+    tl_mevduat_w = max(0.0, tl_w - tefas_pay)
+    # TL mevduat hedef — TEFAS kesildikten sonraki artık
+    if tl_mevduat_w >= 0.05 and tahsis.tl_tavan_oran > 0.01:
+        tut_eur = toplam_eur * min(tl_mevduat_w, tahsis.tl_tavan_oran)
         tut, p = _tutar_pb(tut_eur, pb, eur_try)
         _, vade_g = profil_mevduat_vadesi(profil)
         sonuc.vade.append(
@@ -516,6 +602,8 @@ def birlesik_oneri_olustur(
         tahsis, profil, toplam_eur, pb, eur_try, arac_dagilim,
         tarama_yapildi=tarama_hazir,
         agirliklar=agirlik_efektif,
+        tl_mevduat_w=tl_mevduat_w if tefas_pay >= 0.005 else None,
+        gold_arac_ozet=gold_arac_ozet,
     )
     sonuc.bugun.sort(key=lambda x: x.oncelik)
     sonuc.vade.sort(key=lambda x: x.oncelik)

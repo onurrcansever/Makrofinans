@@ -11,8 +11,8 @@
   "golden": {
     "AMAT": {
       "score": 65,
-      "decision": "AL",
-      "code": "BUY",
+      "decision": "İZLE",
+      "code": "WATCH",
       "factors": {
         "trend": 97.0,
         "mean_reversion": 58.0,
@@ -50,8 +50,8 @@
     },
     "EQQQ.L": {
       "score": 64,
-      "decision": "AL",
-      "code": "BUY",
+      "decision": "İZLE",
+      "code": "WATCH",
       "factors": {
         "trend": 75.0,
         "mean_reversion": 60.0,
@@ -67,12 +67,10 @@
       "momentum_12_1_tl_pct": 50.79,
       "getiri_1y_tl_pct": 48.24,
       "getiri_1y_usd_pct": 26.8,
-      "try_per_gbp": 63.0,
-      "score_note": "PDF 65 = LSE 16 Tem bar (ABD bench yok); settlement asof 15 Tem = 64",
-      "getiri_1y_note": "1Y = takvim 365g (d0=2025-07-15), 252-bar ofset değil"
+      "try_per_gbp": 63.0
     },
     "IS3N.DE": {
-      "score": 63.7,
+      "score": 64,
       "decision": "İZLE",
       "code": "WATCH",
       "factors": {
@@ -82,8 +80,7 @@
         "relative_strength": 49.5,
         "liquidity": 64.5
       },
-      "quote_currency": "EUR",
-      "score_note": "PDF r3/r4=63 (67%); fixture=63.7 → UI .0f=64. Fark ~0.7pt canlı hacim/mikro fiyat, takvim değil"
+      "quote_currency": "EUR"
     },
     "VEUR.L": {
       "score": 63,
@@ -96,19 +93,18 @@
         "relative_strength": 45.5,
         "liquidity": 68.5
       },
-      "quote_currency": "GBP",
-      "score_note": "66=LSE 16 Tem MR~60; 64=aynı LSE-ahead günü intraday bar revizyonu (~2pt); pin asof 15 Tem=62.56→63"
+      "quote_currency": "GBP"
     }
   },
   "hysteresis": {
     "EQQQ.L": [
       {
-        "score": 68,
+        "score": 72,
         "code": "BUY",
         "decision": "AL"
       },
       {
-        "score": 64,
+        "score": 66,
         "prev": "BUY",
         "code": "BUY",
         "decision": "AL"

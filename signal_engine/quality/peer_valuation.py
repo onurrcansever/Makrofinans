@@ -13,6 +13,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 MIN_PEERS = 4
 EXPENSIVE_PCT = 85.0
 EXPENSIVE_MULT = 1.6
+# Akran grubu inceyken mutlak F/K soft tavan (chase pahalı mega-cap)
+ABS_PE_EXPENSIVE = 45.0
 
 
 @dataclass(frozen=True)
@@ -89,9 +91,12 @@ def build_peer_valuation_map(
     min_peers: int = MIN_PEERS,
     expensive_pct: float = EXPENSIVE_PCT,
     expensive_mult: float = EXPENSIVE_MULT,
+    abs_pe_expensive: float = ABS_PE_EXPENSIVE,
 ) -> Dict[str, PeerValuation]:
-    """Tek geçiş: (piyasa, sektör) gruplarında F/K peer map."""
+    """Tek geçiş: (piyasa, sektör) → gerekirse sektör-global → mutlak F/K soft."""
     members: Dict[Tuple[str, str], List[Tuple[str, float]]] = {}
+    by_sector: Dict[str, List[Tuple[str, float]]] = {}
+    all_pe: List[Tuple[str, float]] = []
     for h in hisseler or []:
         if not _is_hisse(h):
             continue
@@ -101,24 +106,30 @@ def build_peer_valuation_map(
         pe = pe_from_temel(cache.get(sym) or {})
         if pe is None:
             continue
-        members.setdefault(_group_key(h), []).append((sym, pe))
+        pk, sk = _group_key(h)
+        members.setdefault((pk, sk), []).append((sym, pe))
+        by_sector.setdefault(sk, []).append((sym, pe))
+        all_pe.append((sym, pe))
 
     out: Dict[str, PeerValuation] = {}
-    for _key, pairs in members.items():
+
+    def _fill(pairs: List[Tuple[str, float]], *, note_prefix: str) -> None:
         if len(pairs) < min_peers:
-            continue
+            return
         pes = [p for _, p in pairs]
         med = float(median(pes))
         if med <= 0:
-            continue
+            return
         for sym, pe in pairs:
+            if sym in out:
+                continue
             pct = _percentile_rank(pes, pe)
             ratio = pe / med
             expensive = pct >= expensive_pct or ratio >= expensive_mult
             note = (
-                f"Sektör F/K pahalı (P{pct:.0f}, {ratio:.1f}× medyan, n={len(pairs)})"
+                f"{note_prefix} pahalı (P{pct:.0f}, {ratio:.1f}× medyan, n={len(pairs)})"
                 if expensive
-                else f"Sektör F/K P{pct:.0f} ({ratio:.1f}× medyan, n={len(pairs)})"
+                else f"{note_prefix} P{pct:.0f} ({ratio:.1f}× medyan, n={len(pairs)})"
             )
             out[sym] = PeerValuation(
                 pe=pe,
@@ -128,5 +139,28 @@ def build_peer_valuation_map(
                 expensive=expensive,
                 note=note,
                 pe_vs_median=ratio,
+            )
+
+    # 1) (piyasa, sektör)
+    for _key, pairs in members.items():
+        _fill(pairs, note_prefix="Sektör F/K")
+
+    # 2) İnce grup → sektör (tüm piyasalar)
+    for sk, pairs in by_sector.items():
+        _fill(pairs, note_prefix=f"Sektör-global ({sk}) F/K")
+
+    # 3) Hâlâ yoksa mutlak F/K soft
+    for sym, pe in all_pe:
+        if sym in out:
+            continue
+        if pe >= abs_pe_expensive:
+            out[sym] = PeerValuation(
+                pe=pe,
+                pe_median=pe,
+                pe_pct=100.0,
+                peer_n=1,
+                expensive=True,
+                note=f"Mutlak F/K pahalı ({pe:.0f} ≥ {abs_pe_expensive:.0f}; akran yetersiz)",
+                pe_vs_median=1.0,
             )
     return out

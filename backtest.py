@@ -443,7 +443,9 @@ def backtest_karsilastirma_uret(
     """
     Üç yollu karşılaştırma: aylık dinamik rejim vs bugünkü ağırlıklar sabit vs profil referansı.
     """
-    if len(satirlar) < 3:
+    if not isinstance(satirlar, list) or len(satirlar) < 3:
+        return None
+    if not hasattr(satirlar[0], "tarih"):
         return None
 
     profil = profil or YatirimProfili()

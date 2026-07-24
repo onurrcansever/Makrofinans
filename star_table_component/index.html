@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --border: #e8eaed;
-      --panel: #ffffff;
-      --text: #202124;
-      --muted: #5f6368;
-      --th-bg: #ffffff;
-      --hover: #f8f9fa;
-      --up: #137333;
-      --down: #a50e0e;
-      --accent: #1a73e8;
-      --font: "Google Sans", Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --border: #2B3139;
+      --panel: #1E2329;
+      --text: #EAECEF;
+      --muted: #848E9C;
+      --th-bg: #2B3139;
+      --hover: rgba(20,184,166,0.06);
+      --up: #0ECB81;
+      --down: #F6465D;
+      --accent: #14B8A6;
+      --font: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     html, body {
       margin: 0;
@@ -38,7 +38,7 @@
       width: 100%;
       border-collapse: collapse;
       table-layout: auto;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 400;
     }
     th {
@@ -46,25 +46,25 @@
       top: 0;
       background: var(--th-bg);
       color: var(--muted);
-      font-size: 12px;
-      text-transform: none;
-      letter-spacing: 0;
-      font-weight: 500;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 600;
       text-align: left;
-      padding: 12px 16px;
+      padding: 8px 12px;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
       z-index: 1;
     }
     td {
-      padding: 12px 16px;
-      height: 48px;
+      padding: 8px 12px;
+      height: 38px;
       box-sizing: border-box;
       border-bottom: 1px solid var(--border);
       vertical-align: middle;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 400;
-      line-height: 1.35;
+      line-height: 1.25;
       white-space: nowrap;
       color: var(--text);
     }

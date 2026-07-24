@@ -5,7 +5,14 @@ from unittest.mock import patch
 
 from investor_profile import YatirimProfili
 from tefas_skor import fonlari_skorla, top_oneri, _ONERI_AL
-from tefas_universe import fon_kategorisi, fon_para_birimi, kisa_fon_adi, yk_fon_mu
+from tefas_universe import (
+    fon_kategorisi,
+    fon_para_birimi,
+    kisa_fon_adi,
+    kt_fon_mu,
+    portfoy_sirketi,
+    yk_fon_mu,
+)
 from tefas_data import FonPerformans, TefasTaramaSonuc, _getiri_hesapla
 import pandas as pd
 
@@ -13,14 +20,32 @@ import pandas as pd
 class TefasUniverseTest(unittest.TestCase):
     def test_yk_tespit(self):
         self.assertTrue(yk_fon_mu("YAPI KREDİ PORTFÖY PARA PİYASASI FONU"))
+        self.assertTrue(yk_fon_mu("KUVEYT TÜRK PORTFÖY PARA PİYASASI KATILIM (TL) FONU"))
+        self.assertTrue(kt_fon_mu("KUVEYT TÜRK PORTFÖY ALTIN KATILIM FONU"))
         self.assertFalse(yk_fon_mu("AK PORTFÖY"))
+        self.assertFalse(kt_fon_mu("YAPI KREDİ PORTFÖY PARA PİYASASI FONU"))
 
     def test_kategori_pp(self):
         ad = "YAPI KREDİ PORTFÖY PARA PİYASASI FONU"
         self.assertEqual(fon_kategorisi(ad), "para_piyasasi")
+        self.assertEqual(
+            fon_kategorisi("KUVEYT TÜRK PORTFÖY PARA PİYASASI KATILIM (TL) FONU"),
+            "para_piyasasi",
+        )
+        self.assertEqual(
+            fon_kategorisi("KUVEYT TÜRK PORTFÖY KATILIM HİSSE SENEDİ (TL) FONU"),
+            "hisse",
+        )
 
     def test_kisa_ad(self):
         self.assertIn("PARA", kisa_fon_adi("YAPI KREDİ PORTFÖY PARA PİYASASI FONU"))
+        self.assertNotIn("KUVEYT", kisa_fon_adi("KUVEYT TÜRK PORTFÖY PARA PİYASASI KATILIM FONU"))
+        self.assertIn("PARA", kisa_fon_adi("KUVEYT TÜRK PORTFÖY PARA PİYASASI KATILIM FONU"))
+
+    def test_portfoy_sirketi(self):
+        self.assertEqual(portfoy_sirketi("YAPI KREDİ PORTFÖY PARA PİYASASI FONU"), "Yapı Kredi")
+        self.assertEqual(portfoy_sirketi("KUVEYT TÜRK PORTFÖY ALTIN KATILIM FONU"), "Kuveyt Türk")
+        self.assertEqual(portfoy_sirketi("AK PORTFÖY ALTIN FONU"), "Diğer")
 
     def test_para_birimi(self):
         self.assertEqual(fon_para_birimi("SERBEST (DÖVİZ-AVRO) FON"), "EUR")
@@ -166,6 +191,63 @@ class TefasGetiriTest(unittest.TestCase):
         g = _getiri_hesapla(df, 30)
         self.assertIsNotNone(g)
         self.assertAlmostEqual(g, 10.0, delta=0.5)
+
+    def test_kisa_tarihce_3a_ybb_none(self):
+        """30 günlük seride 90g/YBB uydurma eşitleme yapmaz (ekran bug'ı)."""
+        from tefas_data import _ybb_getiri
+
+        son = pd.Timestamp("2026-07-20")
+        dates = pd.date_range(son - pd.Timedelta(days=29), son, freq="D")
+        df = pd.DataFrame({"date_dt": dates, "price": [100.0 + i * 0.1 for i in range(len(dates))]})
+        self.assertIsNotNone(_getiri_hesapla(df, 7))
+        self.assertIsNotNone(_getiri_hesapla(df, 30))
+        self.assertIsNone(_getiri_hesapla(df, 90))
+        self.assertIsNone(_ybb_getiri(df))
+
+    def test_tam_ybb(self):
+        from tefas_data import _ybb_getiri
+
+        dates = pd.date_range("2026-01-02", "2026-07-20", freq="D")
+        df = pd.DataFrame({
+            "date_dt": dates,
+            "price": [100.0 + i * 0.05 for i in range(len(dates))],
+        })
+        g = _ybb_getiri(df)
+        self.assertIsNotNone(g)
+        self.assertGreater(g, 0)
+
+
+class TefasPencereYetersizTest(unittest.TestCase):
+    """Kesik pencere tespiti — 3A/YBB toplu boşsa tam pencereye yükseltilmeli."""
+
+    def _sonuc(self, ybb_dolu: bool, n: int = 20):
+        from types import SimpleNamespace
+
+        fonlar = [
+            SimpleNamespace(
+                kod=str(i),
+                getiri_1a=1.0,
+                getiri_3a=2.0,
+                getiri_ybb=(5.0 if ybb_dolu else None),
+            )
+            for i in range(n)
+        ]
+        return SimpleNamespace(fonlar=fonlar)
+
+    def test_kisa_pencere_yetersiz(self):
+        from app_veri import _tefas_pencere_yetersiz_mu
+
+        self.assertTrue(_tefas_pencere_yetersiz_mu(self._sonuc(ybb_dolu=False)))
+
+    def test_tam_pencere_yeterli(self):
+        from app_veri import _tefas_pencere_yetersiz_mu
+
+        self.assertFalse(_tefas_pencere_yetersiz_mu(self._sonuc(ybb_dolu=True)))
+
+    def test_az_fon_guard(self):
+        from app_veri import _tefas_pencere_yetersiz_mu
+
+        self.assertFalse(_tefas_pencere_yetersiz_mu(self._sonuc(ybb_dolu=False, n=3)))
 
 
 if __name__ == "__main__":

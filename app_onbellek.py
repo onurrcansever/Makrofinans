@@ -25,7 +25,9 @@ from varlik_fiyat import PortfoyDeger, portfoy_degerle
 from varliklarim import VarlikStore, yukle_store
 
 from app_veri import (
+    backtest_hazir_mi,
     backtest_veri,
+    backtest_yukleniyor_mu,
     cds_kaynak_ozet,
     mevduat_cek,
     tarama_cek,
@@ -49,6 +51,18 @@ SAYFA_BIRLESIK = frozenset({"Portföy Tahsisi"})
 SAYFA_DANISMAN_TAM = frozenset({"AI Danışman", "Asistan"})
 SAYFA_BACKTEST = frozenset({"Backtest"})
 SAYFA_VARLIK = frozenset({"Varlıklarım", "Asistan"})
+# Canlı fiyat hidratasyonu + piyasa yedeği yalnızca bunlarda gerekli.
+# TL Mevduat / TEFAS / Backtest gibi fiyat göstermeyen sayfalarda her rerun'da
+# disk okuması + yedek çalıştırmak menü geçişini yavaşlatır — atlanır.
+SAYFA_FIYAT = frozenset({
+    "Portföy Tahsisi",
+    "Karar Asistanı",
+    "Asistan",
+    "AI Danışman",
+    "Hisse & Endeks Taraması",
+    "Favorilerim",
+    "Varlıklarım",
+})
 
 
 def _varlik_pozisyon_turleri(ob: AppOnbellek) -> Set[str]:
@@ -156,7 +170,7 @@ def _tarama_anahtar(
 ) -> str:
     return (
         f"tarama:{canli_mod}:{rejim}:{haber_tara}:{profil_risk}:{profil_vade}"
-        f":v2={int(use_signal_v2)}:gbx_v3:live_v1:endeks_v2"
+        f":v2={int(use_signal_v2)}:gbx_v3:live_v1"
     )
 
 
@@ -263,7 +277,10 @@ def _tarama_yukle(
 
 def _tefas_yukle(ob: AppOnbellek, *, tick: int) -> None:
     if ob.tefas_ham is not None and not tefas_yukleniyor(ob.tefas_ham):
-        return
+        from app_veri import _tefas_getiri_bozuk_mu
+        if not _tefas_getiri_bozuk_mu(ob.tefas_ham):
+            return
+        ob.tefas_ham = None
     ob.tefas_ham = tefas_ham_cek(120, tick)
 
 
@@ -285,6 +302,7 @@ def _birlesik_guncelle(
         tefas_ham=ob.tefas_ham if tam else None,
         tefas_istek=tam,
         varlik_store=ob.varlik_store,
+        mevduat_ozet=ob.mevduat_ozet,
     )
     ob.birlesik_tam = tam
     ob.birlesik_tarama_hazir = tam and tarama_hazir
@@ -348,6 +366,7 @@ def onbellek_sayfa_hazirla(
         yeniden_dene = (
             (sayfa in SAYFA_TARAMA and tarama_yukleniyor(ob.tarama))
             or (sayfa in SAYFA_TEFAS and tefas_yukleniyor(ob.tefas_ham))
+            or (sayfa in SAYFA_BACKTEST and backtest_yukleniyor_mu(ob.backtest))
             or (
                 sayfa in SAYFA_BIRLESIK
                 and ob.birlesik_tam
@@ -406,9 +425,14 @@ def onbellek_sayfa_hazirla(
         if fut_tefas:
             fut_tefas.result()
 
-    if need_backtest and ob.backtest is None:
-        ob.backtest = backtest_veri(bt_ay, profil.vade, profil.risk)
-        ob.backtest_ay = bt_ay
+    if need_backtest and not backtest_hazir_mi(ob.backtest):
+        cand = backtest_veri(bt_ay, profil.vade, profil.risk)
+        if backtest_hazir_mi(cand):
+            ob.backtest = cand
+            ob.backtest_ay = bt_ay
+        elif ob.backtest is None or backtest_yukleniyor_mu(ob.backtest):
+            ob.backtest = cand
+            ob.backtest_ay = bt_ay
 
     if need_varlik:
         _varlik_deger_yukle(ob, tick=tick)
@@ -457,13 +481,17 @@ def uygulama_onbellegi_al(
                 haber_tara=haber_tara,
             )
             _tahsis_sinyal_senkron(cached)
-            from signal_engine.data.live_quote import load_live_quotes_disk
-            from macro_data import snap_piyasa_yedekle
+            # Canlı fiyat hidratasyonu + piyasa yedeği pahalı; yalnız fiyat
+            # gösteren sayfalarda çalıştır. TL Mevduat / TEFAS / Backtest
+            # geçişlerinde atlanır → menü anında.
+            if st.session_state.get("nav_sayfa") in SAYFA_FIYAT:
+                from signal_engine.data.live_quote import load_live_quotes_disk
+                from macro_data import snap_piyasa_yedekle
 
-            load_live_quotes_disk(hydrate_memory=True)
-            # Yahoo miss ile boş kalan VIX/BIST/Altın — disk/canlı yedek
-            if getattr(cached, "snap", None) is not None:
-                cached.snap = snap_piyasa_yedekle(cached.snap)
+                load_live_quotes_disk(hydrate_memory=True)
+                # Yahoo miss ile boş kalan VIX/BIST/Altın — disk/canlı yedek
+                if getattr(cached, "snap", None) is not None:
+                    cached.snap = snap_piyasa_yedekle(cached.snap)
         except Exception:
             pass
         return cached

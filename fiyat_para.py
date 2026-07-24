@@ -353,20 +353,34 @@ def tefas_tablo_fiyat(
     eur_usd: Optional[float] = None,
     chf_usd: Optional[float] = None,
 ) -> Optional[float]:
-    """TEFAS birim pay fiyatı — fon adından çıkarılan PB ile gösterim PB'sine."""
+    """TEFAS birim pay fiyatı — fon adından çıkarılan PB ile gösterim PB'sine.
+
+    Geçersiz/0 fiyat veya FX sanity hatasında None (UI çökmez; satırda —).
+    """
+    import math
+
     from tefas_universe import tefas_fiyat_kaynak_pb
 
     if fiyat is None:
+        return None
+    try:
+        px = float(fiyat)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(px) or px <= 0:
         return None
     src = tefas_fiyat_kaynak_pb(para_birimi)
     if src is None:
         return None
     if src == gosterim_pb:
-        return float(fiyat)
-    return tablo_fiyat(
-        float(fiyat), gosterim_pb, eur_try, usd_try,
-        kaynak_pb=src, gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
-    )
+        return px
+    try:
+        return tablo_fiyat(
+            px, gosterim_pb, eur_try, usd_try,
+            kaynak_pb=src, gbp_usd=gbp_usd, eur_usd=eur_usd, chf_usd=chf_usd,
+        )
+    except FxCrossSanityError:
+        return None
 
 
 def fiyat_sutun_adi(gosterim_pb: str) -> str:

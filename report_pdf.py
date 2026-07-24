@@ -173,6 +173,8 @@ def _df_pdf_hazirla(df) -> "pd.DataFrame":
         rename["Momentum"] = "Mom"
     if "Şimdi ne yap?" in out.columns:
         rename["Şimdi ne yap?"] = "Ne yap?"
+    if "Temel" in out.columns:
+        rename["Temel"] = "Tml"
     if "Alım seviyesi" in out.columns:
         rename["Alım seviyesi"] = "Al sev."
     if rename:
@@ -334,7 +336,7 @@ def pozisyonlar_pdf_olustur(
             ["Pozisyon Önerisi", _temiz(r.get("oneri"))],
             ["Ekle seviyesi", _temiz(r.get("ekle"))],
             ["Stop seviyesi", _temiz(r.get("stop"))],
-            ["Yahoo hedef", _temiz(r.get("hedef"))],
+            ["Hedef", _temiz(r.get("hedef"))],
         ]
         if r.get("skor") is not None:
             detay.append(["Motor skoru", _temiz(r.get("skor"))])
@@ -1230,6 +1232,7 @@ def rapor_pdf_direkt_olustur(
     varlik_store=None,
     kullanici_portfoy=None,
     para_birimi: str = "EUR",
+    tefas_ham=None,
 ) -> bytes:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     if kullanici_portfoy is None:
@@ -1330,7 +1333,11 @@ def rapor_pdf_direkt_olustur(
     doc.paragraf(_temiz(tahsis.tavsiye_metni, 400))
 
     # ── 3. BİRLEŞİK ÖNERİLER (aksiyon listesi) ───────────────────────────────
-    from rapor_ek_bolumler import birlesik_oneri_pdf_bolumu, varliklarim_pdf_bolumu
+    from rapor_ek_bolumler import (
+        birlesik_oneri_pdf_bolumu,
+        tefas_fonlari_pdf_bolumu,
+        varliklarim_pdf_bolumu,
+    )
 
     birlesik_oneri_pdf_bolumu(
         doc,
@@ -1339,6 +1346,21 @@ def rapor_pdf_direkt_olustur(
         toplam_eur=toplam_eur,
         eur_try=v.eur_try or 35.0,
         makro_agirliklar=tahsis.agirliklar,
+    )
+
+    # ── 3b. TEFAS FON ÖZETİ (Yön/TGO/getiri — profil skorlu) ────────────────
+    _mev_reel = None
+    if mevduat is not None:
+        _mev_reel = getattr(mevduat, "profil_vade_reel", None)
+        if _mev_reel is None:
+            _mev_reel = getattr(mevduat, "reel_getiri_pp", None)
+    tefas_fonlari_pdf_bolumu(
+        doc,
+        tefas_ham,
+        profil=profil,
+        rejim=getattr(getattr(tahsis, "rejim", None), "rejim", None) or "NOTR",
+        mevduat_reel=_mev_reel,
+        gosterim_pb=para_birimi or "EUR",
     )
 
     # ── 4. HİSSE & ETF YATIRIM ÖNERİLERİ ────────────────────────────────────

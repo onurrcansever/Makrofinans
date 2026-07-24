@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import config
 from birlesik_oneri import AracDagilimSatir, BirlesikOneri, HedefSatir
@@ -93,6 +93,7 @@ class VarlikPozisyon:
     vade_gun: int = 0
     brut_faiz: float = 0.0
     notu: str = ""
+    hedef_fiyat: float = 0.0
 
     def birimli(self) -> bool:
         return self.tur in BIRIMLI_TURLER
@@ -193,66 +194,87 @@ def pozisyon_evren_listesi(
     from stock_universe import tum_hisseler
 
     q = (ara or "").strip().casefold()
-    out: List[PozisyonEvrenSecim] = []
+    # (alaka_sirasi, item) — kod eşleşmesi ad içindeki alt-dizeden önce gelir.
+    # Örn. "KLU" araması, "ÇOKLU" (ad) içeren CKL yerine kodu KLU olan fonu öne alır.
+    out: List[Tuple[int, PozisyonEvrenSecim]] = []
 
     def _eslesir(*parcalar: str) -> bool:
         if not q:
             return True
         return any(q in (p or "").casefold() for p in parcalar if p)
 
+    def _rank(kod: str, *ad_parcalar: str) -> Optional[int]:
+        """Alaka: 0=tam kod, 1=kod baş, 2=kod içi, 3=yalnız ad; None=eşleşmez."""
+        if not q:
+            return 0
+        k = (kod or "").casefold()
+        if k == q:
+            return 0
+        if k.startswith(q):
+            return 1
+        if q in k:
+            return 2
+        if any(q in (p or "").casefold() for p in ad_parcalar if p):
+            return 3
+        return None
+
     if tur == "hisse":
         for s, ad, piyasa, _ in tum_hisseler():
             if piyasa != "BIST":
                 continue
             kod = s.split(".")[0]
-            if not _eslesir(s, kod, ad):
+            r = _rank(kod, s, ad)
+            if r is None:
                 continue
-            out.append(PozisyonEvrenSecim(
+            out.append((r, PozisyonEvrenSecim(
                 sembol=s,
                 ad=ad,
                 label=f"{kod} — {ad}",
                 para_birimi="TL",
-            ))
+            )))
     elif tur == "hisse_us":
         for s, ad, piyasa, _ in tum_hisseler():
             if piyasa not in ("SP500", "NASDAQ"):
                 continue
             kod = s.split(".")[0]
-            if not _eslesir(s, kod, ad, piyasa):
+            r = _rank(kod, s, ad, piyasa)
+            if r is None:
                 continue
-            out.append(PozisyonEvrenSecim(
+            out.append((r, PozisyonEvrenSecim(
                 sembol=s,
                 ad=ad,
                 label=f"{kod} ({piyasa}) — {ad}",
                 para_birimi="USD",
-            ))
+            )))
     elif tur == "etf":
         for s, ad, _, _, rt in REVOLUT_ETFLER:
-            if not _eslesir(s, rt, ad):
+            r = _rank(rt or s, s, ad)
+            if r is None:
                 continue
-            out.append(PozisyonEvrenSecim(
+            out.append((r, PozisyonEvrenSecim(
                 sembol=s,
                 ad=ad,
                 label=f"{rt or s} — {ad}",
                 para_birimi="USD",
-            ))
+            )))
     elif tur == "tefas":
         for f in tefas_fonlar or []:
             kod = (getattr(f, "kod", "") or "").upper()
             ad = getattr(f, "kisa_ad", "") or getattr(f, "ad", "") or kod
-            if not kod or not _eslesir(kod, ad):
+            r = _rank(kod, ad)
+            if not kod or r is None:
                 continue
             pb = getattr(f, "para_birimi", "TL") or "TL"
             if pb not in ("TL", "EUR", "USD", "RON"):
                 pb = "TL"
-            out.append(PozisyonEvrenSecim(
+            out.append((r, PozisyonEvrenSecim(
                 sembol=kod,
                 ad=ad,
                 label=f"{kod} — {ad}",
                 para_birimi=pb,
-            ))
-    out.sort(key=lambda x: x.label)
-    return out
+            )))
+    out.sort(key=lambda ri: (ri[0], ri[1].label))
+    return [item for _, item in out]
 
 
 def pozisyon_canli_fiyat(
@@ -599,10 +621,52 @@ def oneri_portfoye_aktar(
     return eklenen
 
 
-def gunluk_snapshot_kaydet(store: VarlikStore, portfoy_id: str, degerler: Dict[str, float]) -> None:
-    """degerler: {TL, EUR, USD} toplam değer."""
+def pozisyon_maliyet_serisi(
+    pozisyonlar: List["VarlikPozisyon"],
+    tarihler_iso: List[str],
+    maliyet_fn,
+) -> List[float]:
+    """Her snapshot günü için, o güne kadar (alım_tarihi <= gün) alınmış
+    pozisyonların (hedef PB) maliyet toplamı.
+
+    Snapshot maliyet geçmişi yeni bir özellik olduğundan geriye dönük genelde
+    boştur; bu yardımcı, maliyet/enflasyon çizgilerini pozisyonların **gerçek
+    alım tarihlerinden** yeniden kurar (okuma-only, kayıtlı veriyi değiştirmez).
+    `maliyet_fn(poz) -> float` pozisyon maliyetini hedef PB'ye çevirir. Alım
+    tarihi boş pozisyonlar ilk günden itibaren sayılır. Bir güne katkı yoksa
+    NaN döner (grafikte kesintisiz çizmek için)."""
+    katkilar: List[Tuple[str, float]] = []
+    for p in pozisyonlar:
+        try:
+            tutar = float(maliyet_fn(p))
+        except Exception:
+            tutar = 0.0
+        if tutar and tutar > 0:
+            katkilar.append(((getattr(p, "alim_tarihi", "") or "")[:10], tutar))
+    seri: List[float] = []
+    for gun in tarihler_iso:
+        toplam = sum(t for (tar, t) in katkilar if (not tar) or tar <= gun)
+        seri.append(toplam if toplam > 0 else float("nan"))
+    return seri
+
+
+def gunluk_snapshot_kaydet(
+    store: VarlikStore,
+    portfoy_id: str,
+    degerler: Dict[str, float],
+    maliyetler: Dict[str, float] | None = None,
+) -> None:
+    """degerler: {TL, EUR, USD} piyasa değeri; maliyetler: aynı PB'lerde maliyet.
+
+    Maliyet, geriye dönük uyumlu olsun diye `maliyet_TL` gibi önekli anahtarlarla
+    aynı kayda eklenir — eski okuma (`.get(pb)`) bozulmaz; grafik değer vs maliyet
+    farkını (gerçek kâr/zarar) gösterebilir."""
     bugun = date.today().isoformat()
-    store.gunluk_snapshot.setdefault(bugun, {})[portfoy_id] = degerler
+    kayit = dict(degerler)
+    if maliyetler:
+        for k, v in maliyetler.items():
+            kayit[f"maliyet_{k}"] = v
+    store.gunluk_snapshot.setdefault(bugun, {})[portfoy_id] = kayit
     # Son 180 gün tut
     keys = sorted(store.gunluk_snapshot.keys())[-180:]
     store.gunluk_snapshot = {k: store.gunluk_snapshot[k] for k in keys}

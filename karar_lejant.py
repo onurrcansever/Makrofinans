@@ -20,6 +20,17 @@ V2_KARAR_SIRASI = ("GÜÇLÜ AL", "AL", "İZLE", "BEKLE", "AZALT")
 HISSE_AKSIYON_SUTUN = "Şimdi ne yap?"
 HISSE_MOMENTUM_SUTUN = "Momentum"
 HISSE_ALIM_SEVIYE_SUTUN = "Alım seviyesi"
+HISSE_TEMEL_SUTUN = "Temel"
+
+# Temel skor etiketleri (teknik aksiyondan bağımsız)
+FUND_LABEL_ACIKLAMA = {
+    "GÜÇLÜ": "Temel kalite yüksek (80–100)",
+    "SAĞLAM": "Temel kalite iyi (64–79)",
+    "NÖTR": "Temel nötr (52–63)",
+    "ZAYIF": "Temel zayıf (42–51)",
+    "RİSKLİ": "Temel riskli (0–41)",
+    "YETERSİZ": "Temel skor için veri yetersiz",
+}
 
 V2_KARAR_ACIKLAMA = {
     "GÜÇLÜ AL": "Yeni alım öncelikli değerlendirilebilir — Alım seviyesi’ne bak",
@@ -37,12 +48,18 @@ V1_KARAR_ACIKLAMA = {
     "ALMA": "Koşullar olumsuz — alım önerilmez",
 }
 
-# TEFAS * işareti (Öneri sütunu) — tüm öneri kodları için aynı anlam
+# TEFAS * işareti (Öneri sütunu) — mutlak skor; göreli yüzdelik yok
 TEFAS_YILDIZ_ACIKLAMA = (
-    "* = küçük akran grubu (aynı kategoride 8’den az fon) — göreli skor zayıf güvenilir. "
-    "AL* = AL önerisi; akran grubu küçük. "
-    "BEKLE* = BEKLE önerisi var ama akran grubu küçük. "
-    "İZLE*/Zayıf* aynı kural."
+    "* (öneri yanında) = küçük kategori (n<8) — skor mutlak; göreli sıralama yok, güven zayıf. "
+    "AL* = profil uyumu eşiği (≥64) geçildi ama akran az. "
+    "İZLE*/BEKLE*/Zayıf* aynı kural. "
+    "Fiyat sütunundaki † = gösterim PB belirsiz (ayrı işaret)."
+)
+
+TEFAS_STRES_CAPTION = (
+    "Makro **KRIZ / EM_STRES** → yeni risk AL yok "
+    "(hisse/değişken/fon sepeti; para piyasası/borçlanma istisna). "
+    "Hisse + endeks Artır + TEFAS aynı stres kuralı."
 )
 
 
@@ -69,6 +86,16 @@ def v2_lejant_markdown() -> str:
         "**Temel kapı:** negatif FCF+zarar, aşırı kaldıraç, analist sat, "
         "sektör F/K pahalı (soft) veya ≥2 soft bayrak → AL/GÜÇLÜ AL **İZLE**’ye çekilir."
     )
+    lines.append(
+        f"**{HISSE_TEMEL_SUTUN} skor** (ikinci eksen): GÜÇLÜ/SAĞLAM/NÖTR/ZAYIF/RİSKLİ — "
+        "teknik skordan bağımsız. **AZALT ≠ temel satım.**"
+    )
+    lines.append(
+        f"**{HISSE_AKSIYON_SUTUN} (birleşik):** teknik + temel + pahalı + giriş + Ichimoku. "
+        "**AL · küçük** nadirdir (skor≈AL + spot **ve** Ichimoku + Trend↑ + temel sağlam). "
+        "Sadece SAĞLAM + spot → **İZLE** kalır (eşiğe yakın notu). Yatırım tavsiyesi değildir."
+    )
+    lines.append(TEFAS_STRES_CAPTION)
     return "\n".join(lines)
 
 
@@ -80,7 +107,10 @@ def v1_lejant_markdown() -> str:
 
 
 def tefas_lejant_kisa() -> str:
-    return "Öneri: AL / İZLE / BEKLE / Zayıf · * = küçük akran grubu"
+    return (
+        "TEFAS öneri = **profil uyumu** (brüt getiri; stopaj/ücret skora girmez; emir değil) · "
+        "AL ≥68 / İZLE ≥52 · * = küçük kategori · hisse AL ile aynı şey değil"
+    )
 
 
 def tefas_lejant_caption() -> str:
@@ -89,13 +119,19 @@ def tefas_lejant_caption() -> str:
 
 def tefas_lejant_detay() -> str:
     return (
-        "Öneri: AL / İZLE / BEKLE / Zayıf · "
+        "TEFAS **AL** = profil + rejim uyum skoru (≥64), brüt getiri; "
+        "stopaj ve yönetim ücreti skora **girmez** — emir / hisse «Şimdi ne yap?» değildir. "
         + TEFAS_YILDIZ_ACIKLAMA
+        + " "
+        + TEFAS_STRES_CAPTION
     )
 
 
 def endeks_lejant_kisa() -> str:
-    return "Endeks önerisi pozisyon ağırlığıdır; hisse aksiyonundan ayrı okunur."
+    return (
+        "Endeks **Artır/Koru/Bekle/Azalt** = pozisyon ağırlığı · "
+        "Koru ≈ İZLE değildir · hisse «Şimdi ne yap?»tan ayrı"
+    )
 
 
 def endeks_lejant_caption() -> str:
@@ -112,20 +148,31 @@ def endeks_lejant_detay() -> str:
 
 def hisse_lejant_caption() -> str:
     """Tablo üstü — tek kısa satır (detay expander’da)."""
-    return (
-        f"**{HISSE_AKSIYON_SUTUN}** = al/ekle kararı · "
+    base = (
+        f"**Okuma:** makro → endeks → **{HISSE_AKSIYON_SUTUN}** → Alım seviyesi · "
+        f"**{HISSE_AKSIYON_SUTUN}** = al/ekle · "
         f"**{HISSE_MOMENTUM_SUTUN}** = skor rozeti "
-        f"(**{HISSE_AKSIYON_SUTUN} değildir**)"
+        f"(aksiyon değildir) · KRIZ/EM_STRES → yeni risk AL yok"
     )
+    try:
+        from signal_engine.quality.fund_score_ui import fund_score_ui_enabled
+
+        if fund_score_ui_enabled():
+            base += f" · **{HISSE_TEMEL_SUTUN}** = bağımsız temel skor (deneysel)"
+    except Exception:
+        pass
+    return base
 
 
 def hisse_playbook_caption() -> str:
     """Kısa kullanım: ne zaman alırım."""
     return (
-        "**AL / GÜÇLÜ AL** → Alım seviyesi’ne bak. "
-        "**İZLE** → yeni alım yok. "
-        "**BEKLE / AZALT** → ekleme yok. "
-        "Eşiğe yakın = şimdi alma."
+        "**Okuma sırası:** makro → endeks ağırlık → «Şimdi ne yap?» → Alım seviyesi/Ichimoku. "
+        "**AL / GÜÇLÜ AL** → Alım seviyesi yakın + Ichimoku açıkken kademeli değerlendir "
+        "(tek rozet = emir değil). "
+        "**İZLE** → yeni alım yok. **BEKLE / AZALT** → ekleme yok. "
+        "Evren likit/Revolut odaklı kişisel liste — piyasa-geniş tarama değil. "
+        "KRIZ/EM_STRES → yeni risk AL yok."
     )
 
 

@@ -11,14 +11,23 @@ from tefas_data import FonPerformans, TefasTaramaSonuc
 from tefas_universe import KATEGORILER, tefas_fiyat_kaynak_pb
 
 # Signal Engine v2 karar eşikleri ile aynı skala (0–100)
-_ONERI_AL = 64
+_ONERI_AL = 68
 _ONERI_IZLE = 52
 _ONERI_BEKLE = 42
 MIN_PEER_FOR_RELATIVE = 8
+# YBB bu eşiğin altında (ör. −95) — kısa vade 1A pozitif olsa bile AL/İZLE yok
+_YBB_FELAKET_ESIK = -40.0
+# Soft YBB cezası — felaket değil ama AL zayıflat
+_YBB_SOFT_ESIK = -25.0
 
 KISA_VADE_HISSE_ESIK = 15.0
 KISA_VADE_FON_SEPETI_ESIK = 20.0
 KISA_VADE_KARMA_KATEGORILER = frozenset({"hisse", "degisken", "fon_sepeti"})
+# KRIZ/EM_STRES — hisse pipeline _makro_karar_tavan ile uyum
+_MAKRO_STRES = frozenset({"KRIZ", "EM_STRES"})
+_MAKRO_STRES_RISK_KAT = frozenset({"hisse", "degisken", "fon_sepeti"})
+# Stres altında AL tutabilir (savunma)
+_MAKRO_STRES_AL_ISTISNA = frozenset({"para_piyasasi", "borclanma", "katilim"})
 
 
 def kisa_vade_tefas_uygun(f: FonPerformans) -> bool:
@@ -122,15 +131,51 @@ def _getiri_skoru_gosterim(
     f.getiri_gosterim_1a = g1
     f.getiri_gosterim_3a = g3
     f.getiri_gosterim_ybb = gy
-    if vade_cok_kisa_mi(profil.vade) or profil.vade == "kisa_3":
+    # Kısa vade: 1A ağır ama 3A/YBB tabanı ile kovalama yumuşat
+    if vade_cok_kisa_mi(profil.vade):
         g = g1 if g1 is not None else f.getiri_1a
-    elif vade_kisa_mi(profil.vade) or profil.vade == "kisa_6":
+        if g is None:
+            return 0.0
+        base = float(g) * 0.85
+        # YBB çok kötüyse kısmi ceza (felaket guard ayrıca)
+        if gy is not None and float(gy) < 0:
+            base = min(base, float(gy) * 0.15)
+        return max(-20.0, min(25.0, base))
+    if profil.vade == "kisa_3":
+        # 1A + 3A karışımı — salt 1A kovalama azalır
+        parts = []
+        if g1 is not None:
+            parts.append(float(g1) * 0.45)
+        if g3 is not None:
+            parts.append(float(g3) * 0.55)
+        if not parts:
+            g = f.getiri_1a
+            return max(-20.0, min(25.0, float(g or 0) * 0.85))
+        return max(-20.0, min(25.0, sum(parts)))
+    if vade_kisa_mi(profil.vade) or profil.vade == "kisa_6":
         g = g3 if g3 is not None else g1
     else:
         g = gy if gy is not None else g3
     if g is None:
         return 0.0
     return max(-20.0, min(25.0, float(g) * 0.85))
+
+
+def _ucret_soft_ceza(f: FonPerformans) -> float:
+    """Yüksek TGO/yön. ücreti — hafif skor cezası (stopaj skora girmez)."""
+    try:
+        tgo = f.tgo_pct
+        if tgo is not None and float(tgo) >= 2.5:
+            return -3.0
+    except (TypeError, ValueError):
+        pass
+    try:
+        yon = f.yonetim_ucreti_pct
+        if yon is not None and float(yon) >= 2.0:
+            return -2.0
+    except (TypeError, ValueError):
+        pass
+    return 0.0
 
 
 def _buyukluk_skoru(f: FonPerformans) -> float:
@@ -229,6 +274,55 @@ def _tum_getiriler_negatif(f: FonPerformans) -> bool:
     return all(v <= 0 for v in present)
 
 
+def _ybb_felaket(f: FonPerformans) -> bool:
+    """YBB felaket — kısa vade 1A'ya baksa bile öneriyi kapatır."""
+    gy = f.getiri_gosterim_ybb
+    if gy is None:
+        gy = f.getiri_ybb
+    return gy is not None and float(gy) <= _YBB_FELAKET_ESIK
+
+
+def _ybb_degeri(f: FonPerformans) -> Optional[float]:
+    gy = f.getiri_gosterim_ybb
+    if gy is None:
+        gy = f.getiri_ybb
+    if gy is None:
+        return None
+    try:
+        return float(gy)
+    except (TypeError, ValueError):
+        return None
+
+
+def _makro_tefas_tavan(f: FonPerformans, rejim: str) -> None:
+    """KRIZ/EM_STRES — yeni risk AL yok (hisse pipeline ile uyum).
+
+    para_piyasasi / borclanma / katilim: AL istisnası.
+    hisse / degisken / fon_sepeti: AL ve İZLE → BEKLE.
+    Diğerleri: AL → İZLE.
+    """
+    r = (rejim or "").upper()
+    if r not in _MAKRO_STRES:
+        return
+    kat = f.kategori or f.etkin_kategori or ""
+    if kat in _MAKRO_STRES_AL_ISTISNA:
+        return
+    if kat in _MAKRO_STRES_RISK_KAT:
+        if f.oneri in ("AL", "IZLE"):
+            f.oneri = "BEKLE"
+            f.skor = min(float(f.skor or 0), float(_ONERI_BEKLE + 3))
+            note = f"Makro {r}: risk kategorisi AL/İZLE kapalı"
+            if note not in (f.skor_notu or ""):
+                f.skor_notu = (f.skor_notu + f" · {note}").strip(" ·")
+        return
+    if f.oneri == "AL":
+        f.oneri = "IZLE"
+        f.skor = min(float(f.skor or 0), float(_ONERI_AL - 1))
+        note = f"Makro {r}: AL → İZLE (yeni risk yok)"
+        if note not in (f.skor_notu or ""):
+            f.skor_notu = (f.skor_notu + f" · {note}").strip(" ·")
+
+
 def _oneri_from_norm(norm: float) -> str:
     if norm >= _ONERI_AL:
         return "AL"
@@ -243,6 +337,7 @@ def _skor_ve_oneri_uygula(
     f: FonPerformans,
     *,
     kategori_sayilari: Dict[str, int],
+    rejim: str = "",
 ) -> None:
     kat_n = kategori_sayilari.get(f.kategori or "", 0)
     f.akran_kucuk = kat_n < MIN_PEER_FOR_RELATIVE
@@ -250,6 +345,17 @@ def _skor_ve_oneri_uygula(
 
     if _tum_getiriler_negatif(f):
         norm = min(norm, float(_ONERI_IZLE - 1))
+
+    # YBB −40% altı (YLR −95 gibi): kategori/1A ne olursa olsun AL/İZLE yok
+    if _ybb_felaket(f):
+        norm = min(norm, float(_ONERI_BEKLE - 1))
+    else:
+        # Soft YBB (−25…−40): AL eşiğini zorlaştır
+        gy = _ybb_degeri(f)
+        if gy is not None and gy <= _YBB_SOFT_ESIK:
+            # −25 → −4, −40 → −12 civarı
+            soft = max(-12.0, min(-4.0, (gy + 25.0) * 0.5 - 4.0))
+            norm = norm + soft
 
     if norm >= 100.0 or (norm >= 99.5 and f.skor_ham < 40):
         norm = 99.0
@@ -269,11 +375,33 @@ def _skor_ve_oneri_uygula(
         f.skor = min(f.skor, float(_ONERI_BEKLE + 3))
         f.skor_notu = (f.skor_notu + " · Görünen getiriler negatif").strip(" ·")
 
+    if _ybb_felaket(f) and f.oneri in ("AL", "IZLE"):
+        f.oneri = "ZAYIF"
+        f.skor = min(f.skor, float(_ONERI_BEKLE - 1))
+        gy = f.getiri_gosterim_ybb if f.getiri_gosterim_ybb is not None else f.getiri_ybb
+        f.skor_notu = (
+            f.skor_notu + f" · YBB %{gy:.0f} felaket — AL/İZLE kapalı"
+        ).strip(" ·")
+    elif _ybb_felaket(f):
+        gy = f.getiri_gosterim_ybb if f.getiri_gosterim_ybb is not None else f.getiri_ybb
+        note = f"YBB %{gy:.0f} felaket — AL/İZLE kapalı"
+        if note not in (f.skor_notu or ""):
+            f.skor_notu = (f.skor_notu + f" · {note}").strip(" ·")
+    else:
+        gy = _ybb_degeri(f)
+        if gy is not None and gy <= _YBB_SOFT_ESIK and f.oneri == "AL":
+            note = f"YBB %{gy:.0f} zayıf — skor cezası"
+            if note not in (f.skor_notu or ""):
+                f.skor_notu = (f.skor_notu + f" · {note}").strip(" ·")
+
+    _makro_tefas_tavan(f, rejim)
+
 
 def tefas_oneri_yenile(
     fonlar: Sequence[FonPerformans],
     *,
     tum_fonlar: Optional[Sequence[FonPerformans]] = None,
+    rejim: str = "",
 ) -> None:
     """Etiketleri mutlak skorla yenile — filtrelenmiş küçük gruplarda yüzdelik sıralama yok."""
     if not fonlar:
@@ -281,11 +409,16 @@ def tefas_oneri_yenile(
     ref = tum_fonlar if tum_fonlar is not None else fonlar
     kat_s = _kategori_sayilari(ref)
     for f in fonlar:
-        _skor_ve_oneri_uygula(f, kategori_sayilari=kat_s)
+        _skor_ve_oneri_uygula(f, kategori_sayilari=kat_s, rejim=rejim)
 
 
-def assert_tefas_skor_tutarliligi(fonlar: Sequence[FonPerformans]) -> None:
-    """CI: AL + skor 100 + tüm görünen getiriler negatif olamaz."""
+def assert_tefas_skor_tutarliligi(
+    fonlar: Sequence[FonPerformans],
+    *,
+    rejim: str = "",
+) -> None:
+    """CI: AL + skor 100 + tüm görünen getiriler negatif / YBB felaket olamaz."""
+    r = (rejim or "").upper()
     for f in fonlar:
         if f.skor >= 100.0 and f.oneri == "AL":
             raise AssertionError(
@@ -296,6 +429,21 @@ def assert_tefas_skor_tutarliligi(fonlar: Sequence[FonPerformans]) -> None:
                 f"{f.kod}: AL while all display returns negative "
                 f"(1A={f.getiri_gosterim_1a}, 3A={f.getiri_gosterim_3a}, YBB={f.getiri_gosterim_ybb})"
             )
+        if f.oneri in ("AL", "IZLE") and _ybb_felaket(f):
+            raise AssertionError(
+                f"{f.kod}: {f.oneri} while YBB felaket "
+                f"(YBB={f.getiri_gosterim_ybb})"
+            )
+        if r in _MAKRO_STRES:
+            kat = f.kategori or ""
+            if kat in _MAKRO_STRES_RISK_KAT and f.oneri in ("AL", "IZLE"):
+                raise AssertionError(
+                    f"{f.kod}: {f.oneri} under {r} for risk kategori {kat}"
+                )
+            if kat not in _MAKRO_STRES_AL_ISTISNA and f.oneri == "AL":
+                raise AssertionError(
+                    f"{f.kod}: AL under {r} outside savunma istisnası ({kat})"
+                )
 
 
 def fonlari_skorla(
@@ -338,10 +486,11 @@ def fonlari_skorla(
         mevduat_adj, mev_not = _mevduat_ayari(
             f, mevduat_reel=mevduat_reel, mevduat_ozet=mevduat_ozet,
         )
+        ucret = _ucret_soft_ceza(f)
         if mev_not:
             f.skor_notu = mev_not
 
-        skor = kat + vade + getiri + buyuk + mevduat_adj
+        skor = kat + vade + getiri + buyuk + mevduat_adj + ucret
         f.skor_ham = round(skor, 1)
         src_pb = _fon_getiri_kaynak_pb(f)
         f.skor_faktorler = {
@@ -350,6 +499,7 @@ def fonlari_skorla(
             f"getiri_{gpb}": round(getiri, 1),
             "buyukluk": round(buyuk, 1),
             "mevduat": round(mevduat_adj, 1),
+            "ucret": round(ucret, 1),
         }
 
         if not f.skor_notu:
@@ -361,7 +511,7 @@ def fonlari_skorla(
             else:
                 f.skor_notu = f"{KATEGORILER.get(f.kategori, f.kategori)} · getiri kaynak {src_pb}"
 
-        _skor_ve_oneri_uygula(f, kategori_sayilari=kat_s)
+        _skor_ve_oneri_uygula(f, kategori_sayilari=kat_s, rejim=rejim)
 
     sonuc.fonlar.sort(key=lambda x: (-x.skor, -(x.getiri_gosterim_3a or x.getiri_3a or -999)))
     return sonuc

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ModulCheck Pro — Enterprise light theme for Streamlit."""
+"""ModulCheck Pro — koyu finans paneli (terminal hissi; kendi marka)."""
 from __future__ import annotations
 
 import html
@@ -15,22 +15,24 @@ try:
 except ImportError:  # pragma: no cover
     go = None
 
-BG = "#ffffff"
-PANEL = "#ffffff"
-PANEL_HOVER = "#f8f9fa"
-BORDER = "#e8eaed"
-TEXT = "#202124"
-TEXT_MUTED = "#5f6368"
-UP = "#137333"
-UP_BG = "#e6f4ea"
-DOWN = "#a50e0e"
-DOWN_BG = "#fce8e6"
-ACCENT = "#1a73e8"
-WARN = "#b06000"
-WARN_BG = "#fef7e0"
-MUTED_BG = "#e8eaed"
+# Koyu terminal yüzeyleri (FVT tarzı ilham — kendi palet)
+BG = "#181A20"
+PANEL = "#1E2329"
+PANEL_HOVER = "#2B3139"
+BORDER = "#2B3139"
+TEXT = "#EAECEF"
+TEXT_MUTED = "#848E9C"
+UP = "#0ECB81"
+UP_BG = "rgba(14,203,129,0.14)"
+DOWN = "#F6465D"
+DOWN_BG = "rgba(246,70,93,0.14)"
+ACCENT = "#14B8A6"
+WARN = "#F59E0B"
+WARN_BG = "rgba(245,158,11,0.14)"
+MUTED_BG = "#2B3139"
 
-_FONT = "'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+_FONT = "'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+_FONT_TITLE = "'Lexend', 'IBM Plex Sans', system-ui, sans-serif"
 
 KARAR_STYLES = {
     # Signal Engine v2 — Google Finance pastel pills
@@ -59,11 +61,11 @@ EMIR_STYLES = {
     "CIKIS": (WARN, WARN_BG),
     "ELDE": (UP, UP_BG),
     "PASIF": (TEXT_MUTED, MUTED_BG),
-    "EKLEME": (ACCENT, "rgba(26,115,232,0.10)"),
+    "EKLEME": (ACCENT, "rgba(20,184,166,0.14)"),
     "KÜÇÜLT": (DOWN, DOWN_BG),
     "KUCULT": (DOWN, DOWN_BG),
     "AZALT": (DOWN, DOWN_BG),
-    "EKLE": (ACCENT, "rgba(26,115,232,0.10)"),
+    "EKLE": (ACCENT, "rgba(20,184,166,0.14)"),
     "UZAK": (DOWN, DOWN_BG),
     "GÜÇLÜ": (UP, UP_BG),
     "GUCLU": (UP, UP_BG),
@@ -96,23 +98,23 @@ _NUM = (
     "font-variant-numeric:tabular-nums;font-feature-settings:'tnum';"
 )
 _CELL = (
-    f"flex:1 1 140px;min-width:120px;max-width:200px;background:{PANEL};"
-    f"border:1px solid {BORDER};border-radius:8px;padding:12px 14px;"
+    f"flex:1 1 130px;min-width:110px;max-width:190px;background:{PANEL};"
+    f"border:1px solid {BORDER};border-radius:12px;padding:10px 12px;"
     f"box-shadow:none;"
-    f"display:flex;flex-direction:column;gap:4px;min-height:78px;"
+    f"display:flex;flex-direction:column;gap:3px;min-height:68px;"
 )
-_STRIP = "display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 16px;"
+_STRIP = "display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px;"
 _TH = (
-    f"position:sticky;top:0;background:{PANEL};color:{TEXT_MUTED};"
-    f"font-size:12px;text-transform:none;letter-spacing:0;font-weight:500;"
+    f"position:sticky;top:0;background:{PANEL_HOVER};color:{TEXT_MUTED};"
+    f"font-size:11px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600;"
     f"font-family:{_FONT};"
-    f"text-align:left;padding:12px 16px;border-bottom:1px solid {BORDER};white-space:nowrap;"
+    f"text-align:left;padding:8px 12px;border-bottom:1px solid {BORDER};white-space:nowrap;"
     "vertical-align:middle;line-height:1.2;"
 )
 _TD = (
-    f"padding:12px 16px;height:48px;box-sizing:border-box;"
+    f"padding:8px 12px;height:38px;box-sizing:border-box;"
     f"border-bottom:1px solid {BORDER};color:{TEXT};"
-    f"vertical-align:middle;font-size:14px;font-weight:400;line-height:1.35;"
+    f"vertical-align:middle;font-size:13px;font-weight:400;line-height:1.25;"
     f"white-space:nowrap;font-family:{_FONT};"
 )
 
@@ -129,7 +131,7 @@ def _esc(val: Any) -> str:
 
 
 def render_page_header(title: str, subtitle: str = "") -> None:
-    """Tüm sayfalarda aynı Google Finance başlık hiyerarşisi."""
+    """Sayfa başlığı — koyu panel hiyerarşisi."""
     t = _esc(title)
     sub = _esc(subtitle) if subtitle else ""
     sub_html = f'<p class="mc-page-sub">{sub}</p>' if sub else ""
@@ -159,6 +161,24 @@ def _pct_pill(val: float, *, with_pct: bool = True) -> str:
     if val < 0:
         return f'<span style="{base}color:{DOWN};background:{DOWN_BG};">▼ {_esc(txt)}</span>'
     return f'<span style="{base}color:{TEXT};background:{MUTED_BG};">{_esc(txt)}</span>'
+
+
+def format_premarket_pill_html(price_txt: str, pct: Optional[float]) -> str:
+    """Premarket — fiyat + % renkli kutu (getiri sütunlarıyla aynı stil)."""
+    base = (
+        f"display:inline-block;font-family:{_FONT};font-size:13px;font-weight:500;"
+        "padding:2px 8px;border-radius:8px;line-height:1.3;white-space:nowrap;"
+    )
+    px = _esc(price_txt)
+    if pct is None:
+        return f'<span style="{base}color:{TEXT};background:{MUTED_BG};">{px}</span>'
+    sign = "+" if pct > 0 else ""
+    tail = _esc(f"{sign}{pct:.1f}%")
+    if pct > 0:
+        return f'<span style="{base}color:{UP};background:{UP_BG};">▲ {px} ({tail})</span>'
+    if pct < 0:
+        return f'<span style="{base}color:{DOWN};background:{DOWN_BG};">▼ {px} ({tail})</span>'
+    return f'<span style="{base}color:{TEXT};background:{MUTED_BG};">{px} ({tail})</span>'
 
 
 def _sinyal_cell_html(mark: str, tip: str) -> str:
@@ -205,7 +225,7 @@ def _fmt_delta(
 
 
 def render_metric_strip(metrics: Sequence[Dict[str, Any]]) -> None:
-    """Google Finance kart şeridi — flat, gölgesiz."""
+    """Kompakt metrik kart şeridi — flat koyu panel."""
     cells = []
     for m in metrics:
         label = _esc(m.get("label", ""))
@@ -217,10 +237,10 @@ def render_metric_strip(metrics: Sequence[Dict[str, Any]]) -> None:
         )
         cells.append(
             f'<div style="{_CELL}">'
-            f'<div style="font-size:12px;color:{TEXT_MUTED};font-weight:400;'
-            f'font-family:{_FONT};">{label}</div>'
-            f'<div style="{_NUM}font-size:20px;font-weight:500;color:{TEXT};line-height:1.25;">{value}</div>'
-            f'<div style="min-height:20px;line-height:1.3;">{delta_html}</div>'
+            f'<div style="font-size:11px;color:{TEXT_MUTED};font-weight:500;'
+            f'font-family:{_FONT};letter-spacing:0.03em;text-transform:uppercase;">{label}</div>'
+            f'<div style="{_NUM}font-size:18px;font-weight:600;color:{TEXT};line-height:1.2;">{value}</div>'
+            f'<div style="min-height:18px;line-height:1.25;">{delta_html}</div>'
             f"</div>"
         )
     st.markdown(f'<div style="{_STRIP}">{"".join(cells)}</div>', unsafe_allow_html=True)
@@ -358,7 +378,7 @@ def format_df_cell_html(
         return _sinyal_cell_html(mark, tip)
     if isinstance(val, (list, tuple)) and col in ("90g", "Skor trend"):
         return score_sparkline_svg(val)
-    if col in ("Rejim", "Özet") and isinstance(val, str) and "<span" in val:
+    if col in ("Rejim", "Özet", "Premarket") and isinstance(val, str) and "<span" in val:
         return val
     if col in _BADGE_COLS or col == badge_col:
         return _format_cell(col, val)
@@ -469,9 +489,9 @@ def build_df_table_html(
     return (
         f'<div class="mc-df-table" style="{wrap}">'
         f'<table style="width:100%;border-collapse:collapse;table-layout:auto;'
-        f'font-size:14px;font-family:{_FONT};">'
+        f'font-size:13px;font-family:{_FONT};">'
         f"<thead><tr>{head}</tr></thead>"
-        f'<tbody>{"".join(rows)}</tbody></table></div>'
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
 
@@ -500,22 +520,22 @@ def render_df_table(
 
 
 def plotly_base_layout(**extra) -> dict:
-    grid_color = "#e8eaed"
+    grid_color = BORDER
     layout = dict(
-        template="plotly_white",
+        template="plotly_dark",
         paper_bgcolor=PANEL,
         plot_bgcolor=PANEL,
-        font=dict(family="Roboto, sans-serif", color=TEXT, size=12),
+        font=dict(family="IBM Plex Sans, system-ui, sans-serif", color=TEXT, size=12),
         margin=dict(l=40, r=20, t=28, b=32),
         hovermode="x unified",
         hoverlabel=dict(
-            bgcolor=PANEL,
+            bgcolor=PANEL_HOVER,
             bordercolor=BORDER,
-            font=dict(family="Roboto, sans-serif", color=TEXT, size=12),
+            font=dict(family="IBM Plex Sans, system-ui, sans-serif", color=TEXT, size=12),
         ),
         xaxis=dict(gridcolor=grid_color, zerolinecolor=grid_color, linecolor=grid_color),
         yaxis=dict(gridcolor=grid_color, zerolinecolor=grid_color, linecolor=grid_color),
-        legend=dict(bgcolor="rgba(255,255,255,0.8)", font=dict(color=TEXT_MUTED)),
+        legend=dict(bgcolor="rgba(30,35,41,0.92)", font=dict(color=TEXT_MUTED)),
     )
     layout.update(extra)
     return layout
@@ -543,7 +563,7 @@ def plotly_area_line(
             mode="lines",
             line=dict(color=color, width=2),
             fill="tozeroy" if i == 0 else None,
-            fillcolor="rgba(37,99,235,0.07)" if i == 0 else None,
+            fillcolor="rgba(20,184,166,0.12)" if i == 0 else None,
         ))
     fig.update_layout(**plotly_base_layout(title=title, height=height))
     st.plotly_chart(fig, use_container_width=True)

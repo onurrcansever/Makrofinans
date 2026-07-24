@@ -10,7 +10,8 @@ Kullanılan ücretsiz/açık kaynaklar:
 - FRED (St. Louis Fed)    -> ABD Fed politika faizi (ücretsiz key gerekir)
 - TCMB EVDS               -> TCMB politika faizi, brüt rezervler (ücretsiz key gerekir)
 - GDELT DOC 2.0 API       -> siyasi risk / savaş risk haber taraması (key gerekmez)
-- manual_inputs.json      -> CDS gibi güvenilir ücretsiz API'si olmayan veriler
+- Investing.com / WorldGovernmentBonds -> Türkiye CDS 5Y (scrape; curl_cffi tercih)
+- manual_inputs.json      -> CDS disk yedek (otomatik senkron; elle girilmez)
 
 NOT: Bu ortamda (Claude'un sandbox'ında) dış ağ erişimi kısıtlı olduğu
 için bu fonksiyonlar burada TEST EDİLEMEDİ. Kendi bilgisayarınızda veya
@@ -258,6 +259,50 @@ _BROWSER_HEADERS = {
 }
 
 
+def _http_get_browser(url: str, *, headers: Optional[dict] = None, timeout: int = TIMEOUT):
+    """Investing/WGB için tarayıcı benzeri GET — curl_cffi (Chrome) → requests."""
+    extra = dict(headers or {})
+    try:
+        from curl_cffi import requests as creq
+
+        # User-Agent vermeyin — impersonate kendi UA'sını kullanır; özel UA → 403
+        cffi_hdr = {k: v for k, v in {**_BROWSER_HEADERS, **extra}.items() if k.lower() != "user-agent"}
+        r = creq.get(url, headers=cffi_hdr, timeout=timeout, impersonate="chrome")
+        r.raise_for_status()
+        return r
+    except Exception:
+        pass
+    r = requests.get(url, headers={**_BROWSER_HEADERS, **extra}, timeout=timeout)
+    r.raise_for_status()
+    return r
+
+
+def _http_post_browser(
+    url: str,
+    *,
+    json_body: Optional[dict] = None,
+    headers: Optional[dict] = None,
+    timeout: int = TIMEOUT,
+):
+    extra = dict(headers or {})
+    try:
+        from curl_cffi import requests as creq
+
+        cffi_hdr = {k: v for k, v in {**_BROWSER_HEADERS, **extra}.items() if k.lower() != "user-agent"}
+        r = creq.post(
+            url, headers=cffi_hdr, json=json_body, timeout=timeout, impersonate="chrome",
+        )
+        r.raise_for_status()
+        return r
+    except Exception:
+        pass
+    r = requests.post(
+        url, headers={**_BROWSER_HEADERS, **extra}, json=json_body, timeout=timeout,
+    )
+    r.raise_for_status()
+    return r
+
+
 @dataclass
 class CdsFetchSonuc:
     deger: float
@@ -284,8 +329,7 @@ def _investing_next_data(url: str) -> Optional[dict]:
     import re
 
     try:
-        r = requests.get(url, headers=_BROWSER_HEADERS, timeout=TIMEOUT)
-        r.raise_for_status()
+        r = _http_get_browser(url, timeout=TIMEOUT)
         m = re.search(
             r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
             r.text,
@@ -364,8 +408,7 @@ def turkiye_cds_5y_investing_html() -> Optional[tuple[float, str]]:
 
     for url in INVESTING_CDS_URLS:
         try:
-            r = requests.get(url, headers=_BROWSER_HEADERS, timeout=TIMEOUT)
-            r.raise_for_status()
+            r = _http_get_browser(url, timeout=TIMEOUT)
             m = re.search(
                 r'data-test="instrument-price-last"[^>]*>\s*([0-9][0-9.,]*)',
                 r.text,
@@ -417,8 +460,7 @@ def turkiye_cds_5y_wgb() -> Optional[tuple[float, str]]:
         "Accept": "application/json, text/plain, */*",
     }
     try:
-        sayfa = requests.get(WGB_CDS_PAGE, headers=headers, timeout=TIMEOUT)
-        sayfa.raise_for_status()
+        sayfa = _http_get_browser(WGB_CDS_PAGE, headers=headers, timeout=TIMEOUT)
         m = re.search(r"jsGlobalVars\s*=\s*(\{.*?\});", sayfa.text, re.DOTALL)
         if not m:
             return None
@@ -429,8 +471,7 @@ def turkiye_cds_5y_wgb() -> Optional[tuple[float, str]]:
             "ENDPOINT",
             "https://www.worldgovernmentbonds.com/wp-json/common/v1/historical",
         )
-        r = requests.post(endpoint, json=payload, headers=headers, timeout=TIMEOUT)
-        r.raise_for_status()
+        r = _http_post_browser(endpoint, json_body=payload, headers=headers, timeout=TIMEOUT)
         body = r.json()
         if not body.get("success"):
             return None

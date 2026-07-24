@@ -20,7 +20,7 @@ Kaynak özet: Türkiye menkul kıymet vergileme matrisi (2026 dönemi özeti; ku
 ## Kısa kurallar (Tam mükellef gerçek kişi)
 
 1. **BIST’te işlem gören hisse alım-satım** — Geçici 67: stopaj çoğu senaryoda **%0**; stopaj nihai / beyan genelde yok (özet; süre ve istisna koşulları için kaynak tabloya bakın).
-2. **TEFAS / yatırım fonu** — Stopaj oranı **iktisap (alış) tarihine ve fon türüne** bağlı (%0 / %7,5 / %10 / %15…). Hisse senedi yoğun fonlarda sıklıkla %0. Unvanında “döviz”, yabancı, eurobond vb. geçenler istisna dışı kalabilir. Banka/TEFAS ekranındaki stopajı esas alın.
+2. **TEFAS / yatırım fonu** — Stopaj oranı **iktisap (alış) tarihine ve fon türüne** bağlı. Varsayılan yeni iktisap (≥09.07.2025 / 10041 sayılı karar): çoğu fon **%17,5**; hisse senedi yoğun TEFAS fonları **%0**. Eski dilimler: %0 / %7,5 / %10 / %15. Unvanında “döviz”, yabancı, eurobond vb. geçenlerde banka teyidi şart. Yazılım matrisi bilgi amaçlıdır; getiriler brüt kalır.
 3. **TL vadeli mevduat** — Uygulama varsayılanı yaklaşık **%15** stopaj (net % tabloda). Dönemsel vade dilimleri değişebilir → bankadan teyit.
 4. **Döviz mevduat (EUR/USD)** — Uygulama varsayılanı yaklaşık **%25** stopaj; yine banka teyidi.
 5. **Yabancı hisse / yurt dışı ETF (ör. Revolut NASDAQ)** — BIST Geç. 67 ile **aynı değildir**. TR stopaj matrisi otomatik uygulanmaz; aracı kurum + olası beyan ayrı konu.

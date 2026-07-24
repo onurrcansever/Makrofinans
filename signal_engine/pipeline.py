@@ -179,12 +179,20 @@ def signal_engine_v2_uygula(
     temel_cache: Dict = {}
     try:
         from temel_veri import yukle_cache
+        from signal_engine.quality.fund_score import ensure_temel_cache_for_fund_score
 
-        temel_cache = yukle_cache()
+        temel_cache = yukle_cache() or {}
+        # Eksik hisse temelini doldur — UNH tipi yanlış YETERSİZ engeli
+        temel_cache = ensure_temel_cache_for_fund_score(hisseler, temel_cache)
         peer_map = build_peer_valuation_map(hisseler, temel_cache)
     except Exception:
         peer_map = {}
-        temel_cache = {}
+        try:
+            from temel_veri import yukle_cache
+
+            temel_cache = yukle_cache() or {}
+        except Exception:
+            temel_cache = {}
 
     for h, comp, regime, entry, bars, bench, meta, prev, cold, cold_reason, bar_date in prepared:
         decision = decide(comp.score, comp.percentile, regime, entry, cfg, prev_code=prev)
@@ -199,6 +207,7 @@ def signal_engine_v2_uygula(
             h.signal_v2_peer_val = None
             h.signal_v2_peer_note = ""
         # Temel finans kapısı — cache hit; yoksa no-op (yanlış İZLE yok)
+        temel: dict = {}
         try:
             from signal_engine.quality.fund_gate import apply_fund_gate_to_code
 
@@ -209,11 +218,114 @@ def signal_engine_v2_uygula(
                 temel = yukle_cache().get(sym_u, {})
             code = apply_fund_gate_to_code(code, temel, h, gates, peer=peer)
         except Exception:
-            pass
+            temel = {}
+        # Bağımsız TEMEL SKOR (fund_gate değiştirmez; blended yok)
+        fund = None
+        try:
+            from signal_engine.quality.fund_score import (
+                build_peer_ctx_for_symbol,
+                compute_fund_score,
+                is_etf_or_emtia,
+                temel_fund_yeterli,
+            )
+
+            if is_etf_or_emtia(h, temel):
+                h.signal_v2_fund_score = None
+                h.signal_v2_fund_label = "—"  # ETF/emtia: YETERSİZ değil, bilanço yok
+                h.signal_v2_fund_pillars = {}
+                h.signal_v2_fund_score_detail = {
+                    "score": None,
+                    "label": "—",
+                    "reasons": ["ETF/emtia — temel skor uygulanmaz"],
+                }
+                fund = None
+            else:
+                if not temel:
+                    temel = (temel_cache or {}).get(sym_u, {})
+                if not temel_fund_yeterli(temel):
+                    # Son şans: tek sembol çek
+                    try:
+                        from temel_veri import get_temel
+
+                        t2 = get_temel(sym_u)
+                        if t2:
+                            temel = t2
+                            temel_cache[sym_u] = t2
+                    except Exception:
+                        pass
+                peer_ctx = build_peer_ctx_for_symbol(
+                    sym_u, h, temel_cache or {}, hisseler, mode="live",
+                )
+                if peer is not None and hasattr(peer, "pe_pct"):
+                    peer_ctx.setdefault("pe_pct", peer.pe_pct)
+                    peer_ctx.setdefault("pe_pct_n", peer.peer_n)
+                fund = compute_fund_score(temel, peer_ctx, mode="live")
+                h.signal_v2_fund_score = fund.score
+                h.signal_v2_fund_label = fund.label
+                h.signal_v2_fund_pillars = fund.pillars
+                h.signal_v2_fund_score_detail = fund.as_dict()
+        except Exception:
+            fund = None
+            h.signal_v2_fund_score = None
+            h.signal_v2_fund_label = "YETERSİZ"
+            h.signal_v2_fund_pillars = {}
+            h.signal_v2_fund_score_detail = None
+
+        # Ichimoku alım bölgesi + birleşik sentez → nihai Şimdi ne yap?
+        try:
+            from signal_engine.decisions.decision_synth import synthesize_action
+            from signal_engine.entry.ichimoku import compute_ichimoku_zone
+            from signal_engine.quality.fund_score import format_dual_line
+
+            ichi = compute_ichimoku_zone(bars)
+            h.signal_v2_ichimoku = ichi.as_dict()
+            peer_d = peer.as_dict() if peer is not None and hasattr(peer, "as_dict") else (
+                peer if isinstance(peer, dict) else None
+            )
+            synth = synthesize_action(
+                code,
+                fund_label=getattr(h, "signal_v2_fund_label", "") or "YETERSİZ",
+                peer=peer_d,
+                spot_near=bool(getattr(entry, "spot_near", False)),
+                spot_distance_pct=getattr(entry, "spot_distance_pct", None),
+                ichimoku_buy_zone=bool(ichi.buy_zone),
+                ichimoku_note=ichi.note or "",
+                regime=getattr(regime, "regime", "") or "",
+                tech_score=float(comp.score) if comp.score is not None else None,
+                gates=gates,
+            )
+            code = synth.code
+            gates = list(synth.gates)
+            h.signal_v2_synth_reason = synth.reason
+            h.signal_v2_small_size = bool(synth.small_size)
+            h.signal_v2_ready_note = bool(getattr(synth, "ready_note", False))
+            if fund is not None:
+                h.signal_v2_dual_line = format_dual_line(
+                    LEVEL_LABELS.get(code, synth.label),
+                    comp.score,
+                    fund,
+                )
+                if synth.small_size:
+                    h.signal_v2_dual_line += " · küçük pay"
+                elif getattr(synth, "ready_note", False):
+                    h.signal_v2_dual_line += " · eşiğe yakın (İZLE)"
+            else:
+                h.signal_v2_dual_line = synth.reason or ""
+        except Exception:
+            h.signal_v2_ichimoku = None
+            h.signal_v2_synth_reason = ""
+            h.signal_v2_small_size = False
+            h.signal_v2_ready_note = False
+            if not getattr(h, "signal_v2_dual_line", None):
+                h.signal_v2_dual_line = ""
+
         label = LEVEL_LABELS.get(code, decision.label)
         why = decision.why
         if code != decision.code:
             why = f"{why} · nihai {decision.code}→{code}"
+        synth_r = getattr(h, "signal_v2_synth_reason", "") or ""
+        if synth_r:
+            why = f"{why} · sentez: {synth_r}"
 
         h.signal_v2_score = comp.score
         h.signal_v2_percentile = comp.percentile
@@ -224,7 +336,10 @@ def signal_engine_v2_uygula(
         h.signal_v2_why = why
         h.signal_v2_decision_gates = gates
         h.signal_v2_fund_note = next(
-            (g for g in gates if str(g).startswith("Temel kapı")),
+            (
+                g for g in gates
+                if str(g).startswith("Temel kapı") or str(g).startswith("Sentez:")
+            ),
             "",
         )
         h.signal_v2_prev_code = prev

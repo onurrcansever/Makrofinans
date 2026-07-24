@@ -45,6 +45,24 @@ INFO_ALANLAR = (
     "regularMarketPrice",
     "currency",
     "profitMargins",
+    # fund_score live pillars
+    "returnOnEquity",
+    "returnOnAssets",
+    "grossMargins",
+    "operatingMargins",
+    "priceToBook",
+    "priceToSalesTrailing12Months",
+    "enterpriseToEbitda",
+    "pegRatio",
+    "currentRatio",
+    "quickRatio",
+    "debtToEquity",
+    "interestCoverage",
+    "totalDebt",
+    "totalCash",
+    "ebitda",
+    "enterpriseValue",
+    "marketCap",
 )
 
 TTL_HOURS = 24
@@ -264,6 +282,14 @@ def _fetch_finansal_ozet(ticker) -> Dict[str, Any]:
     out["total_assets_q"] = _df_cell(qbs, asset_names, 0)
     out["total_liab_q"] = _df_cell(qbs, liab_names, 0)
 
+    # Publish-lag için dönem sonu (kolon başlığı)
+    pe_y = _df_period_end(fin) or _df_period_end(bs) or _df_period_end(cf)
+    pe_q = _df_period_end(qfin) or _df_period_end(qbs) or _df_period_end(qcf)
+    if pe_y:
+        out["period_end_y"] = pe_y
+    if pe_q:
+        out["period_end_q"] = pe_q
+
     # Boşları temizle
     out = {k: v for k, v in out.items() if v is not None}
 
@@ -275,6 +301,25 @@ def _fetch_finansal_ozet(ticker) -> Dict[str, Any]:
     if out:
         out["finans_guncelleme"] = _bugun()
     return out
+
+
+def _df_period_end(df) -> Optional[str]:
+    """Yahoo financials ilk kolon tarihi → YYYY-MM-DD."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    try:
+        cols = list(df.columns)
+        if not cols:
+            return None
+        c0 = cols[0]
+        if hasattr(c0, "strftime"):
+            return c0.strftime("%Y-%m-%d")
+        s = str(c0)[:10]
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return s
+    except Exception:
+        return None
+    return None
 
 
 def _fetch_one_info(sembol: str) -> Dict[str, Any]:
@@ -299,6 +344,11 @@ def _fetch_one_info(sembol: str) -> Dict[str, Any]:
             "trailingPE", "forwardPE", "earningsGrowth", "revenueGrowth",
             "targetMeanPrice", "numberOfAnalystOpinions",
             "currentPrice", "regularMarketPrice", "profitMargins",
+            "returnOnEquity", "returnOnAssets", "grossMargins", "operatingMargins",
+            "priceToBook", "priceToSalesTrailing12Months", "enterpriseToEbitda",
+            "pegRatio", "currentRatio", "quickRatio", "debtToEquity",
+            "interestCoverage", "totalDebt", "totalCash", "ebitda",
+            "enterpriseValue", "marketCap",
         ):
             fv = _safe_float(v)
             if fv is not None:

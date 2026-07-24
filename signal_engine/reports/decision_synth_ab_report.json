@@ -1,0 +1,274 @@
+{
+  "generated_at": "2026-07-21T11:35:07.984847+00:00",
+  "lookahead_ok": true,
+  "step": 5,
+  "fund_mode": "price_only_SAĞLAM",
+  "notes": [
+    "Price-only A/B: fund_label=SAĞLAM sabit; peer/fund_gate yok.",
+    "Base = decide() (cold start, percentile=50). Synth = synthesize_action(+Ichimoku+spot).",
+    "Örneklem adımı: her 5 işlem günü.",
+    "Sentez upgrade: base İZLE/BEKLE iken synth AL (bölge+temel≥SAĞLAM gerekir).",
+    "Sentez downgrade: base AL iken synth İZLE (uzak giriş vb.).",
+    "fund_label=NÖTR iken upgrade beklenmez; SAĞLAM ile bölge teşviki test edilir."
+  ],
+  "confidence_note": "Örneklem: base_AL=91, synth_AL=429, upgrade=338, downgrade=0. Synth 1M ort (1.0%) base'e yakın/üstün (0.5%) — sentez 'felaket değil' kapısından geçti (fiyat-only). Upgrade kolları 1M pozitif (1.1%, n=338) — bölge teşviki en azından yıkıcı görünmüyor.",
+  "aggregate": {
+    "base": {
+      "n": 91,
+      "avg_ret_1m": 0.47627414934066165,
+      "avg_ret_3m": 2.2989764346198984,
+      "avg_ret_6m": 12.554860474155223,
+      "hit_rate_1m": 0.23076923076923078
+    },
+    "synth": {
+      "n": 429,
+      "avg_ret_1m": 0.9678475340898962,
+      "avg_ret_3m": 3.4366912236852984,
+      "avg_ret_6m": 9.940393306259553,
+      "hit_rate_1m": 0.8391608391608392
+    },
+    "both_buy": {
+      "n": 91,
+      "avg_ret_1m": 0.47627414934066165,
+      "avg_ret_3m": 2.2989764346198984,
+      "avg_ret_6m": 12.554860474155223,
+      "hit_rate_1m": 0.23076923076923078
+    },
+    "synth_upgrade": {
+      "n": 338,
+      "avg_ret_1m": 1.1001942145993056,
+      "avg_ret_3m": 3.7429990515105978,
+      "avg_ret_6m": 9.236498299518413,
+      "hit_rate_1m": 1.0
+    },
+    "synth_downgrade": {
+      "n": 0,
+      "avg_ret_1m": null,
+      "avg_ret_3m": null,
+      "avg_ret_6m": null,
+      "hit_rate_1m": null
+    }
+  },
+  "symbols": [
+    {
+      "sembol": "AAPL",
+      "bars": 1254,
+      "n_base_buy": 15,
+      "n_synth_buy": 69,
+      "n_agree_buy": 15,
+      "n_upgrade": 54,
+      "n_downgrade": 0,
+      "base": {
+        "n": 15,
+        "avg_ret_1m": -3.7925324373075795,
+        "avg_ret_3m": -5.87821388383339,
+        "avg_ret_6m": 0.9572395239518243,
+        "hit_rate_1m": 0.26666666666666666
+      },
+      "synth": {
+        "n": 69,
+        "avg_ret_1m": -0.33321262889249653,
+        "avg_ret_3m": 0.9935469212361885,
+        "avg_ret_6m": 5.2040735376445335,
+        "hit_rate_1m": 0.5217391304347826
+      },
+      "both_buy": {
+        "n": 15,
+        "avg_ret_1m": -3.7925324373075795,
+        "avg_ret_3m": -5.87821388383339,
+        "avg_ret_6m": 0.9572395239518243,
+        "hit_rate_1m": 0.26666666666666666
+      },
+      "synth_upgrade": {
+        "n": 54,
+        "avg_ret_1m": 0.627709540111693,
+        "avg_ret_3m": 2.9023693670888493,
+        "avg_ret_6m": 6.383749652559176,
+        "hit_rate_1m": 0.5925925925925926
+      },
+      "synth_downgrade": {
+        "n": 0,
+        "avg_ret_1m": null,
+        "avg_ret_3m": null,
+        "avg_ret_6m": null,
+        "hit_rate_1m": null
+      }
+    },
+    {
+      "sembol": "MSFT",
+      "bars": 1254,
+      "n_base_buy": 17,
+      "n_synth_buy": 89,
+      "n_agree_buy": 17,
+      "n_upgrade": 72,
+      "n_downgrade": 0,
+      "base": {
+        "n": 17,
+        "avg_ret_1m": -0.021122209622913363,
+        "avg_ret_3m": -0.14296005785203364,
+        "avg_ret_6m": 5.890166115157703,
+        "hit_rate_1m": 0.5294117647058824
+      },
+      "synth": {
+        "n": 89,
+        "avg_ret_1m": 1.1120070074608133,
+        "avg_ret_3m": 1.2312126091610938,
+        "avg_ret_6m": 3.855507545127491,
+        "hit_rate_1m": 0.5393258426966292
+      },
+      "both_buy": {
+        "n": 17,
+        "avg_ret_1m": -0.021122209622913363,
+        "avg_ret_3m": -0.14296005785203364,
+        "avg_ret_6m": 5.890166115157703,
+        "hit_rate_1m": 0.5294117647058824
+      },
+      "synth_upgrade": {
+        "n": 72,
+        "avg_ret_1m": 1.3795514059389151,
+        "avg_ret_3m": 1.555670044428082,
+        "avg_ret_6m": 3.3751020494259127,
+        "hit_rate_1m": 0.5416666666666666
+      },
+      "synth_downgrade": {
+        "n": 0,
+        "avg_ret_1m": null,
+        "avg_ret_3m": null,
+        "avg_ret_6m": null,
+        "hit_rate_1m": null
+      }
+    },
+    {
+      "sembol": "CSCO",
+      "bars": 1254,
+      "n_base_buy": 17,
+      "n_synth_buy": 94,
+      "n_agree_buy": 17,
+      "n_upgrade": 77,
+      "n_downgrade": 0,
+      "base": {
+        "n": 17,
+        "avg_ret_1m": -0.5639427980629153,
+        "avg_ret_3m": 3.277376313848604,
+        "avg_ret_6m": 17.404577030364,
+        "hit_rate_1m": 0.47058823529411764
+      },
+      "synth": {
+        "n": 94,
+        "avg_ret_1m": 1.481186230325085,
+        "avg_ret_3m": 5.274404502821442,
+        "avg_ret_6m": 13.132957862793765,
+        "hit_rate_1m": 0.6170212765957447
+      },
+      "both_buy": {
+        "n": 17,
+        "avg_ret_1m": -0.5639427980629153,
+        "avg_ret_3m": 3.277376313848604,
+        "avg_ret_6m": 17.404577030364,
+        "hit_rate_1m": 0.47058823529411764
+      },
+      "synth_upgrade": {
+        "n": 77,
+        "avg_ret_1m": 1.932708223605552,
+        "avg_ret_3m": 5.715306830257001,
+        "avg_ret_6m": 12.189873111512025,
+        "hit_rate_1m": 0.6493506493506493
+      },
+      "synth_downgrade": {
+        "n": 0,
+        "avg_ret_1m": null,
+        "avg_ret_3m": null,
+        "avg_ret_6m": null,
+        "hit_rate_1m": null
+      }
+    },
+    {
+      "sembol": "AMAT",
+      "bars": 1254,
+      "n_base_buy": 21,
+      "n_synth_buy": 63,
+      "n_agree_buy": 21,
+      "n_upgrade": 42,
+      "n_downgrade": 0,
+      "base": {
+        "n": 21,
+        "avg_ret_1m": 6.9320066681260455,
+        "avg_ret_3m": 14.718215475882083,
+        "avg_ret_6m": 34.570302535134786,
+        "hit_rate_1m": 0.7619047619047619
+      },
+      "synth": {
+        "n": 63,
+        "avg_ret_1m": 2.716489282898253,
+        "avg_ret_3m": 9.676552553376798,
+        "avg_ret_6m": 27.44344437596787,
+        "hit_rate_1m": 0.5873015873015873
+      },
+      "both_buy": {
+        "n": 21,
+        "avg_ret_1m": 6.9320066681260455,
+        "avg_ret_3m": 14.718215475882083,
+        "avg_ret_6m": 34.570302535134786,
+        "hit_rate_1m": 0.7619047619047619
+      },
+      "synth_upgrade": {
+        "n": 42,
+        "avg_ret_1m": 0.6087305902843562,
+        "avg_ret_3m": 7.155721092124154,
+        "avg_ret_6m": 23.880015296384418,
+        "hit_rate_1m": 0.5
+      },
+      "synth_downgrade": {
+        "n": 0,
+        "avg_ret_1m": null,
+        "avg_ret_3m": null,
+        "avg_ret_6m": null,
+        "hit_rate_1m": null
+      }
+    },
+    {
+      "sembol": "KO",
+      "bars": 1254,
+      "n_base_buy": 21,
+      "n_synth_buy": 114,
+      "n_agree_buy": 21,
+      "n_upgrade": 93,
+      "n_downgrade": 0,
+      "base": {
+        "n": 21,
+        "avg_ret_1m": -1.685576226208283,
+        "avg_ret_3m": -3.0946446446454194,
+        "avg_ret_6m": 0.29270112272134846,
+        "hit_rate_1m": 0.2857142857142857
+      },
+      "synth": {
+        "n": 114,
+        "avg_ret_1m": 0.25315183667532903,
+        "avg_ret_3m": 1.6736056232667103,
+        "avg_ret_6m": 5.252389894587179,
+        "hit_rate_1m": 0.543859649122807
+      },
+      "both_buy": {
+        "n": 21,
+        "avg_ret_1m": -1.685576226208283,
+        "avg_ret_3m": -3.0946446446454194,
+        "avg_ret_6m": 0.29270112272134846,
+        "hit_rate_1m": 0.2857142857142857
+      },
+      "synth_upgrade": {
+        "n": 93,
+        "avg_ret_1m": 0.690929141197435,
+        "avg_ret_3m": 2.750307296666224,
+        "avg_ret_6m": 6.372319617266562,
+        "hit_rate_1m": 0.6021505376344086
+      },
+      "synth_downgrade": {
+        "n": 0,
+        "avg_ret_1m": null,
+        "avg_ret_3m": null,
+        "avg_ret_6m": null,
+        "hit_rate_1m": null
+      }
+    }
+  ]
+}

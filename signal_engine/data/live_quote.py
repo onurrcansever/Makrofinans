@@ -31,6 +31,11 @@ class LiveQuote:
     age_min: float
     previous_close: Optional[float] = None
     cached_at: Optional[float] = None  # unix — disk yazım anı
+    # Bilgi amaçlı — skora / karar motoruna girmez
+    premarket_price: Optional[float] = None
+    market_state: str = ""
+    # Yahoo preMarketChangePercent — baz = son regular kapanış (previousClose değil)
+    premarket_change_pct: Optional[float] = None
 
 
 _cache: Dict[str, LiveQuote] = {}
@@ -39,6 +44,85 @@ _fetched_at: float = 0.0
 
 def live_quotes_disk_path() -> str:
     return os.getenv("LIVE_QUOTES_CACHE", _DISK_PATH)
+
+
+def premarket_cell_parts(
+    piyasa: str,
+    premarket_native: Optional[float],
+    previous_close_native: Optional[float] = None,
+    *,
+    display_price: Optional[float] = None,
+    change_pct: Optional[float] = None,
+    ref_price_native: Optional[float] = None,
+) -> Optional[tuple]:
+    """(gösterim_fiyatı, yüzde|None) döndür; uygun değilse None.
+
+    % önceliği: Yahoo change_pct → (pre − ref) / ref → previous_close (yedek).
+    Revolut/Yahoo ile aynı baz: son regular seans fiyatı; `previousClose` alanı
+    bazen farklı (eski/ayarlı) kalır ve işareti ters çevirebilir.
+    """
+    if (piyasa or "") not in ("SP500", "NASDAQ"):
+        return None
+    if premarket_native is None:
+        return None
+    try:
+        native = float(premarket_native)
+    except (TypeError, ValueError):
+        return None
+    if native <= 0:
+        return None
+    try:
+        px = float(display_price) if display_price is not None else native
+    except (TypeError, ValueError):
+        px = native
+    if px <= 0:
+        return None
+    pct: Optional[float] = None
+    if change_pct is not None:
+        try:
+            pct = float(change_pct)
+        except (TypeError, ValueError):
+            pct = None
+    if pct is None and ref_price_native is not None:
+        try:
+            ref = float(ref_price_native)
+            if ref > 0:
+                pct = (native - ref) / ref * 100.0
+        except (TypeError, ValueError):
+            pct = None
+    if pct is None and previous_close_native is not None:
+        try:
+            prev = float(previous_close_native)
+            if prev > 0:
+                pct = (native - prev) / prev * 100.0
+        except (TypeError, ValueError):
+            pct = None
+    return (px, pct)
+
+
+def format_premarket_cell(
+    piyasa: str,
+    premarket_native: Optional[float],
+    previous_close_native: Optional[float] = None,
+    *,
+    display_price: Optional[float] = None,
+    change_pct: Optional[float] = None,
+    ref_price_native: Optional[float] = None,
+) -> str:
+    """Düz metin hücre (PDF / test) — yalnızca SP500/NASDAQ; skora dokunmaz."""
+    parts = premarket_cell_parts(
+        piyasa,
+        premarket_native,
+        previous_close_native,
+        display_price=display_price,
+        change_pct=change_pct,
+        ref_price_native=ref_price_native,
+    )
+    if parts is None:
+        return "—"
+    px, pct = parts
+    pct_s = f" ({pct:+.1f}%)" if pct is not None else ""
+    return f"{px:.2f}{pct_s}"
 
 
 def _ts_from_unix(raw) -> Optional[datetime]:
@@ -61,6 +145,9 @@ def _quote_to_dict(q: LiveQuote) -> dict:
         "timestamp": q.timestamp.isoformat(),
         "previous_close": q.previous_close,
         "cached_at": q.cached_at if q.cached_at is not None else time.time(),
+        "premarket_price": q.premarket_price,
+        "market_state": q.market_state or "",
+        "premarket_change_pct": q.premarket_change_pct,
     }
 
 
@@ -82,6 +169,22 @@ def _quote_from_dict(d: dict) -> Optional[LiveQuote]:
         now = datetime.now(timezone.utc)
         age = max(0.0, (now - ts).total_seconds() / 60.0)
         prev = d.get("previous_close")
+        pre = d.get("premarket_price")
+        pre_f = None
+        if pre is not None:
+            try:
+                pre_f = float(pre)
+                if pre_f <= 0:
+                    pre_f = None
+            except (TypeError, ValueError):
+                pre_f = None
+        pre_pct = d.get("premarket_change_pct")
+        pre_pct_f = None
+        if pre_pct is not None:
+            try:
+                pre_pct_f = float(pre_pct)
+            except (TypeError, ValueError):
+                pre_pct_f = None
         return LiveQuote(
             price=price,
             currency=str(d.get("currency") or ""),
@@ -90,6 +193,9 @@ def _quote_from_dict(d: dict) -> Optional[LiveQuote]:
             age_min=age,
             previous_close=float(prev) if prev is not None else None,
             cached_at=cached_at,
+            premarket_price=pre_f,
+            market_state=str(d.get("market_state") or ""),
+            premarket_change_pct=pre_pct_f,
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -167,10 +273,16 @@ def load_live_quotes_disk(
 
 
 def get_live_quote(symbol: str, *, allow_stale: bool = False) -> Optional[LiveQuote]:
-    """allow_stale: TTL geçmiş disk/bellek kotasyonunu da kullan (1G previousClose SWR)."""
+    """allow_stale: TTL geçmiş disk/bellek kotasyonunu da kullan (1G previousClose SWR).
+
+    Perf: allow_stale çağrılarında bellekte kayıt varsa (bayat olsa da) doğrudan
+    döner — aksi halde her satır × her sütun tüm disk JSON'unu yeniden okurdu
+    (tablo render'ında yüzlerce dosya okuması). Render başında bir kez
+    `load_live_quotes_disk(hydrate_memory=True)` ile bellek doldurulur.
+    """
     sym = (symbol or "").upper()
     mem = _cache.get(sym)
-    if mem is not None and _quote_fresh(mem):
+    if mem is not None and (_quote_fresh(mem) or allow_stale):
         return mem
     ttl = (48 * 3600.0) if allow_stale else DISK_TTL_SEC
     disk = load_live_quotes_disk(ttl_sec=ttl, hydrate_memory=False)
@@ -273,6 +385,21 @@ def _resolve_previous_close(t, fi, price: float) -> Optional[float]:
     return _fi_get(fi, "regularMarketPreviousClose", "previousClose")
 
 
+def _us_premarket_eligible(sym: str) -> bool:
+    """ABD tarzı sembol mü? (premarket için ek t.info çekmeye değer mi)
+
+    Yalnızca son ekssiz, ABD borsası sembolleri (AMAT, MU, AAPL). BIST (.IS),
+    Londra (.L), FX (=X), endeks (^...) → premarket yok, gereksiz info çağrısı
+    yapma (Yahoo rate-limit riskini azaltır).
+    """
+    s = (sym or "").strip().upper()
+    if not s:
+        return False
+    if "." in s or "=" in s or s.startswith("^"):
+        return False
+    return True
+
+
 def _fetch_one(symbol: str) -> Optional[LiveQuote]:
     sym = (symbol or "").strip()
     if not sym:
@@ -296,6 +423,30 @@ def _fetch_one(symbol: str) -> Optional[LiveQuote]:
 
         prev = _resolve_previous_close(t, fi, float(price))
 
+        # Premarket — bilgi; price alanını ezme
+        # % = Yahoo preMarketChangePercent (baz: son regular fiyat, previousClose değil)
+        # Yalnızca ABD sembolleri: her sembolde t.info çekmek Yahoo rate-limit'e
+        # sokar (138 sembol → tüm canlı çekim başarısız). Non-US → premarket yok.
+        premarket_raw = None
+        market_state = ""
+        premarket_pct = None
+        if _us_premarket_eligible(sym):
+            try:
+                if info is None:
+                    info = t.info or {}
+                v = info.get("preMarketPrice")
+                if v is not None and float(v) > 0:
+                    premarket_raw = float(v)
+                ms = info.get("marketState")
+                if ms is None and hasattr(fi, "get"):
+                    ms = fi.get("marketState")
+                market_state = str(ms or "")
+                pc = info.get("preMarketChangePercent")
+                if pc is not None:
+                    premarket_pct = float(pc)
+            except Exception:
+                pass
+
         raw_ccy = (
             (fi.get("currency") if hasattr(fi, "get") else getattr(fi, "currency", None))
             or (info or {}).get("currency")
@@ -317,6 +468,12 @@ def _fetch_one(symbol: str) -> Optional[LiveQuote]:
                 prev_amt = normalize_price(float(prev), str(raw_ccy)).amount
             except (TypeError, ValueError):
                 prev_amt = None
+        pre_amt = None
+        if premarket_raw is not None:
+            try:
+                pre_amt = normalize_price(float(premarket_raw), str(raw_ccy)).amount
+            except (TypeError, ValueError):
+                pre_amt = None
         now = datetime.now(timezone.utc)
         age = max(0.0, (now - ts).total_seconds() / 60.0)
         return LiveQuote(
@@ -327,6 +484,9 @@ def _fetch_one(symbol: str) -> Optional[LiveQuote]:
             age_min=age,
             previous_close=prev_amt,
             cached_at=time.time(),
+            premarket_price=pre_amt,
+            market_state=market_state,
+            premarket_change_pct=premarket_pct,
         )
     except Exception:
         return None

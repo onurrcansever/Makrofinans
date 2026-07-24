@@ -96,10 +96,15 @@ class BirlesikOneriTest(unittest.TestCase):
         self.assertTrue(oneri.hedef_tablo)
         tl_satir = [h for h in oneri.hedef_tablo if h.kategori == "TL vadeli mevduat"]
         tefas_satir = [h for h in oneri.hedef_tablo if h.kategori == "TEFAS fon"]
-        self.assertTrue(tl_satir)
         self.assertTrue(tefas_satir)
         self.assertIn("YLB", tefas_satir[0].arac)
-        self.assertNotIn("YLB", tl_satir[0].arac)
+        # TEFAS tl_deposit içinden — makro TL + TEFAS ≈ orijinal tl (çift sayım yok)
+        tl_w = tahsis.agirliklar.get("tl_deposit", 0) * 100
+        tl_pct = tl_satir[0].agirlik_pct if tl_satir else 0.0
+        self.assertAlmostEqual(tl_pct + tefas_satir[0].agirlik_pct, tl_w, delta=1.5)
+        self.assertAlmostEqual(
+            sum(h.agirlik_pct for h in oneri.hedef_tablo), 100.0, delta=1.5,
+        )
         tefas_d = [s for s in oneri.arac_dagilim if s.ust_kategori == "TEFAS fon"]
         self.assertTrue(tefas_d)
         self.assertAlmostEqual(sum(s.kategori_ici_pct for s in tefas_d), 100.0, delta=0.2)

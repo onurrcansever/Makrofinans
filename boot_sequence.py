@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Oturum açılışı — adım adım (her Streamlit rerun’da bir dilim).
 
-Streamlit uzun senkron çekimde UI’yi dondurur; bu yüzden analist
-küçük partilerle ilerler ve her partiden sonra st.rerun gerekir.
+Soft açılış: diskte son kayıt varsa UI hemen açılır; boot arka planda
+ilerler (quotes/analist bloklamaz). Force / soğuk disk: tam tur.
 """
 from __future__ import annotations
 
@@ -16,6 +16,54 @@ _log = logging.getLogger(__name__)
 ANALIST_BOOT_CHUNK = 12
 # Aynı sembol boot’ta en fazla bu kadar denenir; sonra atlanır (Yahoo al_sayi yok)
 ANALIST_BOOT_MAX_TRIES = 1
+# Soft: en fazla bir analist dilimi, kalanı daemon
+ANALIST_SOFT_MAX_CHUNKS = 1
+# Soft unlock için kabul edilen bayat makro yaşı
+SOFT_MAX_BAYAT_SN = 48 * 3600
+
+
+def disk_boot_hazir(
+    *,
+    canli: bool = True,
+    profil_risk: str = "orta",
+    profil_vade: str = "orta",
+    use_signal_v2: bool = True,
+) -> bool:
+    """Soft açılış uygunluğu — makro VE tarama diski ≤48h taze ise.
+
+    Yalnız makro yeterli değildi: tarama diski yoksa UI 'boş tablo' ile açılıp
+    kullanıcı 30–90 sn beklerdi. Artık ikisi de gerekli; tarama yoksa/eskiyse
+    film boot (ilerleme ekranı) gösterilir, son tarama arka planda tazelenir.
+    """
+    from disk_onbellek import TTL, disk_getir, disk_mtime
+
+    snap, yas = disk_getir("makro:canli", TTL["makro"], bayat_kabul=True)
+    if snap is None or yas is None or float(yas) > SOFT_MAX_BAYAT_SN:
+        return False
+
+    if not canli:
+        # Demo modunda tarama anında üretilir — makro diski yeterli.
+        return True
+
+    try:
+        from allocation_engine import tahsis_hesapla
+        from investor_profile import YatirimProfili
+
+        profil = YatirimProfili(risk=profil_risk or "orta", vade=profil_vade or "orta")
+        tahsis = tahsis_hesapla(snap, profil)
+        rejim = getattr(getattr(tahsis, "rejim", None), "rejim", "NOTR") or "NOTR"
+    except Exception:
+        rejim = "NOTR"
+
+    # app_veri.tarama_cek ile birebir aynı anahtar (senkronize tutulmalı).
+    anahtar = (
+        f"tarama:{canli}:{rejim}:False:{profil_risk or 'orta'}:{profil_vade or 'orta'}"
+        f":v2={int(use_signal_v2)}:gbx_v3:live_v1"
+    )
+    mtime = disk_mtime(anahtar)
+    if mtime <= 0:
+        return False
+    return (time.time() - mtime) <= SOFT_MAX_BAYAT_SN
 
 
 def _new_ctx(
@@ -25,11 +73,13 @@ def _new_ctx(
     profil_risk: str,
     profil_vade: str,
     use_signal_v2: bool,
+    soft: bool = False,
 ) -> Dict[str, Any]:
     return {
         "phase": "fx",
         "canli": canli,
         "force": force,
+        "soft": bool(soft) and not force,
         "profil_risk": profil_risk,
         "profil_vade": profil_vade,
         "use_signal_v2": use_signal_v2,
@@ -41,6 +91,7 @@ def _new_ctx(
         "analist_need0": 0,
         "analist_ok": 0,
         "analist_tot": 0,
+        "analist_chunks": 0,
         "analist_attempts": {},
         "analist_skip": [],
         "last_detail": "Sistem başlatılıyor…",
@@ -167,7 +218,7 @@ def _step_fx(ctx: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _step_quotes(ctx: Dict[str, Any], canli: bool, force: bool) -> Dict[str, Any]:
-    from background_cache import refresh_live_quotes_quiet, universe_quote_symbols
+    from background_cache import ensure_quotes_daemon
     from signal_engine.data.live_quote import (
         DISK_TTL_SEC,
         live_quotes_cache_age_sec,
@@ -180,13 +231,21 @@ def _step_quotes(ctx: Dict[str, Any], canli: bool, force: bool) -> Dict[str, Any
         age = live_quotes_cache_age_sec()
         need_q = force or age is None or age > DISK_TTL_SEC
         if need_q and canli:
-            n = len(universe_quote_symbols())
-            ctx["last_detail"] = f"Canlı fiyatlar çekiliyor ({n} sembol)…"
-            qstat = refresh_live_quotes_quiet(max_workers=3, log=lambda m: _log.info(m))
-            ctx["stages"]["quotes"] = {"ok": True, "refreshed": True, **qstat}
+            # Hiçbir boot'ta bloklama yok — disk hydrate + arka plan daemon
+            # (soğuk/force dahil). Kararlar günlük barlara dayanır; canlı fiyat
+            # SWR (allow_stale) ile okunur, 15 dk bayatlık zaten kabul ediliyor.
+            started = ensure_quotes_daemon()
+            ctx["stages"]["quotes"] = {
+                "ok": True,
+                "refreshed": False,
+                "soft": True,
+                "daemon": started,
+                "age_sec": age,
+            }
             ctx["last_detail"] = (
-                f"Canlı fiyat OK · {qstat.get('symbols', 0)} sembol · "
-                f"{qstat.get('elapsed_sec', 0):.0f}s"
+                "Canlı fiyat son kayıt"
+                + (f" · yaş {age:.0f}s" if age is not None else "")
+                + (" · arka planda tazeleniyor" if started or age is None else "")
             )
         else:
             ctx["stages"]["quotes"] = {"ok": True, "refreshed": False, "age_sec": age}
@@ -244,9 +303,12 @@ def _step_scan(ctx: Dict[str, Any], canli: bool, force: bool) -> Dict[str, Any]:
 def _step_analist(ctx: Dict[str, Any], canli: bool) -> Dict[str, Any]:
     from background_cache import (
         analist_hazir_say,
+        ensure_analist_batch_daemon,
         refresh_analist_misses,
         universe_analist_symbols,
     )
+
+    soft = bool(ctx.get("soft")) and not bool(ctx.get("force"))
 
     if not canli:
         ctx["stages"]["analist"] = {"ok": True, "skipped": True}
@@ -274,6 +336,28 @@ def _step_analist(ctx: Dict[str, Any], canli: bool) -> Dict[str, Any]:
         ctx["last_detail"] = (
             f"Analist {ok0}/{tot} hazır"
             + (f" · {n_skip} sembol kısmi (arka planda)" if n_skip else "")
+        )
+        ctx["done_ids"] = ["fx", "quotes", "scan", "analist"]
+        ctx["phase"] = "ready"
+        return ctx
+
+    # Soft: dilim kotası dolduysa ready — kalan daemon
+    chunks_done = int(ctx.get("analist_chunks") or 0)
+    if soft and chunks_done >= ANALIST_SOFT_MAX_CHUNKS:
+        try:
+            ensure_analist_batch_daemon(syms)
+        except Exception:
+            pass
+        ctx["stages"]["analist"] = {
+            "ok": True,
+            "soft": True,
+            "after": ok0,
+            "total": tot,
+            "remaining": len(need),
+            "fetched": ctx.get("analist_fetched", 0),
+        }
+        ctx["last_detail"] = (
+            f"Analist {ok0}/{tot} · kalan {len(need)} arka planda"
         )
         ctx["done_ids"] = ["fx", "quotes", "scan", "analist"]
         ctx["phase"] = "ready"
@@ -307,6 +391,7 @@ def _step_analist(ctx: Dict[str, Any], canli: bool) -> Dict[str, Any]:
         ctx["analist_fetched"] = int(ctx.get("analist_fetched") or 0) + int(
             astat.get("fetched") or len(chunk)
         )
+        ctx["analist_chunks"] = chunks_done + 1
         ok1, tot = analist_hazir_say(syms)
         ctx["analist_ok"] = ok1
         ctx["analist_tot"] = tot
@@ -335,7 +420,15 @@ def _step_analist(ctx: Dict[str, Any], canli: bool) -> Dict[str, Any]:
             "skipped": len(ctx["analist_skip"]),
             "fetched": ctx["analist_fetched"],
         }
-        if not left:
+        if not left or (soft and int(ctx.get("analist_chunks") or 0) >= ANALIST_SOFT_MAX_CHUNKS):
+            if left and soft:
+                try:
+                    ensure_analist_batch_daemon(syms)
+                except Exception:
+                    pass
+                ctx["last_detail"] = (
+                    f"Analist {ok1}/{tot} · kalan {len(left)} arka planda"
+                )
             ctx["done_ids"] = ["fx", "quotes", "scan", "analist"]
             ctx["phase"] = "ready"
     except Exception as e:
@@ -356,6 +449,7 @@ def _step_ready(ctx: Dict[str, Any]) -> Dict[str, Any]:
     ctx["summary"] = {
         "ok": True,
         "force": bool(ctx.get("force")),
+        "soft": bool(ctx.get("soft")),
         "stages": dict(ctx.get("stages") or {}),
         "elapsed_sec": elapsed,
     }
@@ -367,6 +461,7 @@ def run_boot_sequence(
     *,
     canli: bool = True,
     force: bool = False,
+    soft: bool = False,
     status_cb=None,
     profil_risk: str = "orta",
     profil_vade: str = "orta",
@@ -375,6 +470,7 @@ def run_boot_sequence(
     ctx = _new_ctx(
         canli=canli,
         force=force,
+        soft=soft,
         profil_risk=profil_risk,
         profil_vade=profil_vade,
         use_signal_v2=use_signal_v2,

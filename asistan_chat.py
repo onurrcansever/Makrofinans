@@ -40,12 +40,14 @@ _TICKER_STOP = frozenset({
 })
 
 HAZIR_SORULAR = (
+    "Bugün piyasaları yorumla",
     "Bugün ne yapayım?",
     "AL adaylarım neler?",
     "TL mi altın mı?",
     "Portföyüm rejimle uyumlu mu?",
 )
 PLAN_SORUSU = "Son nakit planımı açıkla"
+PIYASA_OZET_SORUSU = "Bugün piyasaları yorumla"
 
 
 def _safe_float(x: Any, nd: int = 1) -> Optional[float]:
@@ -57,10 +59,39 @@ def _safe_float(x: Any, nd: int = 1) -> Optional[float]:
         return None
 
 
+def _fmt_pct(x: Any, *, signed: bool = True, nd: int = 1) -> str:
+    v = _safe_float(x, nd)
+    if v is None:
+        return "—"
+    if signed and v > 0:
+        return f"+{v:.{nd}f}%"
+    return f"{v:.{nd}f}%"
+
+
+def _fmt_tl(x: Any) -> str:
+    v = _safe_float(x, 0)
+    if v is None:
+        return "—"
+    return f"{v:,.0f} TL"
+
+
+def _piyasa_ozet_sorusu_mu(msg: str) -> bool:
+    m = (msg or "").strip().lower()
+    if not m:
+        return False
+    if m == PIYASA_OZET_SORUSU.lower():
+        return True
+    return "piyasalar" in m and "yorumla" in m
+
+
 def _makro(snap) -> Dict[str, Any]:
     if snap is None:
         return {}
+    from petrol_enflasyon_uyari import petrol_enflasyon_uyarisi
+
     v = getattr(snap, "veri", None)
+    brent_3a = _safe_float(getattr(snap, "brent_3a_degisim", None), 1)
+    petrol_uyari = petrol_enflasyon_uyarisi(brent_3a)
     return {
         "eur_try": _safe_float(getattr(v, "eur_try", None), 2),
         "eur_try_1g_pct": _safe_float(getattr(snap, "eur_try_1g_degisim", None), 2),
@@ -73,6 +104,15 @@ def _makro(snap) -> Dict[str, Any]:
         "altin_1g_pct": _safe_float(getattr(snap, "altin_1g_degisim", None), 2),
         "enflasyon_tr": _safe_float(getattr(snap, "enflasyon_tr_yillik", None), 1),
         "bist_vol_30g": _safe_float(getattr(snap, "bist_vol_30g", None), 1),
+        "brent_usd": _safe_float(getattr(snap, "brent_usd", None), 1),
+        "brent_1g_pct": _safe_float(getattr(snap, "brent_1g_degisim", None), 2),
+        "brent_3a_pct": brent_3a,
+        "petrol_enflasyon_uyari": petrol_uyari["mesaj"] if petrol_uyari else None,
+        "dxy": _safe_float(getattr(snap, "dxy", None), 1),
+        "dxy_1g_pct": _safe_float(getattr(snap, "dxy_1g_degisim", None), 2),
+        "abd_10y": _safe_float(getattr(snap, "abd_10y", None), 2),
+        "abd_10y_1g_pct": _safe_float(getattr(snap, "abd_10y_1g_degisim", None), 2),
+        "abd_30y": _safe_float(getattr(snap, "abd_30y", None), 2),
     }
 
 
@@ -169,6 +209,8 @@ def _portfoy_ozet(varlik_store, varlik_deger=None) -> Dict[str, Any]:
     out["portfoy_ad"] = getattr(portfoy, "ad", "") or ""
 
     deger_map: Dict[str, float] = {}
+    kz_map: Dict[str, float] = {}
+    getiri_map: Dict[str, float] = {}
     toplam = None
     if varlik_deger is not None:
         raw_top = getattr(varlik_deger, "toplam", None)
@@ -176,6 +218,13 @@ def _portfoy_ozet(varlik_store, varlik_deger=None) -> Dict[str, Any]:
             toplam = _safe_float(raw_top.get("TL"), 0)
         else:
             toplam = _safe_float(raw_top, 0)
+        ag = getattr(varlik_deger, "agirlikli_getiri", None) or {}
+        out["agirlikli_getiri"] = {
+            str(k): _safe_float(v, 2) for k, v in ag.items() if v is not None
+        }
+        mal = getattr(varlik_deger, "maliyet_toplam", None)
+        if isinstance(mal, dict):
+            out["maliyet_tl"] = _safe_float(mal.get("TL"), 0)
         for pd_ in list(getattr(varlik_deger, "pozisyonlar", None) or []):
             poz = getattr(pd_, "pozisyon", None)
             pid = getattr(poz, "id", None) if poz is not None else None
@@ -185,6 +234,19 @@ def _portfoy_ozet(varlik_store, varlik_deger=None) -> Dict[str, Any]:
                     deger_map[str(pid)] = float(g)
                 except (TypeError, ValueError):
                     pass
+            if pid:
+                kz = getattr(pd_, "kar_zarar_pct", None)
+                if kz is not None:
+                    try:
+                        kz_map[str(pid)] = float(kz)
+                    except (TypeError, ValueError):
+                        pass
+                g1 = (getattr(pd_, "getiriler", None) or {}).get("1G")
+                if g1 is not None:
+                    try:
+                        getiri_map[str(pid)] = float(g1)
+                    except (TypeError, ValueError):
+                        pass
     if toplam is not None:
         out["toplam_deger_tl"] = toplam
 
@@ -196,6 +258,7 @@ def _portfoy_ozet(varlik_store, varlik_deger=None) -> Dict[str, Any]:
     sirali.sort(key=lambda x: -x[0])
 
     for _, p, val in sirali[:MAX_POZISYON]:
+        pid = str(getattr(p, "id", "") or "")
         item = {
             "tur": getattr(p, "tur", ""),
             "sembol": getattr(p, "sembol", "") or "",
@@ -203,6 +266,10 @@ def _portfoy_ozet(varlik_store, varlik_deger=None) -> Dict[str, Any]:
         }
         if val is not None:
             item["deger"] = _safe_float(val, 0)
+        if pid in kz_map:
+            item["kz_pct"] = _safe_float(kz_map[pid], 1)
+        if pid in getiri_map:
+            item["getiri_1g"] = _safe_float(getiri_map[pid], 2)
         out["ust_pozisyonlar"].append(item)
     return out
 
@@ -223,18 +290,293 @@ def _tefas_ozet(tefas_ham, n: int = MAX_TEFAS) -> List[dict]:
         pass
     out = []
     for f in fonlar[:n]:
-        out.append({
+        item = {
             "kod": getattr(f, "kod", ""),
             "ad": (getattr(f, "kisa_ad", None) or getattr(f, "ad", "") or "")[:40],
             "kategori": getattr(f, "kategori", None) or getattr(f, "etkin_kategori", "") or "",
             "skor": _safe_float(getattr(f, "skor", None), 0),
             "oneri": getattr(f, "oneri", "") or "",
-        })
+            "akran_kucuk": bool(getattr(f, "akran_kucuk", False)),
+            "skor_notu": (getattr(f, "skor_notu", "") or "")[:120],
+        }
+        for attr, key in (
+            ("getiri_gosterim_1a", "getiri_1a"),
+            ("getiri_gosterim_3a", "getiri_3a"),
+            ("getiri_gosterim_ybb", "getiri_ybb"),
+            ("stopaj_etiket", "stopaj"),
+            ("tgo_pct", "tgo_pct"),
+            ("yonetim_ucreti_pct", "yon_pct"),
+        ):
+            v = getattr(f, attr, None)
+            if v is not None and v != "":
+                item[key] = v if isinstance(v, str) else _safe_float(v, v)
+        out.append(item)
     return out
+
+
+def _tarama_hareket_ozeti(tarama, *, n: int = 3) -> Dict[str, Any]:
+    """Piyasa bazlı AL/İZLE sayısı ve günlük hareket liderleri."""
+    from karar_yorum import _hisse_karar
+
+    out: Dict[str, Any] = {
+        "al_sayisi": {},
+        "izle_sayisi": {},
+        "yukselenler": [],
+        "dusenler": [],
+    }
+    if tarama is None:
+        return out
+    hisseler = list(getattr(tarama, "hisseler", None) or [])
+    hareket = []
+    for h in hisseler:
+        piyasa = getattr(h, "piyasa", "") or getattr(h, "varlik_turu", "") or "?"
+        karar = _hisse_karar(h)
+        if karar in ("AL", "GÜÇLÜ AL"):
+            out["al_sayisi"][piyasa] = out["al_sayisi"].get(piyasa, 0) + 1
+        elif karar == "İZLE":
+            out["izle_sayisi"][piyasa] = out["izle_sayisi"].get(piyasa, 0) + 1
+        d1 = getattr(h, "degisim_1g", None)
+        if d1 is None:
+            continue
+        try:
+            d1f = float(d1)
+        except (TypeError, ValueError):
+            continue
+        hareket.append({
+            "sembol": getattr(h, "sembol", ""),
+            "ad": (getattr(h, "ad", "") or "")[:24],
+            "piyasa": piyasa,
+            "1g_pct": _safe_float(d1f, 2),
+            "karar": karar,
+        })
+    hareket.sort(key=lambda x: -(x.get("1g_pct") or 0))
+    out["yukselenler"] = hareket[:n]
+    out["dusenler"] = list(reversed(hareket[-n:])) if len(hareket) >= n else list(reversed(hareket))
+    return out
+
+
+def _makro_satirlari(makro: Dict[str, Any]) -> List[str]:
+    satirlar: List[str] = []
+    if makro.get("eur_try") is not None:
+        satirlar.append(
+            f"EUR/TRY {makro['eur_try']:.2f} ({_fmt_pct(makro.get('eur_try_1g_pct'))} 1G)"
+        )
+    if makro.get("cds_5y_bp") is not None:
+        satirlar.append(f"CDS 5Y {makro['cds_5y_bp']:.0f} bp")
+    if makro.get("vix") is not None:
+        satirlar.append(
+            f"VIX {makro['vix']:.1f} ({_fmt_pct(makro.get('vix_1g_pct'))} 1G)"
+        )
+    if makro.get("bist100") is not None:
+        satirlar.append(
+            f"BIST 100 {makro['bist100']:,.0f} ({_fmt_pct(makro.get('bist100_1g_pct'))} 1G)"
+        )
+    if makro.get("bist_vol_30g") is not None:
+        satirlar.append(f"BIST vol (30g) {makro['bist_vol_30g']:.1f}")
+    if makro.get("altin_usd") is not None:
+        satirlar.append(
+            f"Altın ${makro['altin_usd']:,.0f} ({_fmt_pct(makro.get('altin_1g_pct'))} 1G)"
+        )
+    if makro.get("brent_usd") is not None:
+        brent_line = f"Brent ${makro['brent_usd']:,.1f} ({_fmt_pct(makro.get('brent_1g_pct'))} 1G"
+        b3 = makro.get("brent_3a_pct")
+        if b3 is not None:
+            brent_line += f", {_fmt_pct(b3)} 3A"
+        brent_line += ")"
+        satirlar.append(brent_line)
+    if makro.get("dxy") is not None:
+        satirlar.append(
+            f"DXY {makro['dxy']:.1f} ({_fmt_pct(makro.get('dxy_1g_pct'))} 1G)"
+        )
+    if makro.get("abd_10y") is not None:
+        abd1g = makro.get("abd_10y_1g_pct")
+        abd1g_s = f" ({_fmt_pct(abd1g, nd=2)} 1G)" if abd1g is not None else ""
+        satirlar.append(f"ABD 10Y %{makro['abd_10y']:.2f}{abd1g_s}")
+    if makro.get("abd_30y") is not None:
+        satirlar.append(f"ABD 30Y %{makro['abd_30y']:.2f}")
+    if makro.get("enflasyon_tr") is not None:
+        satirlar.append(f"TÜFE (yıllık ref.) %{makro['enflasyon_tr']:.1f}")
+    return satirlar
+
+
+def gunluk_piyasa_ozeti_metni(baglam: Dict[str, Any]) -> str:
+    """Motordan deterministik günlük piyasa özeti — LLM kotası olmadan da çalışır."""
+    makro = baglam.get("makro") or {}
+    rejim = (baglam.get("rejim") or "—").replace("_", " ")
+    mevduat = baglam.get("mevduat") or {}
+    tl_karar = baglam.get("tl_karar") or {}
+    danisman = baglam.get("danisman") or {}
+    endeksler = list(baglam.get("endeksler") or [])
+    al_list = list(baglam.get("al_adaylari") or [])
+    izle_list = list(baglam.get("izle_takip") or [])
+    tefas = list(baglam.get("tefas_ust") or [])
+    portfoy = baglam.get("portfoy") or {}
+    tahsis = baglam.get("tahsis_agirlik_pct") or {}
+    hareket = baglam.get("tarama_hareket") or {}
+
+    parcalar: List[str] = [
+        "### Bugünün piyasa özeti",
+        "",
+        f"**Makro rejim:** {rejim}",
+    ]
+    if danisman.get("rejim_yorumu"):
+        parcalar.append(f"_{danisman['rejim_yorumu']}_")
+    makro_sat = _makro_satirlari(makro)
+    if makro_sat:
+        parcalar.extend(["", "**Makro göstergeler**", " · ".join(makro_sat)])
+    if makro.get("petrol_enflasyon_uyari"):
+        parcalar.append(f"⛽ {makro['petrol_enflasyon_uyari']}")
+    if mevduat.get("net_pct") is not None:
+        reel = mevduat.get("reel_pp")
+        reel_s = f", reel {_fmt_pct(reel, nd=1)}" if reel is not None else ""
+        parcalar.append(
+            f"TL mevduat (profil): net %{mevduat['net_pct']:.1f}{reel_s}"
+        )
+    if tl_karar.get("baslik"):
+        tavan = tl_karar.get("tavan_pct")
+        tavan_s = f" · tavan %{tavan:.0f}" if tavan is not None else ""
+        parcalar.append(f"TL tavanı: {tl_karar['baslik']}{tavan_s}")
+    if tahsis:
+        top = sorted(tahsis.items(), key=lambda kv: -float(kv[1] or 0))[:4]
+        parcalar.append(
+            "**Önerilen tahsis:** "
+            + ", ".join(f"{k.replace('_', ' ')} %{v:g}" for k, v in top)
+        )
+
+    if endeksler:
+        parcalar.extend(["", "**Endeksler**"])
+        for e in endeksler[:8]:
+            ad = (e or {}).get("ad") or (e or {}).get("sembol") or "—"
+            parcalar.append(
+                f"- {ad}: {_fmt_pct((e or {}).get('1g_pct'))} 1G · "
+                f"{_fmt_pct((e or {}).get('1a_pct'))} 1A · "
+                f"öneri **{(e or {}).get('oneri') or '—'}**"
+            )
+
+    al_say = hareket.get("al_sayisi") or {}
+    izle_say = hareket.get("izle_sayisi") or {}
+    if al_say or izle_say or al_list:
+        parcalar.extend(["", "**Hisse & ETF taraması**"])
+        if al_say:
+            parcalar.append(
+                "AL sayısı: "
+                + ", ".join(f"{p} {n}" for p, n in sorted(al_say.items(), key=lambda x: -x[1]))
+            )
+        if izle_say:
+            parcalar.append(
+                "İZLE sayısı: "
+                + ", ".join(f"{p} {n}" for p, n in sorted(izle_say.items(), key=lambda x: -x[1]))
+            )
+        if al_list:
+            parcalar.append("**Öncelikli AL adayları** (hemen al emri değil):")
+            for a in al_list[:6]:
+                parcalar.append(
+                    f"- **{(a or {}).get('sembol')}** ({(a or {}).get('piyasa')}) "
+                    f"skor {(a or {}).get('skor')} · {(a or {}).get('karar')} · "
+                    f"{_fmt_pct((a or {}).get('1g_pct'))} 1G"
+                    + (
+                        f" · alım ~{(a or {}).get('alim_seviyesi')}"
+                        if (a or {}).get("alim_seviyesi") is not None
+                        else ""
+                    )
+                )
+        elif not al_say:
+            parcalar.append("_Bugün AL adayı yok — tarama boş veya eşik altında._")
+        if izle_list:
+            izle_txt = ", ".join(
+                f"{(x or {}).get('sembol')} ({(x or {}).get('piyasa')}, skor {(x or {}).get('skor')})"
+                for x in izle_list[:4]
+            )
+            parcalar.append(f"**İZLE takip:** {izle_txt}")
+        yuks = hareket.get("yukselenler") or []
+        dus = hareket.get("dusenler") or []
+        if yuks:
+            parcalar.append(
+                "**Günün yükselenleri:** "
+                + " · ".join(
+                    f"{x.get('sembol')} {_fmt_pct(x.get('1g_pct'))}"
+                    for x in yuks if x.get("1g_pct") is not None
+                )
+            )
+        if dus:
+            parcalar.append(
+                "**Günün düşenleri:** "
+                + " · ".join(
+                    f"{x.get('sembol')} {_fmt_pct(x.get('1g_pct'))}"
+                    for x in dus if x.get("1g_pct") is not None
+                )
+            )
+
+    if tefas:
+        parcalar.extend(["", "**TEFAS fonlar** (üst skor — TEFAS AL ≠ hisse AL)"])
+        for f in tefas[:5]:
+            parcalar.append(
+                f"- **{(f or {}).get('kod')}** {(f or {}).get('ad')} · "
+                f"skor {(f or {}).get('skor')} · {(f or {}).get('oneri') or '—'}"
+            )
+
+    poz_adet = portfoy.get("pozisyon_adet") or 0
+    if poz_adet:
+        parcalar.extend(["", "**Portföyünüz**"])
+        if portfoy.get("toplam_deger_tl") is not None:
+            parcalar.append(f"Toplam: {_fmt_tl(portfoy['toplam_deger_tl'])}")
+        ag = portfoy.get("agirlikli_getiri") or {}
+        if ag.get("1G") is not None:
+            parcalar.append(f"Ağırlıklı getiri: {_fmt_pct(ag['1G'])} 1G")
+        ust = list(portfoy.get("ust_pozisyonlar") or [])
+        if ust:
+            parcalar.append("Pozisyonlar:")
+            for p in ust[:6]:
+                sat = (
+                    f"- **{(p or {}).get('sembol') or (p or {}).get('etiket')}** "
+                    f"({_fmt_tl((p or {}).get('deger'))})"
+                )
+                ek = []
+                if (p or {}).get("getiri_1g") is not None:
+                    ek.append(f"1G {_fmt_pct((p or {}).get('getiri_1g'))}")
+                if (p or {}).get("kz_pct") is not None:
+                    ek.append(f"K/Z {_fmt_pct((p or {}).get('kz_pct'))}")
+                if ek:
+                    sat += " · " + " · ".join(ek)
+                parcalar.append(sat)
+    else:
+        parcalar.extend(["", "**Portföyünüz:** _Kayıtlı pozisyon yok._"])
+
+    # Net aksiyon — rejime göre kısa mentor notu
+    parcalar.extend(["", "**Bugün için 3 madde**"])
+    vix = makro.get("vix")
+    temkin = baglam.get("temkinli_rejim") or (vix is not None and float(vix) >= VIX_TEMKIN_ESIK)
+    if temkin:
+        parcalar.append("1. **Para/tahsis:** Savunmacı kal — agresif alım diline kapalı rejim.")
+    elif al_list:
+        parcalar.append(
+            "1. **Para/tahsis:** Rejim tahsisine uy; yeni para varsa planlı dağıt, tek seferde değil."
+        )
+    else:
+        parcalar.append("1. **Para/tahsis:** Nakit/tahsis planına sadık kal; acele genişleme yok.")
+    if al_list:
+        top = al_list[0]
+        parcalar.append(
+            f"2. **Hisse/ETF:** Önce **{top.get('sembol')}** ({top.get('piyasa')}) "
+            f"izle — skor {top.get('skor')}, alım seviyesi yakın mı kontrol et."
+        )
+    else:
+        parcalar.append("2. **Hisse/ETF:** AL yok — İZLE listesini ve endeks önerilerini takip et.")
+    if makro.get("petrol_enflasyon_uyari"):
+        parcalar.append("3. **Bekle:** Petrol kaynaklı enflasyon baskısı — TÜİK öncesi reel getiriyi izle.")
+    elif temkin:
+        parcalar.append("3. **Bekle:** VIX/rejim temkinli — netleşene kadar küçük adım.")
+    else:
+        parcalar.append("3. **Bekle:** Makro (CDS, kur, ABD tahvil) ve AL seviyelerinde onay bekle.")
+
+    parcalar.append("")
+    parcalar.append("_Yatırım tavsiyesi değildir; rakamlar yazılım motorundan._")
+    return "\n".join(parcalar)
 
 
 def _hisse_odak_dict(h) -> Dict[str, Any]:
     from karar_yorum import _hisse_karar
+    from signal_engine.explain.tech_snapshot import tech_snapshot_from_hisse
 
     skor = getattr(h, "signal_v2_score", None)
     if skor is None:
@@ -242,7 +584,7 @@ def _hisse_odak_dict(h) -> Dict[str, Any]:
     alim = getattr(h, "signal_v2_al_price", None)
     if alim is None:
         alim = getattr(h, "yonetici_alim", None)
-    return {
+    out: Dict[str, Any] = {
         "sembol": getattr(h, "sembol", ""),
         "ad": (getattr(h, "ad", "") or "")[:40],
         "piyasa": getattr(h, "piyasa", "") or getattr(h, "varlik_turu", ""),
@@ -252,6 +594,12 @@ def _hisse_odak_dict(h) -> Dict[str, Any]:
         "alim_seviyesi": _safe_float(alim, 2),
         "neden": (getattr(h, "signal_v2_why", None) or getattr(h, "gerekce", "") or "")[:120],
     }
+    try:
+        snap = tech_snapshot_from_hisse(h)
+        out["teknik"] = snap.asistan_odak_dict()
+    except Exception:
+        pass
+    return out
 
 
 def _sembol_normalize(s: str) -> str:
@@ -462,6 +810,7 @@ def sistem_baglam_ozeti(
         "portfoy": _portfoy_ozet(varlik_store, varlik_deger),
         "tefas_ust": _tefas_ozet(tefas_ham, n=MAX_TEFAS),
         "nakit_plani": _plan_ozet(plan),
+        "tarama_hareket": _tarama_hareket_ozeti(tarama),
     }
     odak = odak_sembol_bul(user_msg, tarama=tarama, baglam=baglam)
     if odak:
@@ -523,6 +872,7 @@ def baglam_sikistir(baglam: Dict[str, Any]) -> Dict[str, Any]:
         }
     odak = out.get("odak_sembol")
     if isinstance(odak, dict):
+        teknik = odak.get("teknik") if isinstance(odak.get("teknik"), dict) else {}
         out["odak_sembol"] = {
             "sembol": odak.get("sembol"),
             "ad": odak.get("ad"),
@@ -532,8 +882,62 @@ def baglam_sikistir(baglam: Dict[str, Any]) -> Dict[str, Any]:
             "1g_pct": odak.get("1g_pct"),
             "alim_seviyesi": odak.get("alim_seviyesi"),
             "neden": (odak.get("neden") or "")[:120],
+            "teknik": {
+                "rsi": teknik.get("rsi"),
+                "rsi_okuma": teknik.get("rsi_okuma"),
+                "sma20_okuma": teknik.get("sma20_okuma"),
+                "sma50_okuma": teknik.get("sma50_okuma"),
+                "sma200_okuma": teknik.get("sma200_okuma"),
+                "kisa_okuma": (teknik.get("kisa_okuma") or "")[:100],
+                "uzun_okuma": (teknik.get("uzun_okuma") or "")[:100],
+                "ozet": (teknik.get("ozet") or "")[:120],
+                "al_seviyesi": teknik.get("al_seviyesi"),
+                "spot_near": teknik.get("spot_near"),
+                "ichimoku_buy_zone": teknik.get("ichimoku_buy_zone"),
+                "ichimoku_note": (teknik.get("ichimoku_note") or "")[:100],
+                "aksiyon_okuma": (teknik.get("aksiyon_okuma") or "")[:160],
+            } if teknik else None,
         }
     return out
+
+
+def _piyasa_ozet_system_prompt(baglam: Dict[str, Any]) -> str:
+    """Günlük piyasa yorumu — mentor tonu, tüm makro/tarama/portföy bölümleri."""
+    kompakt = baglam_sikistir(baglam)
+    # Motor iskeleti LLM'e zorunlu rakam listesi olarak gider (uydurma önler)
+    motor_iskelet = gunluk_piyasa_ozeti_metni(baglam)
+    veri = json.dumps(kompakt, ensure_ascii=False, indent=2, default=str)
+    temkin = ""
+    if baglam.get("temkinli_rejim"):
+        temkin = (
+            "\nREJİM KİLİDİ: temkinli / yüksek VIX — agresif alım dili yok.\n"
+        )
+    return f"""Sen deneyimli bir makro/portföy mentorusun. Kullanıcı «Bugün piyasaları yorumla» dedi.
+{temkin}
+Görevin: MOTOR_ISKELET ve VERİ'deki rakamları mentor dilinde, akıcı Türkçe ile yorumlamak.
+Tüm başlıkları kapsa (eksik bırakma):
+
+1) **Makro & rejim** — CDS, VIX, BIST, Brent, DXY, ABD 10Y/30Y, EUR/TRY, altın, enflasyon; rejim ne anlama geliyor.
+2) **Tahsis / TL** — önerilen tahsis, mevduat net/reel, TL tavanı (VERİ'de varsa).
+3) **Endeksler** — her endeks için kısa okuma (öneri + 1G).
+4) **Hisse & ETF** — AL yoksa net söyle; İZLE ve günün yükselen/düşenlerini yorumla.
+5) **TEFAS** — üst fonları kısaca; TEFAS AL ≠ hisse AL uyarısını unutma.
+6) **Portföyünüz** — toplam, 1G, pozisyon hareketleri (VERİ'de yoksa «kayıtlı pozisyon yok»).
+7) **Bugün için 3 madde** — (a) para, (b) hisse/fon, (c) neyi beklemeli.
+
+Kurallar:
+- Sadece VERİ / MOTOR_ISKELET rakam ve sembolleri; uydurma yok.
+- Mentor tonu: «bugün şöyle okuyorum / şunu izlerdim» — «kesinlikle al/sat» yok.
+- Yüzde/tutar yeniden hesaplama yok.
+- Yasal uyarı veya «Kaynak:» satırı yazma (sistem ekler).
+- ~15–25 cümle; maddeli başlıklar kullan.
+
+MOTOR_ISKELET:
+{motor_iskelet}
+
+VERİ:
+{veri}
+"""
 
 
 def _system_prompt(baglam: Dict[str, Any]) -> str:
@@ -553,14 +957,21 @@ Yanıtı Türkçe, net ve **yeterince detaylı** yaz — şu yapıda (başlık k
 1) **Piyasa / rejim** — VIX, BIST, CDS, altın, EUR/TRY ve rejim; risk-on mu temkin mi (2–4 cümle).
 2) **Ne yapılabilir** — tahsis / mevduat / TL tavanı / nakit planı varsa açıkla; yoksa atla.
 3) **Hisse & ETF** — `al_adaylari` varsa sembol+piyasa+skor+alım seviyesi ile öncelik ver.
-   AL yoksa açıkça bekle/İZLE de. `odak_sembol` varsa onu derinlemesine anlat.
-4) **Endeksler** — Artır/Koru/Bekle/Azalt önerilerini kısaca yorumla.
-5) **Bugün için net aksiyon** — 3 madde: (a) para/tahsis, (b) hisse, (c) neyi beklemeli.
+   AL yoksa açıkça bekle/İZLE de. `odak_sembol` varsa onu derinlemesine anlat:
+   teknik (RSI/SMA), Ichimoku bekle/açık, analist yoksa «veride yok»,
+   motor seviyesi + «şu civardan değerlendir / şunu bekle» dili kullan.
+   Listede AL = hemen al emri değildir.
+4) **TEFAS fonlar** — `tefas_ust` varsa: uyum skoru / öneri; **TEFAS AL ≠ hisse AL / hemen al**.
+   Brüt getiri; stopaj ve ücret VERİ’de yoksa uydurma — «veride yok» de.
+   `akran_kucuk` veya YBB felaket notu varsa uyar.
+5) **Endeksler** — Artır/Koru/Bekle/Azalt önerilerini kısaca yorumla (ağırlık; hisse AL iptali değil).
+6) **Bugün için net aksiyon** — 3 madde: (a) para/tahsis, (b) hisse, (c) neyi beklemeli.
 
 Kurallar:
 - Sadece VERİ'deki sembol/rakam; uydurma ticker yok.
 - Yüzde / tutar yeniden hesaplama yok.
 - "Kesinlikle al/sat" deme; "değerlendirilebilir / öncelikli aday / şimdilik bekle" kullan.
+- Stopaj / TGO / ücret rakamı VERİ’de yoksa uydurma.
 - Yasal uyarı veya "Kaynak:" satırı ekleme (sistem ekler).
 - Bilgi yoksa "veride yok" de.
 - Toplam ~12–20 cümle / maddeli; kısa tek paragraf yazma.
@@ -610,6 +1021,134 @@ def asistan_yanit(
     if not soru:
         meta["hata"] = "empty"
         return "Bir soru yazın.", meta
+
+    if _piyasa_ozet_sorusu_mu(soru):
+        motor_metin = gunluk_piyasa_ozeti_metni(baglam)
+        # #region agent log
+        try:
+            import time as _t
+            with open(
+                "/Users/onurcansever/Desktop/tl-yatirim-asistani/.cursor/debug-715414.log",
+                "a",
+                encoding="utf-8",
+            ) as _df:
+                _df.write(
+                    json.dumps(
+                        {
+                            "sessionId": "715414",
+                            "runId": "piyasa-llm-hybrid",
+                            "hypothesisId": "H1",
+                            "location": "asistan_chat.py:asistan_yanit",
+                            "message": "piyasa ozet path",
+                            "data": {
+                                "provider_ready": provider_ready() or _call_fn is not None,
+                                "has_mock": _call_fn is not None,
+                                "motor_len": len(motor_metin or ""),
+                            },
+                            "timestamp": int(_t.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # #endregion
+        # LLM yoksa motor iskeleti (eski "uyarı" hissi veren dry dump)
+        if not provider_ready() and _call_fn is None:
+            meta["hata"] = "no_key"
+            meta["hint"] = "Motordan özet (AI anahtarı yok — mentor yorumu için GROQ gerekir)"
+            return f"{motor_metin}\n\n{kaynak_dipnotu(baglam)}", meta
+
+        # LLM varsa: mentor yorumu (motor iskeleti + VERİ prompt'ta)
+        msgs = [{"role": "user", "content": soru}]
+        system = _piyasa_ozet_system_prompt(baglam)
+        try:
+            metin = call_chat(
+                messages=msgs,
+                system=system,
+                max_tokens=1100,
+                timeout=timeout,
+                _call_fn=_call_fn,
+            )
+            metin = (metin or "").strip()
+            if not metin:
+                raise RuntimeError("empty_llm")
+            allow = baglam_sembol_allowlist(baglam)
+            metin, bad = ticker_grounding(metin, allow)
+            meta["grounding_uyari"] = bad
+            meta["hint"] = "Mentor yorumu (motordan rakamlar)"
+            # #region agent log
+            try:
+                import time as _t
+                with open(
+                    "/Users/onurcansever/Desktop/tl-yatirim-asistani/.cursor/debug-715414.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _df:
+                    _df.write(
+                        json.dumps(
+                            {
+                                "sessionId": "715414",
+                                "runId": "piyasa-llm-hybrid",
+                                "hypothesisId": "H2",
+                                "location": "asistan_chat.py:asistan_yanit",
+                                "message": "piyasa ozet llm ok",
+                                "data": {
+                                    "llm_len": len(metin),
+                                    "bad_tickers": bad,
+                                    "hint": meta["hint"],
+                                },
+                                "timestamp": int(_t.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
+            dip = kaynak_dipnotu(baglam)
+            if bad:
+                metin = (
+                    f"{metin}\n\n"
+                    f"_Not: Yanıtta veride olmayan sembol geçti ({', '.join(bad)}) — "
+                    f"yalnızca motor listesindeki ticker'lara güvenin._\n\n{dip}"
+                )
+            else:
+                metin = f"{metin}\n\n{dip}"
+            return metin, meta
+        except Exception as e:
+            _log.warning("asistan_yanit piyasa ozet LLM: %s — motor fallback", e)
+            meta["hata"] = str(e)
+            meta["hint"] = "Motordan özet (AI yanıtı alınamadı — rakamlar yine motordan)"
+            # #region agent log
+            try:
+                import time as _t
+                with open(
+                    "/Users/onurcansever/Desktop/tl-yatirim-asistani/.cursor/debug-715414.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _df:
+                    _df.write(
+                        json.dumps(
+                            {
+                                "sessionId": "715414",
+                                "runId": "piyasa-llm-hybrid",
+                                "hypothesisId": "H3",
+                                "location": "asistan_chat.py:asistan_yanit",
+                                "message": "piyasa ozet llm fallback",
+                                "data": {"error": str(e)[:200]},
+                                "timestamp": int(_t.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # #endregion
+            return f"{motor_metin}\n\n{kaynak_dipnotu(baglam)}", meta
 
     if not provider_ready() and _call_fn is None:
         meta["hata"] = "no_key"

@@ -136,6 +136,15 @@ class HisseAnaliz:
     signal_v2_why: str = ""
     signal_v2_decision_gates: list = field(default_factory=list)
     signal_v2_fund_note: str = ""
+    signal_v2_fund_score: Optional[float] = None
+    signal_v2_fund_label: str = ""
+    signal_v2_fund_pillars: dict = field(default_factory=dict)
+    signal_v2_fund_score_detail: Optional[dict] = None
+    signal_v2_dual_line: str = ""
+    signal_v2_ichimoku: Optional[dict] = None
+    signal_v2_synth_reason: str = ""
+    signal_v2_small_size: bool = False
+    signal_v2_ready_note: bool = False
     signal_v2_al_price: Optional[float] = None
     signal_v2_al_method: str = ""
     signal_v2_al_p_fill: Optional[float] = None
@@ -891,8 +900,8 @@ def _firsatlari_sec(
     return sorted(adaylar, key=lambda x: -_bilesik(x))
 
 
-# AL eşiği 64; histerezis 2 → 62 = eşiğe yakın (AL değil)
-ESIGE_YAKIN_SKOR = 62.0
+# AL eşiği 68; histerezis 3 → 65 = eşiğe yakın (AL değil)
+ESIGE_YAKIN_SKOR = 65.0
 
 
 def esige_yakin_sec(

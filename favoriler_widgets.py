@@ -275,16 +275,16 @@ def render_df_table_with_star_buttons(
         row_ids=list(row_ids) if has_action and row_ids is not None else None,
     )
 
-    # Tıklama jetonu — aynı değerle tekrar toggle olmasın
+    # Tıklama jetonu — aynı değerle tekrar toggle olmasın. Sabit component key:
+    # önceden her toggle'da anahtar (_n) artırılıp iframe remount ediliyordu →
+    # tabloda yanıp sönme. Token (result["t"]) dedup için yeterli.
     tok_key = f"_star_comp_tok_{key_prefix}"
-    n_key = f"_star_comp_n_{key_prefix}"
-    n = int(st.session_state.get(n_key, 0))
     result = star_favori_table(
         columns=cols,
         rows=rows,
         max_height=body_h,
         has_action=has_action,
-        key=f"{key_prefix}_starcomp_{n}",
+        key=f"{key_prefix}_starcomp",
         default=None,
     )
     if isinstance(result, dict) and result.get("t") != st.session_state.get(tok_key):
@@ -298,10 +298,8 @@ def render_df_table_with_star_buttons(
             if 0 <= ri < len(meta):
                 tur, sym, ad = meta[ri]
                 _toggle_favori(tur, sym, ad)
-                st.session_state[n_key] = n + 1
         elif kind == "action" and on_action is not None and result.get("id"):
             on_action(str(result["id"]))
-            st.session_state[n_key] = n + 1
 
 
 @st.fragment

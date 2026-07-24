@@ -26,6 +26,16 @@ if [[ -f "$PROJECT_DIR/.env" ]]; then
 fi
 
 cd "$PROJECT_DIR" || exit 1
+
+# Açılış öncesi disk önbelleğini arka planda ısıt (bloklamaz) — kullanıcı UI'ı
+# hemen görür, tablolar son diskle dolu gelir, tazeleme paralelde. Fiyat/analist
+# ucuz (TTL/miss korumalı); tarama yalnız TTL dolunca tam çekilir.
+APP_SUPPORT="${APP_SUPPORT:-$HOME/Library/Application Support/TLYatirimAsistani}"
+PREWARM_LOG="$APP_SUPPORT/cache_refresh.log"
+mkdir -p "$APP_SUPPORT" 2>/dev/null || true
+nohup "$PYTHON" scripts/background_cache_refresh.py >>"$PREWARM_LOG" 2>&1 &
+disown 2>/dev/null || true
+
 exec "$PYTHON" -m streamlit run app.py \
   --server.port 8502 \
   --server.headless true \

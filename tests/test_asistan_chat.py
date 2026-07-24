@@ -56,6 +56,20 @@ class _FakeHisse:
     signal_v2_al_price: float = 280.0
     degisim_1g: float = 1.2
     signal_v2_why: str = "Momentum"
+    fiyat: float = 285.0
+    rsi: float = 53.0
+    sma20: float = 290.0
+    sma50: float = 275.0
+    sma200: float = 260.0
+    signal_v2_al_method: str = "pullback"
+    signal_v2_spot_near: bool = False
+    signal_v2_ichimoku: dict = field(
+        default_factory=lambda: {"buy_zone": False, "note": "bulut üstü TK zayıf"}
+    )
+    signal_v2_ready_note: bool = False
+    signal_v2_small_size: bool = False
+    signal_v2_regime: str = "TRENDING_UP"
+    signal_v2_regime_detail: str = ""
 
 
 @dataclass
@@ -162,8 +176,15 @@ class AsistanChatTest(unittest.TestCase):
         self.assertIsNotNone(odak)
         self.assertEqual(odak["sembol"], "THYAO.IS")
         self.assertEqual(odak["karar"], "AL")
+        self.assertIn("teknik", odak)
+        self.assertIn("aksiyon_okuma", odak["teknik"])
+        self.assertFalse(odak["teknik"]["ichimoku_buy_zone"])
         b = sistem_baglam_ozeti(tarama=tarama, user_msg="THYAO neden AL?")
         self.assertEqual(b["odak_sembol"]["sembol"], "THYAO.IS")
+        kompakt = __import__("asistan_chat", fromlist=["baglam_sikistir"]).baglam_sikistir(b)
+        self.assertIsNotNone(kompakt["odak_sembol"].get("teknik"))
+        self.assertIn("Ichimoku", _system_prompt(b))
+        self.assertIn("RSI", str(kompakt["odak_sembol"]["teknik"]))
 
     def test_kaynak_dipnotu(self):
         b = sistem_baglam_ozeti(snap=_FakeSnap(), tahsis=_FakeTahsis(), tarama=_FakeTarama())

@@ -22,10 +22,11 @@ STATE_PATH = os.path.join(
 )
 
 TTL_HOURS = 24
-API_TIMEOUT_SEC = 5.0
+API_TIMEOUT_SEC = 10.0
 MAX_PER_MINUTE = 10
 FALLBACK = "Açıklama şu an mevcut değil"
 MODEL = "claude-sonnet-4-6"
+MAX_TOKENS = 700
 
 # Süreç içi rate limit (timestamp listesi)
 _rate_ts: List[float] = []
@@ -120,6 +121,50 @@ def _faktor_al(faktorler: dict, *keys: str) -> Any:
     return "—"
 
 
+def _format_tech_snapshot(tech_snapshot: Optional[Any]) -> str:
+    if tech_snapshot is None:
+        return ""
+    if isinstance(tech_snapshot, dict):
+        rows = tech_snapshot.get("rows") or []
+        lines = ["Teknik özet (günlük — yalnızca verilen göstergeler):"]
+        for row in rows:
+            if len(row) >= 3:
+                lines.append(f"- {row[0]}: {row[1]} — {row[2]}")
+        for key, label in (
+            ("kisa_okuma", "Kısa vade"),
+            ("uzun_okuma", "Orta/uzun vade"),
+            ("ozet", "Özet"),
+            ("aksiyon_okuma", "Birleşik aksiyon okuma"),
+        ):
+            if tech_snapshot.get(key):
+                lines.append(f"- {label}: {tech_snapshot[key]}")
+        if tech_snapshot.get("al_seviyesi") is not None:
+            lines.append(
+                f"- Alım seviyesi (motor): {tech_snapshot['al_seviyesi']} "
+                f"(spot_near={tech_snapshot.get('spot_near')}; "
+                f"yöntem={tech_snapshot.get('al_method') or '—'})"
+            )
+        if "ichimoku_buy_zone" in tech_snapshot or tech_snapshot.get("ichimoku_note"):
+            bz = tech_snapshot.get("ichimoku_buy_zone")
+            if bz is True:
+                bz_s = "alım bölgesi AÇIK"
+            elif bz is False:
+                bz_s = "alım bölgesi KAPALI — bekle"
+            else:
+                bz_s = "veri yok"
+            lines.append(
+                f"- Ichimoku: {bz_s} · not: {tech_snapshot.get('ichimoku_note') or '—'}"
+            )
+        lines.append(
+            "- Not: MACD, Stokastik, Williams, haftalık bar yok — uydurma."
+        )
+        return "\n".join(lines)
+    prompt_block = getattr(tech_snapshot, "prompt_block", None)
+    if callable(prompt_block):
+        return str(prompt_block())
+    return ""
+
+
 def _build_prompt(
     sembol: str,
     karar: str,
@@ -129,11 +174,18 @@ def _build_prompt(
     fiyat_eur: float,
     getiri_1y: float,
     rejim: str,
+    *,
+    tech_snapshot: Optional[Any] = None,
 ) -> str:
-    return f"""Sen bir portföy analiz asistanısın. Aşağıdaki verilere dayanarak
-{sembol} için 2-3 cümlelik Türkçe bir yatırım notu yaz.
+    tech_block = _format_tech_snapshot(tech_snapshot)
+    tech_section = f"\n{tech_block}\n" if tech_block else ""
+    return f"""Sen sabırlı bir yatırım öğretmenisin / mentorsun. Aşağıdaki VERİYE dayanarak
+{sembol} için detaylı Türkçe bir anlatım yaz (yaklaşık 10–14 cümle).
+Amaç: karşı tarafa **ana kararı tüm gerekçeleriyle öğretmek** — emir vermek değil,
+neden böyle okuduğumuzu açıklamak. Ton: sade, didaktik, doğal paragraf;
+madde numarası veya sert yasak listesi gibi yazma.
 
-Teknik sinyal:
+Motor «Şimdi ne yap?» kararı:
 - Karar: {karar} (skor: {skor}/100)
 - Trend: {_faktor_al(faktorler, 'trend')}/100
 - Momentum: {_faktor_al(faktorler, 'mean_reversion', 'mean_rev')}/100
@@ -141,27 +193,41 @@ Teknik sinyal:
 - Göreli güç: {_faktor_al(faktorler, 'relative_strength', 'rel')}/100
 - Likidite: {_faktor_al(faktorler, 'liquidity', 'lik')}/100
 - Rejim: {rejim}
-
-Temel veriler:
+{tech_section}
+Temel / analist:
 {_format_temel(temel)}
 
 Fiyat: {fiyat_eur:.2f} EUR | 1Y getiri: {getiri_1y:+.1f}%
 
-KURALLAR:
-- Sadece verilen verilere dayan, tahmin yapma
-- "Kesinlikle al/sat" deme — olasılık dili kullan
-- Çelişki varsa belirt (ör: teknik zayıf ama analist güçlü al)
-- Maksimum 3 cümle
+ANLATIM AKIŞI (esnek paragraflar; her katmanda «neden önemli»yi söyle):
+1) Kısa vade: RSI ve fiyatın SMA20’ye göre konumu (üstünde/altında — net dil)
+2) Orta/uzun: fiyat vs SMA50/SMA200 — destek mi baskı mı, kısa vade ile çelişiyor mu
+3) Temel/analist varsa: teknikle nasıl birlikte okunur (yoksa «veride yok»)
+4) Motor kararı ({karar}): skor eşiğinin geçilmesi ne demek; bunun «hemen al» emri
+   olmadığını öğret
+5) Ichimoku ve alım seviyesi: yeşil ışık mı, fren mi — motor AL iken teyit yoksa
+   bunu bilerek açıkla («listede AL görünmesi ile şu an alıma geçmek aynı şey değil; sebep …»)
+6) Ana karar özeti: bu yüzden bekle / seviyeden değerlendir / kademeli — bir kez,
+   gerekçeleri toplayarak
+7) Kısa risk / temkin
+
+DİL REHBERİ:
+- «fiyat SMA20’nin altında/üstünde» de; karışık «SMA20 fiyatın altında» cümleleri kurma
+- Veride olmayan gösterge uydurma (MACD, Stokastik, Williams, haftalık, SMA5/10/100)
+- Haber veya anlamsız bağlaç uydurma
+- Aynı sonucu iki kez tekrarlama; bir özet yeter
+- "Kesinlikle al/sat" deme — olasılık / izleme dili
 - Yasal uyarı ekleme (ayrıca gösterilecek)
 """
 
 
+
 def _call_llm(prompt: str, *, api_key: Optional[str] = None) -> str:
-    from llm_shared import aktif_model_meta, call_llm_default
+    from llm_shared import call_llm_default
 
     text = call_llm_default(
         prompt,
-        max_tokens=200,
+        max_tokens=MAX_TOKENS,
         timeout=API_TIMEOUT_SEC,
         api_key=api_key,
     )
@@ -178,6 +244,7 @@ def hisse_aciklamasi(
     getiri_1y: float,
     rejim: str,
     *,
+    tech_snapshot: Optional[Any] = None,
     force: bool = False,
     timeout: float = API_TIMEOUT_SEC,
     api_key: Optional[str] = None,
@@ -186,6 +253,7 @@ def hisse_aciklamasi(
     """
     Dönüş: (metin, meta) — meta: cache_hit, guncelleme, model, hata.
     _call_fn: test mock (prompt -> str).
+    tech_snapshot: TechSnapshot veya dict (skora girmez).
     """
     from llm_shared import aktif_model_meta
 
@@ -216,6 +284,7 @@ def hisse_aciklamasi(
         sembol, karar, int(round(skor)),
         faktorler or {}, temel or {},
         float(fiyat_eur or 0), float(getiri_1y or 0), rejim or "—",
+        tech_snapshot=tech_snapshot,
     )
     call = _call_fn or _call_llm
 

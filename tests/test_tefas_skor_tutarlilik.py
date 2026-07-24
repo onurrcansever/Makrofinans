@@ -99,6 +99,56 @@ class TefasSkorTutarlilikTest(unittest.TestCase):
         self.assertIsNotNone(scored.getiri_gosterim_3a)
         self.assertNotAlmostEqual(scored.getiri_gosterim_3a, 4.0, places=0)
 
+    def test_ylr_ybb_felaket_not_al_or_top(self):
+        """1A pozitif + YBB −95 (Fintables YLR) → AL/İZLE yok, listenin başında olmamalı."""
+        peers = [
+            _fon(f"PP{i}", "para_piyasasi", 3.2, 3.0, 8.0, buyuk=2e9)
+            for i in range(4)
+        ]
+        ylr = _fon(
+            "YLR", "para_piyasasi", 14.7, -3.0, -95.0,
+            para="USD", buyuk=11_000,
+        )
+        eur, usd = _flat_fx()
+        sonuc = fonlari_skorla(
+            TefasTaramaSonuc(fonlar=peers + [ylr]),
+            YatirimProfili(risk="dusuk", vade="kisa_3"),
+            rejim="NOTR",
+            gosterim_pb="EUR",
+            eur_seri=eur,
+            usd_seri=usd,
+        )
+        by = {f.kod: f for f in sonuc.fonlar}
+        self.assertNotIn(by["YLR"].oneri, ("AL", "IZLE"))
+        self.assertLess(by["YLR"].skor, 52.0)
+        self.assertNotEqual(sonuc.fonlar[0].kod, "YLR")
+        self.assertIn("felaket", (by["YLR"].skor_notu or "").lower())
+        assert_tefas_skor_tutarliligi(sonuc.fonlar)
+
+    def test_kriz_blocks_risk_al_allows_para_piyasasi(self):
+        """KRIZ: hisse AL/İZLE yok; para piyasası AL istisnası."""
+        hisse = [
+            _fon(f"H{i}", "hisse", 8.0, 12.0, 20.0, buyuk=3e9)
+            for i in range(4)
+        ]
+        pp = [
+            _fon(f"P{i}", "para_piyasasi", 3.5, 4.0, 9.0, buyuk=5e9)
+            for i in range(4)
+        ]
+        eur, usd = _flat_fx()
+        sonuc = fonlari_skorla(
+            TefasTaramaSonuc(fonlar=hisse + pp),
+            YatirimProfili(risk="yuksek", vade="orta"),
+            rejim="KRIZ",
+            gosterim_pb="TL",
+            eur_seri=eur,
+            usd_seri=usd,
+        )
+        by = {f.kod: f for f in sonuc.fonlar}
+        for i in range(4):
+            self.assertNotIn(by[f"H{i}"].oneri, ("AL", "IZLE"), by[f"H{i}"].skor_notu)
+        assert_tefas_skor_tutarliligi(sonuc.fonlar, rejim="KRIZ")
+
 
 if __name__ == "__main__":
     unittest.main()

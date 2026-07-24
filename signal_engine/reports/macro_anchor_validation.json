@@ -1,0 +1,244 @@
+{
+  "generated_at": "2026-07-24T08:53:02+00:00",
+  "veri_penceresi": {
+    "aylar": 61,
+    "baslangic": "2021-07-31",
+    "bitis": "2026-07-31"
+  },
+  "kaynaklar": {
+    "fiyat": "yfinance (aylık kapanış)",
+    "cpi": "TÜİK/EVDS (TP.FG.J01, doğrudan çekim)",
+    "makro_tablo": "backtest.MAKRO_TABLO (CDS/enflasyon/tcmb yaklaşık, real curated)"
+  },
+  "A_ongorucu_deger": {
+    "spearman": {
+      "stres_vs_bist_usd_ileri_1a": 0.107,
+      "stres_vs_bist_usd_ileri_3a": -0.038,
+      "stres_vs_usdtry_ileri_3a": 0.247
+    },
+    "esik_veriden": {
+      "q33": -0.29,
+      "q66": 0.235
+    },
+    "tercile": [
+      {
+        "kova": "düşük stres",
+        "n": 19,
+        "bist_usd_ileri_3a_ort_pct": 3.77,
+        "usdtry_ileri_3a_ort_pct": 9.38
+      },
+      {
+        "kova": "orta stres",
+        "n": 19,
+        "bist_usd_ileri_3a_ort_pct": 7.02,
+        "usdtry_ileri_3a_ort_pct": 4.98
+      },
+      {
+        "kova": "yüksek stres",
+        "n": 20,
+        "bist_usd_ileri_3a_ort_pct": 5.05,
+        "usdtry_ileri_3a_ort_pct": 9.95
+      }
+    ]
+  },
+  "B_reel_getiri": {
+    "fisher_analizi": {
+      "aciklama": "Motor reel=tcmb−enflasyon (basit). Yüksek enflasyonda Fisher-tam üstünde kalır.",
+      "ort_mutlak_sapma_pp": 3.04,
+      "max_sapma_pp": 8.82,
+      "ornekler": [
+        {
+          "ay": "2024-01",
+          "tcmb": 42.5,
+          "enflasyon": 64.9,
+          "basit_reel_pp": -22.4,
+          "fisher_tam_reel_pp": -13.58,
+          "sapma_pp": -8.82
+        },
+        {
+          "ay": "2024-04",
+          "tcmb": 50.0,
+          "enflasyon": 69.8,
+          "basit_reel_pp": -19.8,
+          "fisher_tam_reel_pp": -11.66,
+          "sapma_pp": -8.14
+        },
+        {
+          "ay": "2024-07",
+          "tcmb": 50.0,
+          "enflasyon": 61.8,
+          "basit_reel_pp": -11.8,
+          "fisher_tam_reel_pp": -7.29,
+          "sapma_pp": -4.51
+        },
+        {
+          "ay": "2024-10",
+          "tcmb": 50.0,
+          "enflasyon": 48.6,
+          "basit_reel_pp": 1.4,
+          "fisher_tam_reel_pp": 0.94,
+          "sapma_pp": 0.46
+        },
+        {
+          "ay": "2025-01",
+          "tcmb": 47.5,
+          "enflasyon": 42.1,
+          "basit_reel_pp": 5.4,
+          "fisher_tam_reel_pp": 3.8,
+          "sapma_pp": 1.6
+        },
+        {
+          "ay": "2025-04",
+          "tcmb": 46.0,
+          "enflasyon": 38.0,
+          "basit_reel_pp": 8.0,
+          "fisher_tam_reel_pp": 5.8,
+          "sapma_pp": 2.2
+        },
+        {
+          "ay": "2025-07",
+          "tcmb": 43.0,
+          "enflasyon": 36.0,
+          "basit_reel_pp": 7.0,
+          "fisher_tam_reel_pp": 5.15,
+          "sapma_pp": 1.85
+        },
+        {
+          "ay": "2025-10",
+          "tcmb": 40.5,
+          "enflasyon": 35.0,
+          "basit_reel_pp": 5.5,
+          "fisher_tam_reel_pp": 4.07,
+          "sapma_pp": 1.43
+        },
+        {
+          "ay": "2026-01",
+          "tcmb": 38.0,
+          "enflasyon": 34.5,
+          "basit_reel_pp": 3.5,
+          "fisher_tam_reel_pp": 2.6,
+          "sapma_pp": 0.9
+        },
+        {
+          "ay": "2026-04",
+          "tcmb": 37.0,
+          "enflasyon": 35.0,
+          "basit_reel_pp": 2.0,
+          "fisher_tam_reel_pp": 1.48,
+          "sapma_pp": 0.52
+        }
+      ]
+    },
+    "cpi_kaynak": "TÜİK/EVDS (TP.FG.J01, doğrudan çekim)",
+    "petrol_enflasyon_gecikme_corr": {
+      "aciklama": "Brent YoY (k ay önce) vs TÜFE YoY — pozitif & artan = petrol öncü.",
+      "spearman": {
+        "lag_0a": 0.555,
+        "lag_3a": 0.648,
+        "lag_6a": 0.532
+      }
+    }
+  },
+  "C_rejim_etki": {
+    "aciklama": "Rejim skoru reel kova katkısı: basit vs Fisher (regime_hysteresis kuralı).",
+    "ay_sayisi": 10,
+    "kova_degisen_ay": 1,
+    "isaret_degisen_ay": 0,
+    "tl_firsat_kapisi_flip": 0,
+    "detay": [
+      {
+        "ay": "2024-01",
+        "basit_reel_pp": -22.4,
+        "fisher_reel_pp": -13.58,
+        "basit_kova_skor": -20,
+        "fisher_kova_skor": -20,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2024-04",
+        "basit_reel_pp": -19.8,
+        "fisher_reel_pp": -11.66,
+        "basit_kova_skor": -20,
+        "fisher_kova_skor": -20,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2024-07",
+        "basit_reel_pp": -11.8,
+        "fisher_reel_pp": -7.29,
+        "basit_kova_skor": -20,
+        "fisher_kova_skor": -20,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2024-10",
+        "basit_reel_pp": 1.4,
+        "fisher_reel_pp": 0.94,
+        "basit_kova_skor": 12,
+        "fisher_kova_skor": 12,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2025-01",
+        "basit_reel_pp": 5.4,
+        "fisher_reel_pp": 3.8,
+        "basit_kova_skor": 25,
+        "fisher_kova_skor": 25,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2025-04",
+        "basit_reel_pp": 8.0,
+        "fisher_reel_pp": 5.8,
+        "basit_kova_skor": 25,
+        "fisher_kova_skor": 25,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2025-07",
+        "basit_reel_pp": 7.0,
+        "fisher_reel_pp": 5.15,
+        "basit_kova_skor": 25,
+        "fisher_kova_skor": 25,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2025-10",
+        "basit_reel_pp": 5.5,
+        "fisher_reel_pp": 4.07,
+        "basit_kova_skor": 25,
+        "fisher_kova_skor": 25,
+        "skor_delta": 0
+      },
+      {
+        "ay": "2026-01",
+        "basit_reel_pp": 3.5,
+        "fisher_reel_pp": 2.6,
+        "basit_kova_skor": 25,
+        "fisher_kova_skor": 12,
+        "skor_delta": -13
+      },
+      {
+        "ay": "2026-04",
+        "basit_reel_pp": 2.0,
+        "fisher_reel_pp": 1.48,
+        "basit_kova_skor": 12,
+        "fisher_kova_skor": 12,
+        "skor_delta": 0
+      }
+    ]
+  },
+  "verdict": [
+    "A: İlişki zayıf (ρ=-0.038) — tek başına çıpa stresi güçlü öngörücü değil.",
+    "A: Stres → 3a USD/TL ρ=0.247 (TL değer kaybını öngörüyor).",
+    "A: Düşük-stres aylar ort. BIST(USD) 3a %+3.8 vs yüksek-stres %+5.0 — fark kovadan görülür.",
+    "B: Reel getiri BASİT formülle Fisher-tam'dan ort. 3.04 pp iyimser okunuyor — yüksek enflasyonda `(1+i)/(1+π)−1` kullanılmalı (kalibrasyon gerekçesi).",
+    "B: Petrol→TÜFE gecikme korelasyonu {'lag_0a': 0.555, 'lag_3a': 0.648, 'lag_6a': 0.532} — artan lag'de yükseliyorsa petrol öncü göstergedir.",
+    "C: Fisher geçişi rejim reel kovasını 1/10 ayda değiştiriyor; TL_FIRSAT (reel>0) kapısı 0 ayda flip eder (işaret-değişmez → beklenen 0). Etki büyüklük eşiklerinde, sınırlı ve öngörülebilir."
+  ],
+  "notlar": [
+    "Eşikler veri kantillerinden (33/66) türetildi — elle/sezgiyle konmadı.",
+    "Lookahead yok: t'deki çıpa → t+1/t+3 getiri.",
+    "CDS/enflasyon yaklaşık; kesin performans değil, yön/kalibrasyon kanıtı."
+  ]
+}

@@ -367,6 +367,7 @@ def rapor_html_olustur(
     varlik_store=None,
     kullanici_portfoy=None,
     para_birimi: str = "EUR",
+    tefas_ham=None,
 ) -> str:
     toplam_eur = toplam_eur or config.TOPLAM_EUR
     v = snap.veri
@@ -749,7 +750,11 @@ def rapor_html_olustur(
                 )
 
     from kullanici_portfoy import varsayilan_portfoy
-    from rapor_ek_bolumler import birlesik_oneri_html_blok, varliklarim_html_blok
+    from rapor_ek_bolumler import (
+        birlesik_oneri_html_blok,
+        tefas_fonlari_html_blok,
+        varliklarim_html_blok,
+    )
 
     kp = kullanici_portfoy or varsayilan_portfoy()
     birlesik_html = birlesik_oneri_html_blok(
@@ -759,6 +764,19 @@ def rapor_html_olustur(
         eur_try=v.eur_try or 35.0,
         esc=_esc,
         makro_agirliklar=tahsis.agirliklar,
+    )
+    _mev_reel_html = None
+    if mevduat is not None:
+        _mev_reel_html = getattr(mevduat, "profil_vade_reel", None)
+        if _mev_reel_html is None:
+            _mev_reel_html = getattr(mevduat, "reel_getiri_pp", None)
+    tefas_html = tefas_fonlari_html_blok(
+        tefas_ham,
+        esc=_esc,
+        profil=profil,
+        rejim=getattr(getattr(tahsis, "rejim", None), "rejim", None) or "NOTR",
+        mevduat_reel=_mev_reel_html,
+        gosterim_pb=para_birimi or "EUR",
     )
     varlik_html = varliklarim_html_blok(varlik_store, snap, kp, esc=_esc)
 
@@ -894,6 +912,8 @@ details summary {{ cursor: pointer; color: #003366; font-weight: 600; padding: 6
 
 {birlesik_html}
 
+{tefas_html}
+
 <!-- 3. HİSSE & ETF YATIRIM ÖNERİLERİ -->
 {tarama_html}
 
@@ -989,6 +1009,7 @@ def rapor_paketi_olustur(
     varlik_store=None,
     kullanici_portfoy=None,
     para_birimi: str = "EUR",
+    tefas_ham=None,
 ) -> dict:
     html_out = rapor_html_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
@@ -997,6 +1018,7 @@ def rapor_paketi_olustur(
         varlik_store=varlik_store,
         kullanici_portfoy=kullanici_portfoy,
         para_birimi=para_birimi,
+        tefas_ham=tefas_ham,
     )
     pdf_out = rapor_pdf_direkt_olustur(
         snap, tahsis, profil, danisman, mevduat, tl_durum, toplam_eur, tarama,
@@ -1005,6 +1027,7 @@ def rapor_paketi_olustur(
         varlik_store=varlik_store,
         kullanici_portfoy=kullanici_portfoy,
         para_birimi=para_birimi,
+        tefas_ham=tefas_ham,
     )
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     return {

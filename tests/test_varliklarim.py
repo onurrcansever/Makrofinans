@@ -62,6 +62,19 @@ class VarliklarimTest(unittest.TestCase):
         self.assertAlmostEqual(_deger_tutar_bazli(716.0, 0.0), 716.0)
         self.assertAlmostEqual(_deger_tutar_bazli(716.0, 5.0), 716.0 * 1.05)
 
+    def test_evren_arama_kod_oncelikli(self):
+        # "KLU" araması, adında "ÇOKLU" geçen fon yerine kodu KLU olanı öne almalı.
+        from types import SimpleNamespace
+
+        fonlar = [
+            SimpleNamespace(kod="CKL", kisa_ad="ÇOKLU VARLIK DEĞİŞKEN", ad="ÇOKLU VARLIK DEĞİŞKEN FON", para_birimi="TL"),
+            SimpleNamespace(kod="KLU", kisa_ad="PARA PİYASASI KATILIM", ad="PARA PİYASASI KATILIM (TL) FONU", para_birimi="TL"),
+        ]
+        res = pozisyon_evren_listesi("tefas", tefas_fonlar=fonlar, ara="KLU")
+        self.assertTrue(res)
+        self.assertEqual(res[0].sembol, "KLU")
+        self.assertIn("KLU", [x.sembol for x in res])
+
     def test_store_persist(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, ".varliklarim.json")

@@ -10,6 +10,7 @@ import streamlit as st
 from birlesik_oneri import BirlesikOneri
 from fiyat_para import session_gosterim_pb, tablo_fx_hazirla, tutar_goster
 from ui_theme import plotly_base_layout, render_df_table
+from vergi_notu import vergi_notu_caption
 
 try:
     import plotly.graph_objects as go
@@ -146,11 +147,38 @@ def birlesik_oneri_paneli(
     else:
         st.warning("Hedef dağılım hesaplanamadı — verileri yenileyin.")
 
+    if getattr(oneri, "dilim_kararlari", None):
+        st.markdown("**Dinamik araç seçimi**")
+        st.caption(
+            "Makro dilim içinde mevduat / TEFAS / fiziki / ETF karşılaştırması "
+            "(net proxy = beklenen brüt − TGO/TER/makas/stopaj sürüklemesi). "
+            + vergi_notu_caption("tefas")
+        )
+        dk_rows = []
+        for k in oneri.dilim_kararlari:
+            yedek = f"{k.yedek.ad} (~%{k.yedek.net_proxy:.1f})" if k.yedek else "—"
+            maliyet = (
+                " · ".join(f"{a} %{v:.2f}" for a, v in (k.kazanan.maliyet_kalemleri or {}).items() if v)
+                or "—"
+            )
+            dk_rows.append({
+                "Dilim": k.dilim,
+                "Kazanan": k.kazanan.ad,
+                "Tür": k.kazanan.tur,
+                "Net proxy %": f"{k.kazanan.net_proxy:.1f}",
+                "Maliyet": maliyet[:48],
+                "Yedek": yedek,
+                "Neden": (k.gerekce or "")[:90],
+            })
+        if dk_rows:
+            render_df_table(pd.DataFrame(dk_rows), max_height=260)
+
     if oneri.arac_dagilim:
         st.markdown("**Araç içi dağılım**")
         st.caption(
             "Kategori içi %: o sınıfın (ör. BIST %3,3) içinde her araca düşen pay. "
-            "Portföy %: toplam portföydeki net ağırlık. TEFAS/BIST: skor; ETF: öncelik sırası."
+            "Portföy %: toplam portföydeki net ağırlık (TEFAS→TL, ETF→FX içinden). "
+            "TEFAS/BIST: skor; ETF: öncelik sırası."
         )
         render_df_table(_arac_dagilim_df(oneri, gpb, eur_try, usd_try, fx_kw), max_height=320)
 

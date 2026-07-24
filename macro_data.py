@@ -52,6 +52,17 @@ class MacroSnapshot:
     altin_3m_degisim: Optional[float] = None
     bist_vol_30g: Optional[float] = None
     bist_vol_1g_degisim: Optional[float] = None
+    # Faz 1 — global makro çıpaları (yalnızca gösterim/AI bağlamı; karara bağlı değil)
+    brent_usd: Optional[float] = None          # Brent ham petrol ($/varil) — ithal enflasyon öncüsü
+    brent_1g_degisim: Optional[float] = None
+    brent_3a_degisim: Optional[float] = None    # Brent 3 aylık % — enflasyon-riski uyarısı (advisory)
+    dxy: Optional[float] = None                # Dolar Endeksi — kur baskısı global mi/yerel mi
+    dxy_1g_degisim: Optional[float] = None
+    abd_10y: Optional[float] = None            # ABD 10Y tahvil getirisi (%) — global risksiz çıpa
+    abd_10y_1g_degisim: Optional[float] = None
+    abd_30y: Optional[float] = None            # ABD 30Y tahvil getirisi (%)
+    tl_2y: Optional[float] = None              # TL 2Y gösterge tahvil (%) — kaynak eklenince dolar
+    tl_10y: Optional[float] = None             # TL 10Y gösterge tahvil (%)
     veri_kaynak: str = ""
     veri_zamani: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     cekim_uyarilari: List[str] = field(default_factory=list)
@@ -373,7 +384,7 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
     from concurrent.futures import ThreadPoolExecutor
 
     kaynak: Dict[str, str] = {}
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=12) as ex:
         fut_eur = ex.submit(_yf_analiz, "EURTRY=X", period="1mo")
         fut_usd = ex.submit(_yf_analiz, "USDTRY=X", period="1mo")
         fut_altin = ex.submit(_yf_analiz, "GC=F", period="3mo")
@@ -382,6 +393,11 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
         fut_btc = ex.submit(_yf_analiz, "BTC-USD", period="3mo")
         fut_gumus = ex.submit(_yf_son_fiyat, "SI=F")
         fut_eur_usd = ex.submit(_eur_usd_spot)
+        # Faz 1 — global makro çıpaları
+        fut_brent = ex.submit(_yf_analiz, "BZ=F", period="3mo")
+        fut_dxy = ex.submit(_yf_analiz, "DX-Y.NYB", period="3mo")
+        fut_us10y = ex.submit(_yf_analiz, "^TNX", period="3mo")
+        fut_us30y = ex.submit(_yf_son_fiyat, "^TYX")
         eur_a = fut_eur.result()
         usd_a = fut_usd.result()
         altin_a = fut_altin.result()
@@ -390,6 +406,10 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
         btc = fut_btc.result()
         gumus = fut_gumus.result()
         eur_usd = fut_eur_usd.result()
+        brent = fut_brent.result()
+        dxy = fut_dxy.result()
+        us10y = fut_us10y.result()
+        us30y = fut_us30y.result()
 
     eur_try = eur_a["fiyat"]
     usd_try = usd_a["fiyat"]
@@ -459,6 +479,11 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
 
     kaynak["btc"] = "Yahoo Finance (BTC-USD)" if btc["fiyat"] else "—"
 
+    kaynak["brent"] = "Yahoo Finance (BZ=F, Brent vadeli)" if brent.get("fiyat") else "—"
+    kaynak["dxy"] = "Yahoo Finance (DX-Y.NYB, Dolar Endeksi)" if dxy.get("fiyat") else "—"
+    kaynak["abd_10y"] = "Yahoo Finance (^TNX, ABD 10Y getiri)" if us10y.get("fiyat") else "—"
+    kaynak["abd_30y"] = "Yahoo Finance (^TYX, ABD 30Y getiri)" if us30y else "—"
+
     eur_try_1g = eur_a["degisim_1g"]
     if eur_try_1g is None:
         eur_try_1g = _frankfurter_gunluk_degisim("EUR", "TRY")
@@ -482,6 +507,14 @@ def _piyasa_fiyatlari() -> Tuple[Dict[str, Any], Dict[str, str]]:
         "altin_3m_degisim": altin_a["degisim_pct"],
         "bist_vol_30g": bist["vol"],
         "bist_vol_1g_degisim": bist["vol_1g"],
+        "brent_usd": brent.get("fiyat"),
+        "brent_1g_degisim": brent.get("degisim_1g"),
+        "brent_3a_degisim": brent.get("degisim_pct"),
+        "dxy": dxy.get("fiyat"),
+        "dxy_1g_degisim": dxy.get("degisim_1g"),
+        "abd_10y": us10y.get("fiyat"),
+        "abd_10y_1g_degisim": us10y.get("degisim_1g"),
+        "abd_30y": us30y,
     }, kaynak
 
 
@@ -539,6 +572,14 @@ def demo_snapshot() -> MacroSnapshot:
         altin_3m_degisim=piyasa.get("altin_3m_degisim"),
         bist_vol_30g=piyasa.get("bist_vol_30g"),
         bist_vol_1g_degisim=piyasa.get("bist_vol_1g_degisim"),
+        brent_usd=piyasa.get("brent_usd"),
+        brent_1g_degisim=piyasa.get("brent_1g_degisim"),
+        brent_3a_degisim=piyasa.get("brent_3a_degisim"),
+        dxy=piyasa.get("dxy"),
+        dxy_1g_degisim=piyasa.get("dxy_1g_degisim"),
+        abd_10y=piyasa.get("abd_10y"),
+        abd_10y_1g_degisim=piyasa.get("abd_10y_1g_degisim"),
+        abd_30y=piyasa.get("abd_30y"),
         veri_kaynak="demo",
         cekim_uyarilari=[],
         kaynak_haritasi=kaynak,
@@ -664,6 +705,14 @@ def canli_snapshot(taze: bool = True, _tick: int = 0) -> MacroSnapshot:
         altin_3m_degisim=piyasa.get("altin_3m_degisim"),
         bist_vol_30g=piyasa.get("bist_vol_30g"),
         bist_vol_1g_degisim=piyasa.get("bist_vol_1g_degisim"),
+        brent_usd=piyasa.get("brent_usd"),
+        brent_1g_degisim=piyasa.get("brent_1g_degisim"),
+        brent_3a_degisim=piyasa.get("brent_3a_degisim"),
+        dxy=piyasa.get("dxy"),
+        dxy_1g_degisim=piyasa.get("dxy_1g_degisim"),
+        abd_10y=piyasa.get("abd_10y"),
+        abd_10y_1g_degisim=piyasa.get("abd_10y_1g_degisim"),
+        abd_30y=piyasa.get("abd_30y"),
         veri_kaynak="canli",
         cekim_uyarilari=uyarilar,
         kaynak_haritasi=kaynak,

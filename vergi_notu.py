@@ -16,7 +16,8 @@ BIST_OZET = (
 )
 TEFAS_OZET = (
     "TEFAS / yatırım fonu stopajı iktisap tarihine ve fon türüne bağlı "
-    "(%0 / %7,5 / %10 / %15…); hisse yoğun fonlarda sıklıkla %0. "
+    "(yeni iktisap ≥09.07.2025 çoğunlukla %17,5; hisse yoğun %0; "
+    "eski dilimler %0/%7,5/%10/%15). "
     "Banka/TEFAS ekranını esas alın — yazılım net fon getirisi hesaplamaz."
 )
 MEVDUAT_OZET = (

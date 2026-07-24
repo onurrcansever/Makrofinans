@@ -33,8 +33,11 @@ class KararLejantTest(unittest.TestCase):
     def test_al_yildiz_aciklama(self):
         self.assertIn("AL*", TEFAS_YILDIZ_ACIKLAMA)
         self.assertIn("BEKLE*", TEFAS_YILDIZ_ACIKLAMA)
-        self.assertIn("akran", TEFAS_YILDIZ_ACIKLAMA.lower())
-        self.assertIn("BEKLE önerisi var ama akran grubu küçük", TEFAS_YILDIZ_ACIKLAMA)
+        self.assertIn("mutlak", TEFAS_YILDIZ_ACIKLAMA.lower())
+        self.assertIn("küçük kategori", TEFAS_YILDIZ_ACIKLAMA.lower())
+        from karar_lejant import tefas_lejant_kisa, TEFAS_STRES_CAPTION
+        self.assertIn("profil uyumu", tefas_lejant_kisa().lower())
+        self.assertIn("KRIZ", TEFAS_STRES_CAPTION)
 
     def test_karar_dagilim_dinamik(self):
         kararlar = (
@@ -87,11 +90,23 @@ class KararLejantTest(unittest.TestCase):
             signal_v2_cold_reason="",
             signal_v2_etf_quality="",
             signal_v2_why="Skor 84 (sınıf %50) · Rejim TRENDING_UP",  # eski/stale
+            fiyat=100.0,
+            rsi=53.0,
+            sma20=98.0,
+            sma50=95.0,
+            sma200=90.0,
         )
         md = why_markdown(h)
-        self.assertIn("Sınıf içi:** %99", md)
+        self.assertIn("%99", md)
+        self.assertIn("Sınıf içi sıra", md)
         self.assertIn("sınıf %99", md)
         self.assertNotIn("sınıf %50", md)
+        self.assertIn("<table", md)
+        self.assertIn("Teknik faktörler", md)
+        self.assertIn("Teknik özet", md)
+        self.assertIn("RSI(14)", md)
+        self.assertIn("SMA200", md)
+        self.assertIn("Birleşik aksiyon", md)
 
     def test_format_decision_why_percentile(self):
         w = format_decision_why(72, 83.0, "RANGE", entry_method="spot")

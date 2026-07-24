@@ -122,7 +122,7 @@ def backtest_veri(ay: int, vade: str, risk: str, *, zorla: bool = False):
         return disk_getir_swr(anahtar, TTL["backtest"], _uret, blokla=True)
 
     veri, yas = disk_getir(anahtar, TTL["backtest"], bayat_kabul=True)
-    if veri is not None:
+    if isinstance(veri, list) and veri:
         if yas is not None and yas > TTL["backtest"]:
             disk_getir_aninda(anahtar, TTL["backtest"], _uret, varsayilan=veri)
         return veri
@@ -131,14 +131,82 @@ def backtest_veri(ay: int, vade: str, risk: str, *, zorla: bool = False):
     return {"hata": "Backtest arka planda yükleniyor — bir dakika sonra yenileyin."}
 
 
+def backtest_hazir_mi(bt) -> bool:
+    """Liste[BacktestSatir] mi — yükleme/hata dict'i False."""
+    return (
+        isinstance(bt, list)
+        and bool(bt)
+        and hasattr(bt[0], "tarih")
+        and hasattr(bt[0], "agirliklar")
+    )
+
+
+def backtest_yukleniyor_mu(bt) -> bool:
+    return isinstance(bt, dict) and bool(bt.get("hata"))
+
+
+
+def _tefas_getiri_bozuk_mu(sonuc) -> bool:
+    """Eski kısa-pencere bug'ı: çoğu fonda 1A==3A==YBB (uydurma eşitleme)."""
+    fonlar = [
+        f for f in (getattr(sonuc, "fonlar", None) or [])
+        if getattr(f, "getiri_1a", None) is not None
+        and getattr(f, "getiri_3a", None) is not None
+        and getattr(f, "getiri_ybb", None) is not None
+    ]
+    if len(fonlar) < 8:
+        return False
+    ayni = sum(
+        1 for f in fonlar
+        if f.getiri_1a == f.getiri_3a == f.getiri_ybb
+    )
+    return (ayni / len(fonlar)) >= 0.80
+
+
+def _tefas_pencere_yetersiz_mu(sonuc, *, esik: float = 0.8) -> bool:
+    """Kesik pencere: 1A var ama YBB (ve çoğu 3A) hesaplanamıyorsa tarihçe kısa.
+
+    90 günlük pencere YBB'yi (yılbaşından bu yana) doldurmaz → tüm fonlarda "—".
+    Daha kısa (≤60g) pencerede 3A da boşalır. Bu durumda diskte daha uzun ham veri
+    varsa tekrar çekmek/yükseltmek gerekir (aksi halde tablo kalıcı "—" kalır)."""
+    fonlar = [
+        f for f in (getattr(sonuc, "fonlar", None) or [])
+        if getattr(f, "getiri_1a", None) is not None
+    ]
+    if len(fonlar) < 8:
+        return False
+    ybb_bos = sum(1 for f in fonlar if getattr(f, "getiri_ybb", None) is None)
+    return (ybb_bos / len(fonlar)) >= esik
+
+
 def tefas_ham_cek(gun: int = 120, _tick: int = 0, *, zorla: bool = False):
     from tefas_data import TefasTaramaSonuc, yk_fonlari_performans
+    from tefas_progress import (
+        progress_aktif_mi,
+        progress_baslat,
+        progress_bitir,
+        progress_cb,
+        progress_heartbeat,
+    )
 
-    anahtar = f"tefas:{gun}"
+    # v2: kısa ham + uydurma 3A/YBB önbelleklerini devre dışı bırak
+    anahtar = f"tefas:v2:{gun}"
 
     def _uret():
-        sonuc = yk_fonlari_performans(gun=gun, sadece_yk=True)
-        return None if getattr(sonuc, "hata", "") else sonuc
+        progress_baslat(detail=f"TEFAS yükleniyor · hedef {gun} gün…", zorla=True)
+        try:
+            sonuc = yk_fonlari_performans(
+                gun=gun, sadece_yk=True, progress_cb=progress_cb,
+            )
+            if getattr(sonuc, "hata", ""):
+                progress_bitir(hata=str(sonuc.hata))
+                return None
+            n = len(getattr(sonuc, "fonlar", None) or [])
+            progress_bitir(detail=f"Tablo hazır · {n} fon · {getattr(sonuc, 'gun', gun)} gün")
+            return sonuc
+        except Exception as e:
+            progress_bitir(hata=str(e))
+            raise
 
     def _placeholder():
         return TefasTaramaSonuc(
@@ -146,16 +214,62 @@ def tefas_ham_cek(gun: int = 120, _tick: int = 0, *, zorla: bool = False):
             guncelleme="",
         )
 
+    def _kardes_disk():
+        """İstenen pencerede yoksa kardeş gün anahtarlarından anında göster."""
+        for g in (gun, 120, 90, 60, 30):
+            veri, yas = disk_getir(f"tefas:v2:{int(g)}", TTL["tefas"], bayat_kabul=True)
+            if veri is None or _tefas_getiri_bozuk_mu(veri):
+                continue
+            if not getattr(veri, "fonlar", None):
+                continue
+            return veri, yas, int(g)
+        return None, None, None
+
     if zorla:
-        sonuc = disk_getir_swr(anahtar, TTL["tefas"], _uret, blokla=True)
-        return sonuc if sonuc is not None else _placeholder()
+        progress_baslat(detail="TEFAS Yenile — tam çekim…", zorla=True)
+        try:
+            sonuc = disk_getir_swr(anahtar, TTL["tefas"], _uret, blokla=True)
+            if sonuc is not None:
+                return sonuc
+            progress_bitir(hata="TEFAS Yenile başarısız")
+            return _placeholder()
+        except Exception as e:
+            progress_bitir(hata=str(e))
+            return _placeholder()
 
     veri, yas = disk_getir(anahtar, TTL["tefas"], bayat_kabul=True)
+    if veri is not None and _tefas_getiri_bozuk_mu(veri):
+        from disk_onbellek import disk_sil
+        disk_sil(anahtar)
+        veri = None
+    # Kesik pencere (3A/YBB toplu boş): diskte daha uzun ham veri olabilir — tam
+    # pencereyle yeniden hesaplamayı ARKA PLANDA tetikle, eldeki kısa tabloyu ANINDA
+    # göster (bloklama yok). Bir sonraki rerun'da tam veri gelir. Oturumda bir kez;
+    # sonuç yine kısaysa (TEFAS gerçekten kısa tarihçe döndürdü) tekrar denemez → döngü yok.
+    if veri is not None and _tefas_pencere_yetersiz_mu(veri):
+        _yenile_bayrak = f"_tefas_pencere_yenile_{gun}"
+        if not st.session_state.get(_yenile_bayrak):
+            st.session_state[_yenile_bayrak] = True
+            from disk_onbellek import disk_sil
+            disk_sil(anahtar)
+            return disk_getir_aninda(anahtar, TTL["tefas"], _uret, varsayilan=veri)
     if veri is not None:
         if yas is not None and yas > TTL["tefas"]:
             disk_getir_aninda(anahtar, TTL["tefas"], _uret, varsayilan=veri)
         return veri
 
+    # Kardeş önbellek: tabloyu hemen göster, istenen pencereyi arka planda tazele
+    kardes, _ky, kg = _kardes_disk()
+    if kardes is not None:
+        disk_getir_aninda(anahtar, TTL["tefas"], _uret, varsayilan=None)
+        return kardes
+
+    # Poll her 2 sn buraya düşer — aktif yüklemeyi sıfırlama
+    if progress_aktif_mi():
+        progress_heartbeat()
+        return _placeholder()
+
+    progress_baslat(detail="Disk boş — TEFAS canlı çekim başlıyor…")
     disk_getir_aninda(anahtar, TTL["tefas"], _uret, varsayilan=None)
     return _placeholder()
 

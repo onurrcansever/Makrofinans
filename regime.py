@@ -92,9 +92,10 @@ def rejim_tespit(snap: MacroSnapshot) -> RejimSonucu:
         )
 
     # --- TL fırsat ---
+    from reel_hesap import reel_getiri
     enflasyon = snap.enflasyon_tr_yillik or 35.0
     tcmb = v.tcmb_politika_faizi or (v.tl_mevduat_brut_faiz or 0.40) * 100
-    reel_faiz = tcmb - enflasyon
+    reel_faiz = reel_getiri(tcmb, enflasyon)
     savas_yuksek = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_YUKSEK_ESIGI
     savas_aktif = (v.savas_risk_makale_sayisi or 0) >= config.SAVAS_RISK_ESIGI
     jeopolitik_kesinti = savas_aktif  # Kapı 1b ×0.9 jeopolitik çarpanı aktifken risk-on yasak

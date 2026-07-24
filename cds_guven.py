@@ -185,7 +185,7 @@ def cds_guvenli_al(
     manuel = _manuel_cds_yedek()
     if manuel:
         kaynaklar["manual_yedek"] = manuel
-        meta["manual_yedek"] = "manual_inputs.json (otomatik yedek)"
+        meta["manual_yedek"] = "Disk yedek (önceki canlı senkron)"
 
     inv_meta = investing_cds_son_meta()
     uyari: List[str] = []
@@ -240,7 +240,7 @@ def cds_guvenli_al(
         if manuel and abs(manuel - inv_bp) > fark_bp_esik:
             deger = float(max(inv_bp, manuel))
             uyari.append(
-                f"Investing {inv_bp:.0f} vs yedek {manuel:.0f} bp — muhafazakâr **{deger:.0f}** bp."
+                f"Investing {inv_bp:.0f} vs disk yedek {manuel:.0f} bp — muhafazakâr **{deger:.0f}** bp."
             )
         if len(inv_vals) >= 2 and _rel_fark(inv_vals[0], inv_vals[1]) <= capraz:
             dogrulandi = True
@@ -250,14 +250,17 @@ def cds_guvenli_al(
                 "Bloomberg Terminal erişilemedi — yalnızca Investing.com kullanılıyor. "
                 "Terminal kurulumu için .env BLOOMBERG_* ayarlarına bakın."
             )
-    elif manuel:
-        deger = float(manuel)
-        kaynak = meta.get("manual_yedek", "manual_inputs.json yedek")
-        uyari.append("Canlı CDS API yok — manual_inputs otomatik yedek kullanıldı.")
     elif wgb:
+        # Ücretsiz canlı yedek; disk/manual yedekten önce
         deger = float(wgb[0])
         kaynak = wgb[1]
-        uyari.append("Bloomberg/Investing yok — WorldGovernmentBonds yedek.")
+        uyari.append("Bloomberg/Investing yok — WorldGovernmentBonds (canlı scrape).")
+    elif manuel:
+        deger = float(manuel)
+        kaynak = "Disk yedek (önceki canlı senkron)"
+        uyari.append(
+            "Canlı CDS (Investing/WGB) yok — son otomatik senkron disk değeri kullanıldı."
+        )
     else:
         onceki = _onceki_deger()
         if onceki:

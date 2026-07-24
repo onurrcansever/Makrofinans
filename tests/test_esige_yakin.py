@@ -33,7 +33,7 @@ def _h(
 
 class EsigeYakinTest(unittest.TestCase):
     def test_watch_yakin_gecer(self):
-        h = _h(skor=64)
+        h = _h(skor=66)
         out = esige_yakin_sec([h], "RISK_ON")
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0].sembol, "AAA")
@@ -45,7 +45,7 @@ class EsigeYakinTest(unittest.TestCase):
     def test_skor_dusuk_elenir(self):
         out = esige_yakin_sec([_h(skor=50)], "RISK_ON")
         self.assertEqual(out, [])
-        self.assertEqual(ESIGE_YAKIN_SKOR, 62.0)
+        self.assertEqual(ESIGE_YAKIN_SKOR, 65.0)
 
     def test_trending_down_elenir(self):
         out = esige_yakin_sec(
@@ -60,8 +60,8 @@ class EsigeYakinTest(unittest.TestCase):
         self.assertEqual(out2, [])
 
     def test_etf_once(self):
-        hisse = _h("HISSE", skor=65, piyasa="NASDAQ")
-        etf = _h("ETF1", skor=64, piyasa="ETF")
+        hisse = _h("HISSE", skor=66, piyasa="NASDAQ")
+        etf = _h("ETF1", skor=65, piyasa="ETF")
         out = esige_yakin_sec([hisse, etf], "NOTR")
         self.assertEqual([x.sembol for x in out], ["ETF1", "HISSE"])
 
@@ -73,10 +73,11 @@ class EsigeYakinTest(unittest.TestCase):
         c = hisse_lejant_caption()
         self.assertIn("Şimdi ne yap?", c)
         self.assertIn("Momentum", c)
-        self.assertIn("değildir", c)
+        self.assertIn("Okuma", c)
         p = hisse_playbook_caption()
         self.assertIn("yeni alım yok", p)
-        self.assertIn("şimdi alma", p)
+        self.assertIn("Okuma sırası", p)
+        self.assertIn("Alım seviyesi", p)
 
 
 if __name__ == "__main__":

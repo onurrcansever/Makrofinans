@@ -30,7 +30,7 @@ from portfoy_yoneticisi import (
 from macro_data import MacroSnapshot
 from ui_theme import plotly_base_layout, render_metric_strip
 from favoriler_widgets import render_df_table_interactive
-from varlik_fiyat import PERIYOTLAR, portfoy_degerle, pozisyon_tutma_gun
+from varlik_fiyat import portfoy_degerle, pozisyon_tutma_gun
 from varliklarim import (
     ALIM_FIYAT_ETIKET,
     HISSE_TURLER,
@@ -120,20 +120,27 @@ def _pozisyon_duzenle_dialog(
         st.warning("Pozisyon bulunamadı.")
         st.session_state.pop("poz_edit_id", None)
         return
+    form_key = f"varlik_poz_dlg_{poz_id}"
+
+    def _temizle_form_state() -> None:
+        for k in [x for x in st.session_state.keys() if x.startswith(form_key)]:
+            st.session_state.pop(k, None)
+        st.session_state.pop("poz_edit_id", None)
+
     st.markdown(f"**{mevcut.etiket()}** · {mevcut.sembol or '—'}")
     guncellendi = _poz_form_icerigi(
-        f"varlik_poz_dlg_{poz_id}",
+        form_key,
         "Değişiklikleri kaydet",
         poz=mevcut,
         snap=snap,
         tarama=tarama,
         tefas_ham=tefas_ham,
-        form_err_key=f"varlik_poz_dlg_{poz_id}_form_err",
+        form_err_key=f"{form_key}_form_err",
     )
     if guncellendi is not None:
         pozisyon_guncelle(store, aktif.id, guncellendi)
         st.session_state.varlik_store = store
-        st.session_state.pop("poz_edit_id", None)
+        _temizle_form_state()
         _onbellek_yenile()
         st.toast("Pozisyon güncellendi", icon="✅")
         st.rerun()
@@ -141,13 +148,13 @@ def _pozisyon_duzenle_dialog(
     c_iptal, c_sil = st.columns(2)
     with c_iptal:
         if st.button("Kapat", key=f"poz_dlg_kapat_{poz_id}", use_container_width=True):
-            st.session_state.pop("poz_edit_id", None)
+            _temizle_form_state()
             st.rerun()
     with c_sil:
         if st.button("Bu pozisyonu sil", type="primary", key=f"poz_dlg_sil_{poz_id}", use_container_width=True):
             pozisyon_sil(store, aktif.id, poz_id)
             st.session_state.varlik_store = store
-            st.session_state.pop("poz_edit_id", None)
+            _temizle_form_state()
             _onbellek_yenile()
             st.rerun()
 
@@ -213,6 +220,18 @@ def _fmt_birim(v: float, tur: str) -> str:
     return f"{v:,.2f}"
 
 
+def _fmt_tarih(tarih_iso: str) -> str:
+    """ISO tarih (YYYY-MM-DD) → GG.AA.YYYY; boş/geçersizse '—'."""
+    t = (tarih_iso or "").strip()
+    if not t:
+        return "—"
+    try:
+        from datetime import datetime as _dt
+        return _dt.strptime(t[:10], "%Y-%m-%d").strftime("%d.%m.%Y")
+    except (ValueError, TypeError):
+        return t[:10]
+
+
 def _vade_etiket(p) -> str:
     from nakit_danisman import vade_bilgisi
     vb = vade_bilgisi(p)
@@ -223,14 +242,20 @@ def _vade_etiket(p) -> str:
     return f"{vb.kalan_gun} gün ({vb.vade_tarihi.strftime('%d %b')})"
 
 
+_GETIRI_GOSTER = ("1G", "1H", "1A", "3A", "6A", "YBB")
+
+
+def _periyot_gun_map() -> dict:
+    _ytd = (date.today() - date(date.today().year, 1, 1)).days + 1
+    return {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180, "YBB": max(_ytd, 1)}
+
+
 def _pozisyon_tablo(
     deger, gosterim_pb: str, fx, eur_s, usd_s, gbp_s=None,
     tarama=None, tefas_ham=None, tefas_skorlu=None,
 ) -> pd.DataFrame:
-    from varlik_fiyat import PERIYOTLAR
-
-    periyot_gun = {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180}
-    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in PERIYOTLAR}
+    periyot_gun = _periyot_gun_map()
+    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in _GETIRI_GOSTER}
     rows = []
     for pd_ in deger.pozisyonlar:
         p = pd_.pozisyon
@@ -258,6 +283,7 @@ def _pozisyon_tablo(
         kz = deger_v - maliyet
         kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
         row = {
+            "Eklenme": _fmt_tarih(p.alim_tarihi),
             "Araç": p.etiket()[:24],
             "Sembol": (p.sembol or "—")[:10],
             "Miktar": pd_.miktar_goster,
@@ -273,7 +299,7 @@ def _pozisyon_tablo(
             "Vade": _vade_etiket(p),
         }
         tutma = pozisyon_tutma_gun(p.alim_tarihi or "", date.today())
-        for et in PERIYOTLAR:
+        for et in _GETIRI_GOSTER:
             raw = pd_.getiriler.get(et)
             if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
                 row[getiri_etiket[et]] = _fmt_getiri(raw)
@@ -304,10 +330,8 @@ def _pozisyon_pdf_satirlari(
     tefas_skorlu=None,
 ) -> list:
     """PDF raporu için pozisyon detay listesi."""
-    from varlik_fiyat import PERIYOTLAR
-
-    periyot_gun = {"1G": 1, "1H": 7, "1A": 30, "3A": 90, "6A": 180}
-    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in PERIYOTLAR}
+    periyot_gun = _periyot_gun_map()
+    getiri_etiket = {et: getiri_sutun_adi(et, gosterim_pb) for et in _GETIRI_GOSTER}
     out = []
     for pd_ in deger.pozisyonlar:
         p = pd_.pozisyon
@@ -351,7 +375,7 @@ def _pozisyon_pdf_satirlari(
         )
         tutma = pozisyon_tutma_gun(p.alim_tarihi or "", date.today())
         getiriler = {}
-        for et in PERIYOTLAR:
+        for et in _GETIRI_GOSTER:
             raw = pd_.getiriler.get(et)
             if p.tur in ("nakit_tl", "nakit_eur", "nakit_usd", "nakit_ron", "tl_mevduat"):
                 getiriler[getiri_etiket[et]] = _fmt_getiri(raw)
@@ -495,6 +519,17 @@ def _poz_form_icerigi(
     if st.session_state.get(err_key):
         st.error(st.session_state.pop(err_key))
 
+    # Düzenlerken: yanlış seçilen aracı/sembolü düzeltebilmek için tür+sembol kilidini aç.
+    degistir = False
+    if poz is not None:
+        degistir = st.checkbox(
+            "Sembolü / türü değiştir",
+            value=False,
+            key=f"{form_key}_degistir",
+            help="Yanlış araç veya sembol seçtiyseniz işaretleyin — tür ve sembol yeniden seçilebilir "
+            "(ör. AKMAK → TEFAS fonu KLU). Miktar/alış korunur, sembolü değiştirince fiyat güncellenir.",
+        )
+
     tur_listesi = list(TUR_SECENEKLERI.keys())
     tur_idx = tur_listesi.index(poz.tur) if poz and poz.tur in tur_listesi else tur_listesi.index(tur_baslangic)
 
@@ -504,11 +539,13 @@ def _poz_form_icerigi(
         index=tur_idx,
         format_func=lambda k: TUR_SECENEKLERI[k],
         key=f"{form_key}_tur",
-        disabled=poz is not None,
+        disabled=poz is not None and not degistir,
     )
+    # Yeni ekleme VEYA düzenlemede "değiştir" açıkken sembol/emtia seçimi aktif.
+    duzenle_sec = poz is not None and degistir
     birimli = tur in ("tefas", *HISSE_TURLER, "etf", "altin", "gumus", "kripto")
-    sembol_secimli = tur in (*HISSE_TURLER, "etf", "tefas") and poz is None
-    emtia_otom = tur in ("altin", "gumus") and poz is None and snap is not None
+    sembol_secimli = tur in (*HISSE_TURLER, "etf", "tefas") and (poz is None or duzenle_sec)
+    emtia_otom = tur in ("altin", "gumus") and (poz is None or duzenle_sec) and snap is not None
     varsayilan_pb = _varsayilan_pb(tur)
     tefas_fonlar = getattr(tefas_ham, "fonlar", None) if tefas_ham else None
 
@@ -554,6 +591,16 @@ def _poz_form_icerigi(
             semboller = [x.sembol for x in liste]
             prev_sym_key = f"{form_key}_secili_sembol"
             prev_tur_key = f"{form_key}_secili_tur"
+            # Düzenlemede ilk açılış: mevcut sembol/fiyatı seed et — açılışta canlı fiyat
+            # eldeki alışı ezmesin (yalnız kullanıcı sembolü değiştirince güncellensin).
+            seed_key = f"{form_key}_seed_done"
+            if duzenle_sec and poz is not None and not st.session_state.get(seed_key):
+                st.session_state[seed_key] = True
+                st.session_state[prev_tur_key] = tur
+                hedef_sym = poz.sembol if poz.sembol in semboller else (semboller[0] if semboller else "")
+                st.session_state[prev_sym_key] = hedef_sym
+                st.session_state[f"{form_key}_alim_fiyati"] = float(poz.alim_fiyati or 0.0)
+                st.session_state[f"{form_key}_para_otom"] = poz.para_birimi
             if st.session_state.get(prev_tur_key) != tur:
                 st.session_state.pop(prev_sym_key, None)
                 st.session_state.pop(f"{form_key}_alim_fiyati", None)
@@ -636,7 +683,8 @@ def _poz_form_icerigi(
                 value="",
                 disabled=sembol_disabled,
             )
-        ad = fc2.text_input("Açıklama", value=poz.ad if poz else ad_oneri)
+        ad_default = ad_oneri if (poz is None or duzenle_sec) else poz.ad
+        ad = fc2.text_input("Açıklama", value=ad_default)
 
         alim_val = date.today()
         if poz and poz.alim_tarihi:
@@ -657,12 +705,18 @@ def _poz_form_icerigi(
             format="%.4f" if birimli else "%.2f",
         )
         alim_fiyat_et = ALIM_FIYAT_ETIKET.get(tur, "Alış fiyatı (birim)")
-        if poz:
+        _oto_fiyat = poz is None or (duzenle_sec and (sembol_secimli or emtia_otom))
+        if poz and not _oto_fiyat:
             alim_fiyati_default = float(poz.alim_fiyati)
         elif sembol_secimli or emtia_otom:
-            alim_fiyati_default = float(st.session_state.get(f"{form_key}_alim_fiyati", 0.0) or 0.0)
+            alim_fiyati_default = float(
+                st.session_state.get(
+                    f"{form_key}_alim_fiyati", float(poz.alim_fiyati) if poz else 0.0,
+                )
+                or 0.0
+            )
         else:
-            alim_fiyati_default = 0.0
+            alim_fiyati_default = float(poz.alim_fiyati) if poz else 0.0
         alim_fiyati = fc5.number_input(
             alim_fiyat_et,
             min_value=0.0,
@@ -671,7 +725,7 @@ def _poz_form_icerigi(
             disabled=not birimli and tur not in _doviz_turler(),
         )
         pb_secenekler = ["TL", "EUR", "USD", "RON"]
-        if poz:
+        if poz and not _oto_fiyat:
             pb_baslangic = poz.para_birimi if poz.para_birimi in pb_secenekler else varsayilan_pb
         elif sembol_secimli or emtia_otom:
             pb_baslangic = st.session_state.get(f"{form_key}_para_otom", sec_para if sembol_secimli else varsayilan_pb)
@@ -692,6 +746,19 @@ def _poz_form_icerigi(
             st.info("Alım kuru kaydedildi — K/Z kur farkından hesaplanır.")
         elif tur in _doviz_turler():
             st.caption("Alım kuru boş bırakılırsa **alım tarihindeki** kur kullanılır.")
+
+        hedef_default = float(getattr(poz, "hedef_fiyat", 0.0) or 0.0) if poz else 0.0
+        hedef_fiyat_in = st.number_input(
+            f"Hedef fiyat (senin, opsiyonel — {para})",
+            min_value=0.0,
+            step=0.01 if birimli else 0.1,
+            value=hedef_default,
+            disabled=not birimli,
+            help="Kendi hedef fiyatın (aracın para biriminde). Girilirse tabloda «Hedef» sütununda "
+            "senin hedefin ve spota göre potansiyel gösterilir (bilgi; otomatik satış değil). "
+            "0 = Yahoo konsensüsü kullanılır.",
+            key=f"{form_key}_hedef_fiyat_in",
+        )
 
         fc7, fc8, fc9 = st.columns(3)
         banka = fc7.text_input("Banka (mevduat)", value=poz.banka if poz else "",
@@ -743,6 +810,7 @@ def _poz_form_icerigi(
                 banka=banka,
                 vade_gun=int(vade_gun),
                 brut_faiz=float(faiz),
+                hedef_fiyat=float(hedef_fiyat_in or 0.0),
             )
     return None
 
@@ -1060,7 +1128,7 @@ def varliklarim_paneli(
     kz = toplam - maliyet
     kz_pct = (kz / maliyet * 100) if maliyet > 0 else 0
 
-    gunluk_snapshot_kaydet(store, aktif.id, deger.toplam)
+    gunluk_snapshot_kaydet(store, aktif.id, deger.toplam, deger.maliyet_toplam)
     st.session_state.varlik_store = store
 
     # Aşama 2C — Portföy Durumu (daima görünür; yorum butona basınca)
@@ -1176,6 +1244,14 @@ def varliklarim_paneli(
 
         pending_poz = st.session_state.get("poz_edit_id")
         if pending_poz:
+            # Düzenleme penceresinde TEFAS fonuna geçiş yapılabilsin diye fon listesini yükle.
+            if tefas_ham is None:
+                try:
+                    from app_veri import tefas_ham_cek
+                    _tick = int(st.session_state.get("son_yenileme_sayaci", 0))
+                    tefas_ham = tefas_ham_cek(120, _tick)
+                except Exception:
+                    pass
             _pozisyon_duzenle_dialog(
                 pending_poz, store, aktif, snap=snap, tarama=tarama, tefas_ham=tefas_ham,
             )
@@ -1191,32 +1267,239 @@ def varliklarim_paneli(
             action_col=True,
             on_action=lambda pid: st.session_state.update(poz_edit_id=pid) or st.rerun(),
         )
+
+        # Güvenilir düzenle/sil — tablodaki ⋯ (HTML/JS) her ortamda çalışmayabilir.
+        _poz_etiket = {
+            pd_.pozisyon.id: (
+                f"{pd_.pozisyon.etiket()[:26]}"
+                + (f" · {pd_.pozisyon.sembol}" if pd_.pozisyon.sembol else "")
+            )
+            for pd_ in deger.pozisyonlar
+        }
+        ec1, ec2 = st.columns([3.4, 1])
+        with ec1:
+            _sec_poz = st.selectbox(
+                "Düzenlenecek / silinecek pozisyon",
+                options=poz_ids,
+                format_func=lambda pid: _poz_etiket.get(pid, pid),
+                key=f"poz_duzenle_sec_{aktif.id}",
+                label_visibility="collapsed",
+            )
+        with ec2:
+            if st.button("✏️ Düzenle", use_container_width=True, key=f"poz_duzenle_btn_{aktif.id}"):
+                st.session_state.poz_edit_id = _sec_poz
+                st.rerun()
+
         _render_pozisyon_kar_uyarilari(
             deger, tarama=tarama, tefas_ham=tefas_ham, tefas_skorlu=tefas_skorlu,
         )
         st.caption(
             "**Alım/Satış Sinyali** = motor (hisse/ETF/emtia v2 veya TEFAS skoru) · "
             "**Pozisyon Önerisi** = ne yapmalı? · rozetin üzerine gelin → kısa açıklama · "
-            "**Hedef** = Yahoo konsensüs hedef fiyatı (bilgi; otomatik satış değil) · "
+            "**Hedef** = senin girdiğin hedef fiyat (varsa) yoksa Yahoo konsensüsü (bilgi; otomatik satış değil) · "
             "Yatırım tavsiyesi değildir."
         )
         from vergi_notu import vergi_notu_caption
         st.caption(vergi_notu_caption("genel"))
-        st.caption("Satır sonundaki **⋯** ile düzenle veya sil")
+        st.caption(
+            "Düzenlemek/silmek için üstteki listeden pozisyonu seçip **✏️ Düzenle**'ye basın "
+            "(veya satır sonundaki **⋯**). Düzenleme penceresinde **«Sembolü/türü değiştir»** ile "
+            "yanlış seçilen aracı düzeltebilir, **Hedef fiyat** girebilirsiniz."
+        )
     else:
         st.info("Henüz pozisyon yok — **➕ Ekle** butonuna basın veya Portföy Tahsisi'nden öneriyi aktarın.")
 
-    # Günlük snapshot grafiği
+    # Günlük snapshot grafiği — piyasa değeri vs maliyet (arası dolgulu = kâr/zarar).
+    # Para/pozisyon eklenince değer ve maliyet birlikte zıplar; aradaki fark sürekli
+    # kalır → sahte "performans sıçraması" görünmez, gerçek kazanç net okunur.
     if store.gunluk_snapshot and go is not None:
         seri = []
         for gun, portfoyler in sorted(store.gunluk_snapshot.items()):
             if aktif.id in portfoyler:
-                seri.append({"tarih": gun, "deger": portfoyler[aktif.id].get(pb, 0)})
+                rec = portfoyler[aktif.id]
+                mal = rec.get(f"maliyet_{pb}")
+                seri.append({
+                    "tarih": gun,
+                    "deger": rec.get(pb, 0),
+                    "maliyet": mal if mal is not None else float("nan"),
+                })
         if len(seri) >= 2:
             df_s = pd.DataFrame(seri)
-            fig2 = go.Figure(go.Scatter(x=df_s["tarih"], y=df_s["deger"], mode="lines+markers"))
-            fig2.update_layout(**plotly_base_layout(title=f"Portföy seyri ({pb})", height=260))
+            tarihler = [str(t) for t in df_s["tarih"]]
+            # Snapshot maliyet geçmişi çoğunlukla boş (özellik yeni). Maliyet ve
+            # enflasyon çizgilerini pozisyonların GERÇEK alım tarihlerinden yeniden
+            # kur (okuma-only). Böylece grafik ilk günden anlamlı olur; enflasyon
+            # farkı hemen görünür. Bugünkü kesin snapshot maliyetine sabitlenir.
+            try:
+                from varliklarim import pozisyon_maliyet_serisi
+                mal_rec = pozisyon_maliyet_serisi(
+                    aktif.pozisyonlar, tarihler,
+                    lambda p: _pb_cevir_ui(p.maliyet_toplam(), p.para_birimi, pb, fx),
+                )
+                if any(v == v and v > 0 for v in mal_rec):
+                    snap_son = seri[-1]["maliyet"]
+                    if (
+                        snap_son == snap_son and snap_son > 0
+                        and mal_rec[-1] == mal_rec[-1] and mal_rec[-1] > 0
+                    ):
+                        olcek = snap_son / mal_rec[-1]
+                        mal_rec = [v * olcek if v == v else v for v in mal_rec]
+                    df_s["maliyet"] = mal_rec
+            except Exception:
+                pass
+            maliyet_var = bool(df_s["maliyet"].notna().any())
+            son_deger = float(df_s["deger"].iloc[-1])
+            son_mal = float(df_s["maliyet"].dropna().iloc[-1]) if maliyet_var else None
+            kar = son_mal is None or son_deger >= son_mal
+            renk = "#22c55e" if kar else "#ef4444"
+
+            # Enflasyona endeksli maliyet (yalnızca TL — TÜFE bir TL kavramı).
+            # ref(t) = Σ_{d≤t} Δmaliyet(d) × CPI(t)/CPI(d): "paranı yatırmayıp
+            # enflasyona endekseydin bugünkü değeri". Değer bu çizginin üstündeyse
+            # reel (enflasyon üstü) kazanç var.
+            enf_ref = None
+            enf_kaynak = ""
+            if pb == "TL" and maliyet_var:
+                try:
+                    from enflasyon_kaynak import (
+                        tufe_endeks_serisi,
+                        enflasyon_ref_serisi,
+                        enflasyon_manuel_son,
+                    )
+                    seri_cpi, enf_kaynak = tufe_endeks_serisi(tarihler[0], tarihler[-1])
+                    _manuel = enflasyon_manuel_son()
+                    yillik_oran = _manuel[0] if _manuel else None
+                    if seri_cpi:
+                        ref_vals = enflasyon_ref_serisi(
+                            tarihler, list(df_s["maliyet"]), seri_cpi, yillik_oran
+                        )
+                        if any(v == v for v in ref_vals):
+                            enf_ref = ref_vals
+                except Exception:
+                    enf_ref = None
+
+            fig2 = go.Figure()
+            if maliyet_var:
+                fig2.add_trace(go.Scatter(
+                    x=df_s["tarih"], y=df_s["maliyet"], mode="lines",
+                    name="Maliyet",
+                    line=dict(color="#9aa0a6", width=1.4, dash="dot"),
+                    hovertemplate="Maliyet: %{y:,.0f} " + pb + "<extra></extra>",
+                ))
+                fig2.add_trace(go.Scatter(
+                    x=df_s["tarih"], y=df_s["deger"], mode="lines+markers",
+                    name="Piyasa değeri",
+                    line=dict(color=renk, width=2.6),
+                    marker=dict(size=5),
+                    fill="tonexty",
+                    fillcolor="rgba(34,197,94,0.08)" if kar else "rgba(239,68,68,0.08)",
+                    hovertemplate="Değer: %{y:,.0f} " + pb + "<extra></extra>",
+                ))
+                if enf_ref is not None:
+                    fig2.add_trace(go.Scatter(
+                        x=df_s["tarih"], y=enf_ref, mode="lines",
+                        name="Enflasyona endeksli maliyet",
+                        line=dict(color="#f59e0b", width=2.4, dash="longdash"),
+                        connectgaps=True,
+                        hovertemplate="Enflasyon: %{y:,.0f} " + pb + "<extra></extra>",
+                    ))
+            else:
+                fig2.add_trace(go.Scatter(
+                    x=df_s["tarih"], y=df_s["deger"], mode="lines+markers",
+                    name="Piyasa değeri",
+                    line=dict(color="#2E86FF", width=2.4),
+                    marker=dict(size=5),
+                    fill="tozeroy", fillcolor="rgba(46,134,255,0.10)",
+                    hovertemplate="Değer: %{y:,.0f} " + pb + "<extra></extra>",
+                ))
+
+            fig2.update_layout(**plotly_base_layout(title=f"Portföy seyri ({pb})", height=280))
+            fig2.update_layout(
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                margin=dict(t=48, r=70, b=30, l=10),
+            )
+            # Y ekseni: değer/maliyet aralığına odakla (yüksek tabanda düz görünmesin)
+            if maliyet_var:
+                alt = min(df_s["deger"].min(), df_s["maliyet"].min())
+                ust = max(df_s["deger"].max(), df_s["maliyet"].max())
+            else:
+                alt, ust = df_s["deger"].min(), df_s["deger"].max()
+            ref_son = None
+            if enf_ref is not None:
+                gecerli = [v for v in enf_ref if v == v]
+                if gecerli:
+                    alt = min(alt, min(gecerli))
+                    ust = max(ust, max(gecerli))
+                    ref_son = gecerli[-1]
+            pad = max((ust - alt) * 0.12, ust * 0.01, 1.0)
+
+            # Uç etiketleri: değer ve enf. çizgisi çok yakınsa üst üste biner
+            # (reel≈0). Y aralığına göre yakınsa yükseği yukarı, düşüğü aşağı
+            # kaydır; uzaksa eski davranış (çizgi ucunda, ortalı).
+            son_x = df_s["tarih"].iloc[-1]
+            y_range = (ust + pad) - (alt - pad)
+            cok_yakin = ref_son is not None and abs(son_deger - ref_son) < y_range * 0.07
+            if cok_yakin:
+                if son_deger >= ref_son:
+                    deger_shift, deger_anchor = 11, "bottom"
+                    enf_shift, enf_anchor = -11, "top"
+                else:
+                    deger_shift, deger_anchor = -11, "top"
+                    enf_shift, enf_anchor = 11, "bottom"
+            else:
+                deger_shift, deger_anchor = 0, "middle"
+                enf_shift, enf_anchor = 0, "middle"
+
+            # Son değer etiketi
+            fig2.add_annotation(
+                x=son_x, y=son_deger,
+                text=f"{son_deger:,.0f} {pb}",
+                showarrow=False, xanchor="left", xshift=8,
+                yshift=deger_shift, yanchor=deger_anchor,
+                font=dict(color=renk, size=12),
+            )
+            # Enflasyon çizgisi uç etiketi (değerden ayrı okunsun)
+            if ref_son is not None:
+                fig2.add_annotation(
+                    x=son_x, y=ref_son,
+                    text=f"enf. {ref_son:,.0f}",
+                    showarrow=False, xanchor="left", xshift=8,
+                    yshift=enf_shift, yanchor=enf_anchor,
+                    font=dict(color="#f59e0b", size=11),
+                )
+            fig2.update_yaxes(range=[alt - pad, ust + pad], tickformat=",.0f")
             st.plotly_chart(fig2, use_container_width=True)
+            if maliyet_var and son_mal is not None:
+                kz = son_deger - son_mal
+                kz_pct = (kz / son_mal * 100.0) if son_mal else 0.0
+                metin = (
+                    f"Dolgulu alan = **gerçek kâr/zarar** (değer − maliyet). "
+                    f"Güncel: **{kz:+,.0f} {pb}** ({kz_pct:+.1f}%). "
+                    "Para/pozisyon eklemeleri iki çizgiyi birlikte kaydırır — kazanç sanılmaz."
+                )
+                if enf_ref is not None:
+                    ref_gecerli = [v for v in enf_ref if v == v]
+                    ref_son = ref_gecerli[-1] if ref_gecerli else None
+                    if ref_son:
+                        reel = son_deger - ref_son
+                        reel_pct = (reel / ref_son * 100.0) if ref_son else 0.0
+                        metin += (
+                            f" Turuncu çizgi = maliyetin **enflasyona endeksli** karşılığı "
+                            f"({enf_kaynak}); değer bunun üstündeyse **reel** kazandın. "
+                            f"Reel getiri: **{reel:+,.0f} {pb}** ({reel_pct:+.1f}%)."
+                        )
+                elif pb != "TL":
+                    metin += (
+                        f" Değerler her günün kurundan **{pb}** bazına çevrildi (kur dahil). "
+                        "Reel getiri (TÜFE) için TL bazına geçin."
+                    )
+                st.caption(metin)
+            else:
+                st.caption(
+                    "Maliyet çizgisi bugünden itibaren birikiyor; birkaç gün sonra "
+                    "değer−maliyet farkı (gerçek kâr/zarar) alan olarak görünecek."
+                )
 
 
 def _pb_cevir_ui(deger: float, kaynak: str, hedef: str, fx) -> float:

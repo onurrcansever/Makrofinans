@@ -766,6 +766,33 @@ def _pozisyon_stop(alis: float, guncel: float) -> float:
     return stop
 
 
+def _manuel_hedef_hucre(
+    hedef_fiyat: float,
+    tur: str,
+    sym: str,
+    guncel_birim: float,
+    gosterim_pb: str,
+    fx,
+    *,
+    quote_currency: str = "",
+    kaynak_pb: str = "",
+) -> dict:
+    """Kullanıcının kendi girdiği hedef fiyat — her araç türü için (fon dahil)."""
+    if not hedef_fiyat or hedef_fiyat <= 0 or fx is None:
+        return {"label": "—", "tip": "Hedef fiyat girilmedi."}
+    label = _fmt_poz_birim(
+        hedef_fiyat, tur, sym, gosterim_pb, fx,
+        quote_currency=quote_currency, kaynak_pb=kaynak_pb,
+    )
+    if label == "—":
+        return {"label": "—", "tip": "Hedef fiyat gösterilemedi."}
+    tip = "Senin hedefin · bilgi; otomatik satış / Kâr al sinyali değil."
+    if guncel_birim and guncel_birim > 0:
+        upside = (float(hedef_fiyat) / float(guncel_birim) - 1.0) * 100.0
+        tip = f"Senin hedefin · spot’a göre ~{upside:+.0f}% · bilgi; otomatik satış değil."
+    return {"label": label, "tip": tip}
+
+
 def _yahoo_hedef_hucre(
     tur: str,
     sym: str,
@@ -834,6 +861,8 @@ def yonetici_pozisyon_kolonlari(
     p = pozisyon
     tur = p.tur
     sym = p.sembol or ""
+    hedef_manuel = float(getattr(p, "hedef_fiyat", 0.0) or 0.0)
+    _src_pb0 = pd_.para or p.para_birimi or ("TL" if tur == "tefas" else "")
     bos = {
         POZ_COL_SINYAL: "—", POZ_COL_ONERI: "—",
         "Ekle": "—", "Stop": "—", "Hedef": "—",
@@ -851,7 +880,14 @@ def yonetici_pozisyon_kolonlari(
             POZ_COL_ONERI: pozisyon_oneri_hucre(
                 "Bekle", "—", pd_.kar_zarar_pct, tur=tur, gosterim_pb=gosterim_pb,
             ),
-            "Ekle": "—", "Stop": "—", "Hedef": "—",
+            "Ekle": "—", "Stop": "—",
+            "Hedef": (
+                _manuel_hedef_hucre(
+                    hedef_manuel, tur, sym, pd_.guncel_birim, gosterim_pb, fx,
+                    kaynak_pb=_src_pb0,
+                )
+                if hedef_manuel > 0 else "—"
+            ),
         }
 
     kz = pd_.kar_zarar_pct
@@ -890,10 +926,16 @@ def yonetici_pozisyon_kolonlari(
         else "—"
     )
     stop_s = _f(stop)
-    hedef_h = _yahoo_hedef_hucre(
-        tur, sym, guncel, gosterim_pb, fx,
-        quote_currency=qc, kaynak_pb=src_pb,
-    )
+    if hedef_manuel > 0:
+        hedef_h = _manuel_hedef_hucre(
+            hedef_manuel, tur, sym, guncel, gosterim_pb, fx,
+            quote_currency=qc, kaynak_pb=src_pb,
+        )
+    else:
+        hedef_h = _yahoo_hedef_hucre(
+            tur, sym, guncel, gosterim_pb, fx,
+            quote_currency=qc, kaynak_pb=src_pb,
+        )
 
     return {
         POZ_COL_SINYAL: karar,

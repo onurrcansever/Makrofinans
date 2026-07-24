@@ -68,9 +68,10 @@ def rejim_skoru_hesapla(
         elif cds < 250:
             skor += 8
 
+    from reel_hesap import reel_getiri
     enflasyon = snap.enflasyon_tr_yillik or 35.0
     tcmb = v.tcmb_politika_faizi or (v.tl_mevduat_brut_faiz or 0.4) * 100
-    reel = tcmb - enflasyon
+    reel = reel_getiri(tcmb, enflasyon)
     if reel > 3:
         skor += 25
     elif reel > 0:

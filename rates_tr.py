@@ -218,10 +218,11 @@ def _oran_hesapla(
     vade_gun: Optional[int] = None,
     doviz: str = "TL",
 ) -> MevduatOrani:
+    from reel_hesap import reel_getiri
     brut_dec = brut if brut <= 1 else brut / 100
     gun = vade_gun or 365
     net_dec = net_brut_oran(brut_dec * 100, gun, doviz)
-    reel = net_dec * 100 - enflasyon
+    reel = reel_getiri(net_dec * 100, enflasyon)
     return MevduatOrani(
         vade=vade,
         brut_yillik=brut_dec,

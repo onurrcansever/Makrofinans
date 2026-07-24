@@ -55,8 +55,8 @@ class ScoreThresholdLineTest(unittest.TestCase):
         cfg = load_signal_config()
         line = format_score_vs_threshold_line(63, "WATCH", "", cfg)
         self.assertIn("Teknik skor 63", line)
-        self.assertIn("AL eşiği 64", line)
-        self.assertIn("≥66", line)
+        self.assertIn("AL eşiği 68", line)
+        self.assertIn("≥71", line)
         self.assertIn("İZLE", line)
 
 
