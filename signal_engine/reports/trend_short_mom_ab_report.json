@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-07-24T11:28:12.732623+00:00",
+  "verdict": "bağla",
+  "chosen_preset": "siki",
+  "reasons": [
+    "--- aday=siki ---",
+    "whipsaw_flips base=5 siki=6 extra=1 (DUR için extra>=3 VE pct>15.0)",
+    "whipsaw_increase_pct=20.0",
+    "NOT: göreli %20 yüksek ama extra=1 < 3 — küçük örneklem gürültüsü; whipsaw DUR tetiklemedi",
+    "hit_1m_pp=+0.00 (min 0.0)",
+    "upgrade_n=165 upgrade_avg_1m=1.3711560410308397 (min 0.0)",
+    "OK: siki whipsaw çift-eşik geçti ve hit/upgrade kabul"
+  ],
+  "thresholds": {
+    "WHIPSAW_MAX_INCREASE_PCT": 15.0,
+    "WHIPSAW_MIN_EXTRA_FLIPS": 3.0,
+    "HIT_MIN_IMPROVEMENT_PP": 0.0,
+    "UPGRADE_AVG_1M_MIN": 0.0
+  },
+  "symbols_ok": [
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "META",
+    "NVDA",
+    "ADBE",
+    "INTU",
+    "CSCO",
+    "AMAT",
+    "KO",
+    "JNJ",
+    "XOM",
+    "JPM",
+    "UNH",
+    "HD",
+    "PG",
+    "V",
+    "MA",
+    "DIS",
+    "BA",
+    "CAT",
+    "IBM",
+    "ORCL",
+    "CRM",
+    "NFLX",
+    "TSLA",
+    "AMD",
+    "QCOM",
+    "TXN"
+  ],
+  "n_symbols": 30,
+  "step": 5,
+  "notes": [
+    "Composite: trend kolu A/B; MR/vol/RS aynı; liq skip",
+    "Whipsaw proxy: REDUCE↔WATCH+ flip (cold-start levels)",
+    "Whipsaw DUR = göreli% VE mutlak ek flip (küçük base gürültüsü için)",
+    "hit/avg_* tüm adımlarda aynıdır: ileri getiri fiyat yolu; kol farkı upgrades'te",
+    "Aday sırası: siki(+4) → temkinli(+6) → small",
+    "Panel/UX değişikliği yok"
+  ],
+  "arms": {
+    "base": {
+      "n": 5640,
+      "hit_rate_1m": 0.5650709219858157,
+      "avg_ret_1m": 1.9239923282862712,
+      "avg_ret_3m": 6.402910747377765,
+      "whipsaw_flips": 5,
+      "whipsaw_rate": 0.0008866820358219542,
+      "n_watch_plus": 3614,
+      "n_upgrade_vs_base": 0,
+      "upgrade_avg_ret_1m": null
+    },
+    "small": {
+      "n": 5640,
+      "hit_rate_1m": 0.5650709219858157,
+      "avg_ret_1m": 1.9239923282862712,
+      "avg_ret_3m": 6.402910747377765,
+      "whipsaw_flips": 8,
+      "whipsaw_rate": 0.0014186912573151268,
+      "n_watch_plus": 3700,
+      "n_upgrade_vs_base": 258,
+      "upgrade_avg_ret_1m": 1.5586961935605508
+    },
+    "temkinli": {
+      "n": 5640,
+      "hit_rate_1m": 0.5650709219858157,
+      "avg_ret_1m": 1.9239923282862712,
+      "avg_ret_3m": 6.402910747377765,
+      "whipsaw_flips": 6,
+      "whipsaw_rate": 0.001064018442986345,
+      "n_watch_plus": 3669,
+      "n_upgrade_vs_base": 200,
+      "upgrade_avg_ret_1m": 1.4481535358793667
+    },
+    "siki": {
+      "n": 5640,
+      "hit_rate_1m": 0.5650709219858157,
+      "avg_ret_1m": 1.9239923282862712,
+      "avg_ret_3m": 6.402910747377765,
+      "whipsaw_flips": 6,
+      "whipsaw_rate": 0.001064018442986345,
+      "n_watch_plus": 3655,
+      "n_upgrade_vs_base": 165,
+      "upgrade_avg_ret_1m": 1.3711560410308397
+    }
+  }
+}

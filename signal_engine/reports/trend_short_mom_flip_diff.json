@@ -1,0 +1,68 @@
+{
+  "arm": "siki",
+  "extra_vs_base": [
+    {
+      "symbol": "CSCO",
+      "date": "2023-12-29",
+      "from": 0,
+      "to": 2,
+      "direction": "up",
+      "score": 52.05
+    },
+    {
+      "symbol": "CAT",
+      "date": "2023-06-16",
+      "from": 0,
+      "to": 2,
+      "direction": "up",
+      "score": 52.72
+    }
+  ],
+  "missing_vs_base": [
+    {
+      "symbol": "GOOGL",
+      "date": "2025-04-10",
+      "from": 2,
+      "to": 0,
+      "direction": "down",
+      "score": 40.55
+    }
+  ],
+  "shared": [
+    {
+      "symbol": "AAPL",
+      "date": "2025-04-10",
+      "from": 2,
+      "to": 0,
+      "direction": "down",
+      "score": 40.15
+    },
+    {
+      "symbol": "HD",
+      "date": "2022-10-26",
+      "from": 0,
+      "to": 2,
+      "direction": "up",
+      "score": 52.97
+    },
+    {
+      "symbol": "PG",
+      "date": "2022-11-02",
+      "from": 0,
+      "to": 2,
+      "direction": "up",
+      "score": 52.65
+    },
+    {
+      "symbol": "CRM",
+      "date": "2024-07-23",
+      "from": 0,
+      "to": 2,
+      "direction": "up",
+      "score": 52.31
+    }
+  ],
+  "n_extra": 2,
+  "n_base_only": 1,
+  "n_shared": 4
+}

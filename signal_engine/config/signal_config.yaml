@@ -30,11 +30,46 @@ entry:
 
 decisions:
   strong_buy: 76
-  buy: 64
+  buy: 68
   watch: 52
   wait: 42
   reduce: 0
-  hysteresis_margin: 2.0
+  hysteresis_margin: 3.0
+
+# Kısa momentum (trend_factor) — varsayılan kapalı; backtest onaylarsa enabled: true
+short_momentum:
+  enabled: true
+  preset: siki   # off | small | temkinli | siki
+  # Canlı izleme / rollback (ops)
+  # - İlk 30 günde canlı whipsaw_rate > backtest_ref * rollback_whipsaw_mult → enabled: false
+  # - Haftalık: scripts/monitor_short_mom_live.py
+  monitor:
+    backtest_ref_whipsaw_rate: 0.001064   # siki A/B
+    backtest_ref_upgrade_avg_1m: 1.37
+    rollback_whipsaw_mult: 2.0            # 2× backtest → geri al
+    rollback_window_days: 30
+  presets:
+    small:
+      m1_hi: [8.0, 6.0]
+      m1_mid: [3.0, 3.0]
+      m1_lo: [-5.0, -4.0]
+      m3_hi: [12.0, 5.0]
+      m3_mid: [5.0, 2.0]
+      m3_lo: [-8.0, -4.0]
+    temkinli:
+      m1_hi: [8.0, 2.0]
+      m1_mid: [3.0, 1.0]
+      m1_lo: [-5.0, -2.0]
+      m3_hi: [12.0, 6.0]
+      m3_mid: [5.0, 3.0]
+      m3_lo: [-8.0, -4.0]
+    siki:
+      m1_hi: [8.0, 2.0]
+      m1_mid: [3.0, 1.0]
+      m1_lo: [-5.0, -2.0]
+      m3_hi: [12.0, 4.0]
+      m3_mid: [5.0, 2.0]
+      m3_lo: [-8.0, -3.0]
 
 benchmarks:
   bist: "XU100.IS"
