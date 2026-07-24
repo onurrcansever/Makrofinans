@@ -1,5 +1,12 @@
-# Modulfinans Netlify yüzeyi — asıl Streamlit Render'da.
-# Domain www.makro.modulcheck.com DNS CNAME ile Render'a gider.
+# Modulfinans Netlify yüzeyi — Streamlit Render'da çalışır.
+# https://modulfinans.netlify.app → canlı uygulamaya yönlendirilir.
 [build]
   publish = "public"
   command = "echo ok"
+
+# Tüm istekleri canlı Streamlit'e gönder (kullanıcı netlify.app'de "uygulamayı görsün")
+[[redirects]]
+  from = "/*"
+  to = "https://modulfinans.onrender.com/:splat"
+  status = 302
+  force = true

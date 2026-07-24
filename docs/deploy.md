@@ -1,35 +1,30 @@
 # Modulfinans yayın
 
+## Canlı URL’ler
+
+- Uygulama (Render / asıl Streamlit): https://modulfinans.onrender.com
+- Netlify kapı (yönlendirir): https://modulfinans.netlify.app → Render
+- Custom domain: https://makro.modulcheck.com
+- Hedef domain: https://www.makro.modulcheck.com (DNS → Render)
+
 ## Mimari
 
-- **Uygulama:** Render Web Service (`modulfinans`) — Streamlit (`app.py`)
-- **Domain / DNS:** Netlify zone `modulcheck.com` → `www.makro.modulcheck.com` CNAME → Render
-- **Neon:** kullanılmıyor (state yerel JSON; çok kullanıcılı DB yok)
+- **Uygulama:** Render Web Service `modulfinans` — Streamlit (`app.py`)
+- **DNS:** Netlify zone `modulcheck.com` — CNAME → `modulfinans.onrender.com`
+- **Netlify proje:** [Modulfinans](https://app.netlify.com/projects/modulfinans) (placeholder + DNS yüzeyi)
+- **Neon:** kullanılmıyor
 
 ## Render
 
-Blueprint: depodaki [`render.yaml`](../render.yaml).
-
-Start:
+Blueprint: [`render.yaml`](../render.yaml)
 
 ```bash
 streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true
 ```
 
-Secret env (Render Dashboard → Environment): `GROQ_API_KEY`, `FRED_API_KEY`, `EVDS_API_KEY`, isteğe bağlı Telegram/WhatsApp.
+## DNS kayıtları
 
-## Netlify
-
-Proje: [Modulfinans](https://app.netlify.com/projects/modulfinans) — DNS yüzeyi; Streamlit Netlify’da çalışmaz.
-
-DNS (zone `modulcheck.com`):
-
-| Tip   | Host       | Değer                      |
-|-------|------------|----------------------------|
-| CNAME | `www.makro`| `<servis>.onrender.com`    |
-
-Custom domain Render tarafında da eklenir (SSL).
-
-## Yerel
-
-Masaüstü app `.streamlit/config.toml` ile `127.0.0.1:8502` kullanmaya devam eder; Render CLI flag’leri bunu override eder.
+| Tip   | Host        | Değer                       |
+|-------|-------------|-----------------------------|
+| CNAME | `makro`     | `modulfinans.onrender.com`  |
+| CNAME | `www.makro` | `modulfinans.onrender.com`  |
